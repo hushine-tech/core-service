@@ -1,0 +1,15 @@
+/logs
+/.run.pid
+/bin/
+/.build/
+/account-service
+/ensure-order-db
+config.local.yaml
+.pytest_cache/
+.claude/
+.cursor/
+.idea/
+.opencode/
+
+# Local process documents live outside the code repository.
+/openspec/

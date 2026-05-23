@@ -1,0 +1,83 @@
+server:
+  http_addr: ":8080"
+  grpc_addr: ":50051"
+
+database:
+  host: "192.168.88.10"
+  port: 5432
+  user: "postgres"
+  password: "postgres"
+  dbname: "account"
+  sslmode: "disable"
+
+order_database:
+  host: "192.168.88.10"
+  port: 5432
+  user: "postgres"
+  password: "postgres"
+  dbname: "order"
+  sslmode: "disable"
+
+exchange:
+  # Testnet rollout must use the real Binance adapter. Per-account
+  # api_key / api_secret is still read from the accounts table.
+  mock_binance: false
+  symbol_cache_ttl: "6h"
+  # Per-account api_key / api_secret is stored in the accounts table.
+  # There is no global/fallback Binance credential config — every
+  # exchange-backed account must carry its own credentials.
+
+  # Phase C shadow-compare / reconciliation (async, non-blocking).
+  # Enabled=false keeps Phase B behavior unchanged. Turn on in mode=2 testnet only.
+  # Calibration-phase defaults; thresholds re-tuned in Phase C3 based on diff distribution.
+  reconciliation:
+    enabled: true
+    goroutine_timeout_seconds: 5
+    order_fill_run_mode: "all"          # every OrderFill triggers compare; no sampling
+    periodic_sample_every_bars: 20       # fire every 20 bars …
+    periodic_sample_max_idle_seconds: 300 # … or every 5 min wall-clock, whichever first
+    thresholds:
+      # Hard tier
+      position_qty_step_tolerance: 0.5
+      entry_price_tick_tolerance: 1.0
+      entry_price_ratio_tolerance: 0.0002
+      # Soft — ledger-driven
+      wallet_balance_abs_tolerance_usdt: 0.01
+      wallet_balance_ratio_tolerance: 0.0002
+      # Soft — derived risk
+      derived_risk_abs_tolerance_usdt: 0.05
+      derived_risk_ratio_tolerance: 0.002
+      # Soft — liquidation (loosest)
+      liquidation_price_abs_tolerance_usdt: 0.05
+      liquidation_price_ratio_tolerance: 0.005
+      # Advisory (observability only)
+      mark_price_drift_tick_warn: 3.0
+
+notification:
+  enabled: true
+  kafka:
+    brokers: ["192.168.88.10:19092"]
+    topic: "notification.events"
+    group_id: "account-service-notification"
+  telegram:
+    enabled: true
+    bot_token: ""       # override with TELEGRAM_BOT_TOKEN
+    bot_username: ""    # override with TELEGRAM_BOT_USERNAME
+    bind_code_ttl_seconds: 600
+    poll_interval_seconds: 2
+  delivery:
+    send_timeout_seconds: 5
+
+log:
+  output_dir: "./logs"
+  local_file:
+    enabled: true
+  kafka:
+    enabled: true
+    brokers: ["192.168.88.10:19092"]
+    topic: "app-logs"
+    topic_prefix: "app-logs"
+  tracing:
+    enabled: true
+    endpoint: "http://192.168.88.10:4318"
+    service_name: "account-service"

@@ -1,0 +1,773 @@
+syntax = "proto3";
+
+package account.v1;
+option go_package = "github.com/hushine-tech/core-service/gen/accountv1;accountv1";
+
+import "google/protobuf/timestamp.proto";
+
+// Account registry RPCs for BFFs (e.g. quant-handler); wallet RPCs for strategy-service.
+service AccountService {
+  // Create a user account (internal auth store for quant-handler).
+  rpc CreateUser(CreateUserRequest) returns (CreateUserResponse);
+
+  // Verify a user's password and return the matching user metadata.
+  rpc VerifyUserPassword(VerifyUserPasswordRequest) returns (VerifyUserPasswordResponse);
+
+  // GetUser fetches user metadata by id. Used by control-panel-service to
+  // read users.plan_code during runtime quota / route resolution. Sensitive
+  // fields (password_hash) are never returned.
+  rpc GetUser(GetUserRequest) returns (GetUserResponse);
+
+  // Create a trading account (same rules as HTTP POST /accounts).
+  rpc CreateAccount(CreateAccountRequest) returns (CreateAccountResponse);
+
+  // List accounts; credentials are never returned.
+  rpc ListAccounts(ListAccountsRequest) returns (ListAccountsResponse);
+
+  // Get one account by id; credentials are never returned.
+  rpc GetAccount(GetAccountRequest) returns (GetAccountResponse);
+
+  // Latest wallet state: mode=0 reads DB; mode=1/2 fetches from Binance (live/testnet) per account registration.
+  rpc GetOnlineAccountInfo(GetOnlineAccountInfoRequest) returns (GetOnlineAccountInfoResponse);
+
+  // Bidirectional wallet sync. Routing uses only account_id: look up the account's registered
+  // mode (backtest vs live/testnet). strategy-service does not send a mode.
+  // Backtest: request wallet is authoritative — persisted and returned.
+  // Live/testnet: exchange is authoritative — request wallet is ignored for persistence; fetched state is stored and returned.
+  rpc UpdateAccountWalletState(UpdateAccountWalletStateRequest) returns (UpdateAccountWalletStateResponse);
+
+  // Cached tradable symbols for portal pickers (Binance public exchangeInfo). market: "spot" | "usdm_futures".
+  rpc ListSymbols(ListSymbolsRequest) returns (ListSymbolsResponse);
+
+  // Internal RPC: returns full account config including API credentials.
+  // Intended for the internal order module only; NOT exposed to BFFs/portals.
+  rpc GetAccountMeta(GetAccountMetaRequest) returns (GetAccountMetaResponse);
+
+  // ── 策略管理 ────────────────────────────────────────────────────────────────
+
+  // 创建策略（immutable，创建后不可修改）
+  rpc CreateStrategy(CreateStrategyRequest) returns (CreateStrategyResponse);
+
+  // 列出所有策略（可选按名称过滤）
+  rpc ListStrategies(ListStrategiesRequest) returns (ListStrategiesResponse);
+
+  // 获取单个策略（含 code）
+  rpc GetStrategy(GetStrategyRequest) returns (GetStrategyResponse);
+
+  // 归档策略（软删除，不可挂载已归档策略）
+  rpc ArchiveStrategy(ArchiveStrategyRequest) returns (ArchiveStrategyResponse);
+
+  // ── 帐号策略挂载管理 ──────────────────────────────────────────────────────
+
+  // 挂载策略到帐号
+  rpc MountStrategy(MountStrategyRequest) returns (MountStrategyResponse);
+
+  // 从帐号卸载策略
+  rpc UnmountStrategy(UnmountStrategyRequest) returns (UnmountStrategyResponse);
+
+  // 激活帐号上的某个已挂载策略（同时使其他策略变为非 active）
+  rpc ActivateStrategy(ActivateStrategyRequest) returns (ActivateStrategyResponse);
+
+  // 取消激活策略（不卸载，仅设为非 active）
+  rpc DeactivateStrategy(DeactivateStrategyRequest) returns (DeactivateStrategyResponse);
+
+  // 列出帐号上所有已挂载策略
+  rpc ListAccountStrategies(ListAccountStrategiesRequest) returns (ListAccountStrategiesResponse);
+
+  // 获取帐号当前 active 策略（strategy-service 调用）
+  rpc GetActiveStrategy(GetActiveStrategyRequest) returns (GetActiveStrategyResponse);
+
+  // ── 策略运行记录（Session）────────────────────────────────────────────────
+
+  // 保存新 session（strategy-service 调用）
+  rpc SaveSession(SaveSessionRequest) returns (SaveSessionResponse);
+
+  // 更新 session 状态（completed/stopped/failed/recoverable）
+  rpc UpdateSession(UpdateSessionRequest) returns (UpdateSessionResponse);
+
+  // 获取单个 session
+  rpc GetSession(GetSessionRequest) returns (GetSessionResponse);
+
+  // 列出帐号的所有 sessions
+  rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse);
+
+  // 列出所有 running sessions（用于服务重启恢复）
+  rpc ListRunningSessions(ListRunningSessionsRequest) returns (ListRunningSessionsResponse);
+
+  // 将指定 runtime 拥有的 active sessions 标记为 recoverable。
+  rpc MarkRuntimeSessionsRecoverable(MarkRuntimeSessionsRecoverableRequest) returns (MarkRuntimeSessionsRecoverableResponse);
+
+  // 列出 session 关联的快照
+  rpc ListSessionSnapshots(ListSessionSnapshotsRequest) returns (ListSessionSnapshotsResponse);
+
+  // 列出 session 关联的 reconciliation compare runs（Phase C / C3 审计入口）
+  rpc ListReconciliationRuns(ListReconciliationRunsRequest) returns (ListReconciliationRunsResponse);
+
+  // session 维度的 reconciliation 聚合（总数 / hard fail / soft fail）。
+  // SessionDetailPage 用它驱动顶部 tile，而不是依赖当前页计数。
+  rpc GetSessionReconciliationSummary(GetSessionReconciliationSummaryRequest) returns (GetSessionReconciliationSummaryResponse);
+
+  // ── 通知管理（Notification Management）────────────────────────────────────
+
+  // 获取当前用户通知偏好、plan 权限、Telegram 绑定状态和 bot 用户名。
+  rpc GetNotificationSettings(GetNotificationSettingsRequest) returns (GetNotificationSettingsResponse);
+
+  // 更新当前用户通知偏好。Plan 禁用的类别仍可存储偏好，但发送时 fail-closed。
+  rpc UpdateNotificationPreferences(UpdateNotificationPreferencesRequest) returns (UpdateNotificationPreferencesResponse);
+
+  // 创建一次性 Telegram 绑定码。明文 bind_code 只在本响应中返回一次。
+  rpc CreateNotificationBindCode(CreateNotificationBindCodeRequest) returns (CreateNotificationBindCodeResponse);
+
+  // 用户在 Telegram 发送绑定码后，页面调用该 RPC 刷新/确认绑定状态。
+  rpc ConfirmNotificationBinding(ConfirmNotificationBindingRequest) returns (ConfirmNotificationBindingResponse);
+
+  // 解绑当前用户的 Telegram 通知接收端。
+  rpc UnbindNotificationChannel(UnbindNotificationChannelRequest) returns (UnbindNotificationChannelResponse);
+
+  // 发送测试通知。用于验证当前 plan、偏好和 Telegram 绑定是否有效。
+  rpc SendTestNotification(SendTestNotificationRequest) returns (SendTestNotificationResponse);
+
+  // Phase D2 (2026-05-06): the demand-driven market-data control plane
+  // (CreateMarketDataRequest / CancelMarketDataRequest /
+  // ListMarketDataRequests / GetMarketDataStreamStatus /
+  // ListMarketDataStreams / ListMarketDataHistoryRequests /
+  // ReportMarketDataStreamState / ReportMarketDataHistoryRequestState /
+  // CreateOrRenewMarketDataLease / ReleaseMarketDataLease) was moved out
+  // of account-service into control-panel-service. The new home is
+  // `controlpanel.marketdata.v1.MarketDataControlPlaneService` —
+  // see `control-panel-service/proto/marketdata_service.proto`. Field
+  // numbers were preserved across the rename so wire-format diffs are
+  // minimal; callers were repointed in the same PR (scraper /
+  // quant-handler / strategy-service).
+}
+
+message User {
+  int64 id = 1;
+  string username = 2;
+  google.protobuf.Timestamp created_at = 3;
+  // plan_code maps to control-panel-service's runtime_plans config tier.
+  // Added with migration 0011_add_user_plan_code.sql (Phase D1).
+  string plan_code = 4;
+}
+
+message GetUserRequest {
+  int64 user_id = 1;
+}
+
+message GetUserResponse {
+  User user = 1;
+}
+
+message CreateUserRequest {
+  string username = 1;
+  string password = 2;
+}
+
+message CreateUserResponse {
+  User user = 1;
+}
+
+message VerifyUserPasswordRequest {
+  string username = 1;
+  string password = 2;
+}
+
+message VerifyUserPasswordResponse {
+  User user = 1;
+  bool valid = 2;
+}
+
+message ListAccountsRequest {
+  int64 user_id = 100;
+}
+
+message ListAccountsResponse {
+  repeated AccountRegistryEntry accounts = 1;
+}
+
+message GetAccountRequest {
+  int64 account_id = 1;
+  int64 user_id = 100;
+}
+
+message GetAccountResponse {
+  AccountRegistryEntry account = 1;
+}
+
+message CreateAccountRequest {
+  string name = 1;
+  int32 mode = 2;
+  string api_key = 3;
+  string api_secret = 4;
+  double initial_balance = 5;
+  string margin_mode = 6;      // default: "cross"
+  string position_mode = 7;    // default: "one_way"
+  double slippage_bps = 8;     // default: 0.0
+  double default_fee_rate = 9; // default: 0.0004
+  int64 user_id = 100;
+}
+
+message CreateAccountResponse {
+  int64 account_id = 1;
+  string name = 2;
+  int32 mode = 3;
+  google.protobuf.Timestamp created_at = 4;
+}
+
+// Account metadata without API credentials (safe for portal responses).
+message AccountRegistryEntry {
+  int64 account_id = 1;
+  string name = 2;
+  int32 mode = 3;
+  google.protobuf.Timestamp created_at = 4;
+  int64 user_id = 5;
+}
+
+message GetOnlineAccountInfoRequest {
+  int64 account_id = 1;
+  int64 user_id = 100;
+}
+
+message GetOnlineAccountInfoResponse {
+  AccountWalletState wallet = 1;
+}
+
+message UpdateAccountWalletStateRequest {
+  int64 account_id = 1;
+  reserved 2; // removed: mode was previously sent by clients; now derived server-side from account registry
+  FuturesWallet futures = 3;
+  SpotWallet spot = 4;
+  double total_value = 5;
+  double wallet_balance = 6;
+  double available_balance = 7;
+  // snapshot_reason > 0 时触发快照写入（0 = 不写快照）
+  // 1=order_fill, 2=strategy_start, 3=strategy_end, 4=reconciliation_local, 5=reconciliation_exchange, 6=periodic_sample
+  int32 snapshot_reason = 8;
+  // 审计追溯：触发此次钱包更新的策略 ID（0 = 无策略）
+  int64 strategy_id = 9;
+  // 关联的 session ID（空字符串 = 非 session 触发）
+  string session_id = 10;
+}
+
+message UpdateAccountWalletStateResponse {
+  AccountWalletState wallet = 1;
+}
+
+// Canonical wallet payload (aligned with strategy_service.wallet_factory / Account).
+message AccountWalletState {
+  FuturesWallet futures = 1;
+  SpotWallet spot = 2;
+  double total_value = 3;
+  // Server-side account mode (0=backtest, 1=live, 2=testnet). Informational; strategy-service may ignore.
+  int32 mode = 6;
+  google.protobuf.Timestamp updated_at = 7;
+  // Display aggregates: for Binance live/testnet, futures_position_equity matches futures.margin_balance
+  // and spot_estimated_value matches the exchange adapter spot sum so spot + futures ≈ total_value.
+  double spot_estimated_value = 8;
+  double futures_position_equity = 9;
+  bool metrics_authoritative = 10;
+}
+
+message FuturesWallet {
+  string margin_mode = 1;
+  string position_mode = 2;
+  double initial_balance = 3;
+  double deposit_sum = 4;
+  double withdrawal_sum = 5;
+  repeated FuturesPosition positions = 6;
+  double wallet_balance = 7;
+  double available_balance = 8;
+  double total_unrealized_pnl = 9;
+  // Phase A: Binance-standard account-level fields (additive, field #100+).
+  double total_margin_balance = 100;
+  double total_position_initial_margin = 101;
+  double total_open_order_initial_margin = 102;
+  double total_maint_margin = 103;
+  double total_cross_wallet_balance = 104;
+  double total_cross_un_pnl = 105;
+  repeated FuturesRiskMetadata risk_metadata = 106;
+  // Phase B canonical account-level aliases.
+  double margin_balance = 110;
+  double unrealized_pnl = 111;
+  bool multi_assets_mode = 112;
+  bool portfolio_margin = 113;
+  // Display-only exchange totals for multi-assets mode. These preserve Binance's
+  // account-level USD aggregates without changing the canonical main-asset
+  // wallet semantics used by strategy/runtime code.
+  double display_wallet_balance_usd = 114;
+  double display_margin_balance_usd = 115;
+  double display_unrealized_pnl_usd = 116;
+}
+
+message FuturesPosition {
+  string symbol = 1;
+  int32 direction = 2;
+  double initial_balance = 3;
+  double leverage = 4;
+  double fee_rate = 5;
+  double mark_price = 6;
+  double qty = 7;
+  double entry_price = 8;
+  double unrealized_pnl = 9;
+  string position_side = 10;
+  // Isolated-mode row estimate (IM + wallet shell + unrealized); unset for cross or when not computable.
+  optional double display_equity = 11;
+  // Phase A: Binance-standard position fields (additive, field #100+).
+  string margin_type = 100; // "cross" / "isolated"
+  double notional = 101;
+  double initial_margin = 102;
+  double position_initial_margin = 103;
+  double open_order_initial_margin = 104;
+  double maint_margin = 105;
+  double isolated_wallet = 106;
+  double liquidation_price = 107;
+  double break_even_price = 108;
+  // Phase B canonical aliases.
+  double position_qty = 109;
+  string margin_mode = 110;
+}
+
+message FuturesRiskMetadata {
+  string symbol = 1;
+  double configured_leverage = 2;
+  string configured_margin_mode = 3;
+  int32 price_precision = 4;
+  int32 quantity_precision = 5;
+  double tick_size = 6;
+  double step_size = 7;
+  repeated FuturesRiskBracket brackets = 8;
+}
+
+message FuturesRiskBracket {
+  int32 bracket = 1;
+  double notional_floor = 2;
+  double notional_cap = 3;
+  double initial_leverage = 4;
+  double maint_margin_ratio = 5;
+  double cumulative = 6;
+}
+
+message SpotWallet {
+  double free = 1;
+  double locked = 2;
+  repeated SpotAsset assets = 3;
+}
+
+message SpotAsset {
+  string symbol = 1;
+  double qty = 2;
+  double locked = 3;
+  double avg_entry_price = 4;
+  optional double price = 5;
+}
+
+message ListSymbolsRequest {
+  // "spot" — USDT spot pairs; "usdm_futures" — USDT-M perpetuals.
+  string market = 1;
+  string query = 2;
+  int32 limit = 3;
+}
+
+message ListSymbolsResponse {
+  repeated string symbols = 1;
+  // True when serving last good cache because refresh failed.
+  bool stale = 2;
+}
+
+message GetAccountMetaRequest {
+  int64 account_id = 1;
+}
+
+// Full account config returned to the internal order module (internal use only — contains API credentials).
+message GetAccountMetaResponse {
+  int64 account_id = 1;
+  int32 mode = 2;            // 0=backtest, 1=live, 2=testnet
+  string margin_mode = 3;    // "cross" / "isolated"
+  string position_mode = 4;  // "one_way" / "hedge"
+  string api_key = 5;
+  string api_secret = 6;
+  double default_fee_rate = 7;
+  double slippage_bps = 8;
+  int64 user_id = 9;
+}
+
+// ── 策略管理消息 ─────────────────────────────────────────────────────────────
+
+message StrategyEntry {
+  int64 strategy_id = 1;
+  string name = 2;
+  string version = 3;
+  string description = 4;
+  bool archived = 5;
+  google.protobuf.Timestamp created_at = 6;
+  // code 仅在 GetStrategy 响应中填充，列表接口不返回
+  string code = 7;
+  int64 user_id = 8;
+  string runtime_version = 9;
+  string runtime_profile = 10;
+}
+
+message CreateStrategyRequest {
+  string name = 1;
+  string version = 2;
+  string description = 3;
+  string code = 4;
+  string runtime_version = 5;
+  string runtime_profile = 6;
+  int64 user_id = 100;
+}
+
+message CreateStrategyResponse {
+  StrategyEntry strategy = 1;
+}
+
+message ListStrategiesRequest {
+  // 可选名称前缀过滤
+  string name_prefix = 1;
+  // true=只返回未归档，false/unset=全部
+  bool active_only = 2;
+  int64 user_id = 100;
+}
+
+message ListStrategiesResponse {
+  repeated StrategyEntry strategies = 1;
+}
+
+message GetStrategyRequest {
+  int64 strategy_id = 1;
+  int64 user_id = 100;
+}
+
+message GetStrategyResponse {
+  StrategyEntry strategy = 1;
+}
+
+message ArchiveStrategyRequest {
+  int64 strategy_id = 1;
+  int64 user_id = 100;
+}
+
+message ArchiveStrategyResponse {}
+
+message MountStrategyRequest {
+  int64 account_id = 1;
+  int64 strategy_id = 2;
+  int64 user_id = 100;
+}
+
+message MountStrategyResponse {}
+
+message UnmountStrategyRequest {
+  int64 account_id = 1;
+  int64 strategy_id = 2;
+  int64 user_id = 100;
+}
+
+message UnmountStrategyResponse {}
+
+message ActivateStrategyRequest {
+  int64 account_id = 1;
+  int64 strategy_id = 2;
+  int64 user_id = 100;
+}
+
+message ActivateStrategyResponse {}
+
+message DeactivateStrategyRequest {
+  int64 account_id = 1;
+  int64 strategy_id = 2;
+  int64 user_id = 100;
+}
+
+message DeactivateStrategyResponse {}
+
+message ListAccountStrategiesRequest {
+  int64 account_id = 1;
+  int64 user_id = 100;
+}
+
+message AccountStrategyEntry {
+  StrategyEntry strategy = 1;
+  bool active = 2;
+  google.protobuf.Timestamp mounted_at = 3;
+}
+
+message ListAccountStrategiesResponse {
+  repeated AccountStrategyEntry entries = 1;
+}
+
+message GetActiveStrategyRequest {
+  int64 account_id = 1;
+}
+
+message GetActiveStrategyResponse {
+  // strategy_id=0 表示无 active 策略
+  int64 strategy_id = 1;
+  string code = 2;
+  string name = 3;
+  string version = 4;
+  string runtime_version = 5;
+  string runtime_profile = 6;
+}
+
+// ── 策略运行记录（Session）消息 ──────────────────────────────────────────────
+
+message StrategySessionEntry {
+  string session_id = 1;
+  int64 account_id = 2;
+  int64 strategy_id = 3;
+  int32 mode = 4;
+  string status = 5;
+  string interval = 6;
+  int64 start_time_ms = 7;
+  int64 end_time_ms = 8;
+  int32 bars_processed = 9;
+  string error = 10;
+  google.protobuf.Timestamp started_at = 11;
+  google.protobuf.Timestamp completed_at = 12;
+  google.protobuf.Timestamp created_at = 13;
+  int64 user_id = 14;
+  string runtime_id = 15;
+  string runtime_source = 16;
+  string runtime_name = 17;
+  string session_type = 18;
+  string runtime_version = 19;
+  string session_name = 20;
+}
+
+message SaveSessionRequest {
+  string session_id = 1;
+  int64 account_id = 2;
+  int64 strategy_id = 3;
+  int32 mode = 4;
+  string interval = 5;
+  int64 start_time_ms = 6;
+  int64 end_time_ms = 7;
+  string runtime_id = 8;
+  string runtime_source = 9;
+  string runtime_name = 10;
+  string session_type = 11;
+  string runtime_version = 12;
+  string session_name = 13;
+  int64 user_id = 100;
+}
+
+message SaveSessionResponse {}
+
+message UpdateSessionRequest {
+  string session_id = 1;
+  string status = 2;           // running / stopping / recoverable / completed / stopped / failed / stop_failed
+  int32 bars_processed = 3;
+  string error = 4;
+  string runtime_id = 5;       // optional guard; when set, must match owning runtime
+}
+
+message UpdateSessionResponse {}
+
+message GetSessionRequest {
+  string session_id = 1;
+  int64 user_id = 100;
+}
+
+message GetSessionResponse {
+  StrategySessionEntry session = 1;
+}
+
+message ListSessionsRequest {
+  int64 account_id = 1;
+  int32 limit = 2;
+  int32 offset = 3;
+  int64 user_id = 100;
+}
+
+message ListSessionsResponse {
+  repeated StrategySessionEntry sessions = 1;
+}
+
+message ListRunningSessionsRequest {
+  string runtime_id = 1;       // optional filter; empty preserves legacy global listing
+}
+
+message ListRunningSessionsResponse {
+  repeated StrategySessionEntry sessions = 1;
+}
+
+message MarkRuntimeSessionsRecoverableRequest {
+  string runtime_id = 1;
+  string error = 2;
+}
+
+message MarkRuntimeSessionsRecoverableResponse {
+  int64 sessions_marked = 1;
+}
+
+message ListSessionSnapshotsRequest {
+  string session_id = 1;
+  int32 limit = 2;   // default 20, clamped to [1, 200] server-side
+  int32 offset = 3;  // default 0; offset-based paging on time DESC order
+  int64 user_id = 100;
+}
+
+message ListSessionSnapshotsResponse {
+  // Renamed from ``snapshots`` — see ``paginate-session-detail-lists``:
+  // every audit list on the account-service surface uses the same
+  // {items, next_offset, has_more, total} shape now.
+  repeated SnapshotEntry items = 1;
+  int32 next_offset = 2;
+  bool  has_more    = 3;
+  int64 total       = 4;
+}
+
+message SnapshotEntry {
+  google.protobuf.Timestamp time = 1;
+  int64 account_id = 2;
+  int32 snapshot_reason = 3;
+  double total_value = 4;
+  double wallet_balance = 5;
+  double available_balance = 6;
+  string futures_json = 7;
+  string spot_json = 8;
+  string session_id = 9;
+  int64 strategy_id = 10;
+}
+
+message ListReconciliationRunsRequest {
+  string session_id = 1;
+  int32 limit = 2;   // default 20, clamped to [1, 200] server-side
+  int32 offset = 3;  // default 0; offset-based paging on time DESC order
+  int64 user_id = 100;
+}
+
+message ListReconciliationRunsResponse {
+  // Renamed from ``runs`` — see ``paginate-session-detail-lists``.
+  repeated ReconciliationRunEntry items = 1;
+  int32 next_offset = 2;
+  bool  has_more    = 3;
+  int64 total       = 4;
+}
+
+message GetSessionReconciliationSummaryRequest {
+  string session_id = 1;
+  int64  user_id    = 100;
+}
+
+message GetSessionReconciliationSummaryResponse {
+  int64 total_runs      = 1;
+  int64 hard_fail_runs  = 2;
+  int64 soft_fail_runs  = 3;
+}
+
+message ReconciliationRunEntry {
+  google.protobuf.Timestamp time = 1;
+  string run_id = 2;
+  int64 account_id = 3;
+  int64 strategy_id = 4;
+  string session_id = 5;
+  int32 snapshot_reason = 6;
+  string run_type = 7;
+  int32 mode = 8;
+  bool hard_pass = 9;
+  bool soft_pass = 10;
+  repeated FieldDiffEntry field_diffs = 11;
+  repeated FieldDiffEntry advisory_diffs = 12;
+  string local_snapshot_json = 13;
+  string exchange_snapshot_json = 14;
+}
+
+message FieldDiffEntry {
+  string field = 1;
+  string severity = 2;
+  double exchange = 3;
+  double local = 4;
+  double diff_abs = 5;
+  double diff_ratio = 6;
+  string threshold_json = 7;
+  bool passed = 8;
+}
+
+// ── 通知管理（Notification Management）消息 ────────────────────────────────
+
+message NotificationPlan {
+  string plan_code = 1;
+  bool notification_enabled = 2;
+  bool allow_system = 3;
+  bool allow_strategy = 4;
+  bool allow_custom = 5;
+  int32 custom_rate_limit_per_minute = 6;
+  int32 custom_rate_limit_burst = 7;
+}
+
+message NotificationPreferences {
+  bool system_enabled = 1;
+  bool strategy_enabled = 2;
+  bool custom_enabled = 3;
+}
+
+message NotificationChannel {
+  string channel = 1;                // currently "telegram"
+  string status = 2;                 // unbound / pending / bound / revoked
+  string provider_username = 3;
+  string provider_display_name = 4;
+  google.protobuf.Timestamp bound_at = 5;
+  google.protobuf.Timestamp last_delivery_at = 6;
+  string last_delivery_status = 7;   // ok / failed / unbound / disabled / plan_disabled / rate_limited / invalid_event
+  string last_delivery_error = 8;
+}
+
+message GetNotificationSettingsRequest {
+  int64 user_id = 1;
+}
+
+message GetNotificationSettingsResponse {
+  NotificationPreferences preferences = 1;
+  NotificationPlan plan = 2;
+  NotificationChannel telegram = 3;
+  string bot_username = 4;
+}
+
+message UpdateNotificationPreferencesRequest {
+  int64 user_id = 1;
+  NotificationPreferences preferences = 2;
+}
+
+message UpdateNotificationPreferencesResponse {
+  GetNotificationSettingsResponse settings = 1;
+}
+
+message CreateNotificationBindCodeRequest {
+  int64 user_id = 1;
+  string channel = 2; // currently "telegram"; empty defaults to telegram
+}
+
+message CreateNotificationBindCodeResponse {
+  string bind_code = 1;
+  google.protobuf.Timestamp expires_at = 2;
+  string bot_username = 3;
+}
+
+message ConfirmNotificationBindingRequest {
+  int64 user_id = 1;
+  string channel = 2; // currently "telegram"; empty defaults to telegram
+}
+
+message ConfirmNotificationBindingResponse {
+  GetNotificationSettingsResponse settings = 1;
+}
+
+message UnbindNotificationChannelRequest {
+  int64 user_id = 1;
+  string channel = 2; // currently "telegram"; empty defaults to telegram
+}
+
+message UnbindNotificationChannelResponse {
+  GetNotificationSettingsResponse settings = 1;
+}
+
+message SendTestNotificationRequest {
+  int64 user_id = 1;
+}
+
+message SendTestNotificationResponse {
+  bool accepted = 1;
+  GetNotificationSettingsResponse settings = 2;
+}

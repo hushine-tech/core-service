@@ -1,0 +1,107 @@
+package repository
+
+import (
+	"context"
+	"errors"
+	"time"
+)
+
+var ErrNotFound = errors.New("not found")
+
+type OrderIntent struct {
+	IntentID       string
+	Time           time.Time
+	AccountID      int64
+	UserID         int64
+	StrategyID     int64
+	SessionID      string
+	Market         string
+	Symbol         string
+	Side           string
+	RequestedQty   float64
+	RequestedPrice float64
+}
+
+type OrderAttempt struct {
+	AttemptID       string
+	IntentID        string
+	Time            time.Time
+	AccountID       int64
+	UserID          int64
+	StrategyID      int64
+	SessionID       string
+	Market          string
+	Symbol          string
+	Side            string
+	RequestedQty    float64
+	RequestedPrice  float64
+	MarkPrice       float64
+	Status          string // "PENDING" / "FAILED" / "ACCEPTED" / "UNKNOWN" / ...
+	ErrorMessage    string
+	ClientOrderID   string
+	RecoveryError   string
+	OrderID         string
+	ExchangeOrderID string
+	Mode            int32
+}
+
+type Order struct {
+	OrderID         string
+	ExchangeOrderID string
+	ClientOrderID   string
+	AttemptID       string
+	IntentID        string
+	Time            time.Time
+	AccountID       int64
+	UserID          int64
+	StrategyID      int64
+	SessionID       string
+	Market          string
+	Symbol          string
+	Side            string
+	OrigQty         float64
+	ExecutedQty     float64
+	RemainingQty    float64
+	AvgPrice        float64
+	Price           float64
+	Status          string
+	ErrorMessage    string
+	Mode            int32
+}
+
+type OrderFill struct {
+	FillID          string
+	ExchangeTradeID string
+	OrderID         string
+	ExchangeOrderID string
+	AttemptID       string
+	IntentID        string
+	Time            time.Time
+	AccountID       int64
+	UserID          int64
+	Symbol          string
+	Side            string
+	Qty             float64
+	FillPrice       float64
+	Fee             float64
+	Status          string
+	Mode            int32
+	StrategyID      int64
+	Market          string
+	SessionID       string
+}
+
+// Repository is the data access interface for the order domain.
+type Repository interface {
+	UpsertOrderIntent(ctx context.Context, intent OrderIntent) error
+	CreateOrderAttempt(ctx context.Context, attempt OrderAttempt) error
+	FinalizeOrderAttempt(ctx context.Context, attempt OrderAttempt, order *Order, fills []OrderFill) error
+	FindOrderAttempt(ctx context.Context, userID, accountID int64, intentID, attemptID, clientOrderID string) (OrderAttempt, error)
+	FindOrderByAttempt(ctx context.Context, attemptID string) (Order, error)
+	ListOrderFillsByAttempt(ctx context.Context, attemptID string) ([]OrderFill, error)
+	QueryOrderIntentsPaginated(ctx context.Context, userID, accountID, strategyID int64, sessionID string, limit, offset int) ([]OrderIntent, int64, error)
+	// Ancestor IDs are optional; pass "" to skip.
+	QueryOrderAttemptsPaginated(ctx context.Context, userID, accountID, strategyID int64, sessionID, intentID string, limit, offset int) ([]OrderAttempt, int64, error)
+	QueryOrdersPaginated(ctx context.Context, userID, accountID, strategyID int64, sessionID, intentID, attemptID string, limit, offset int) ([]Order, int64, error)
+	QueryOrderFillsPaginated(ctx context.Context, userID, accountID, strategyID int64, sessionID, intentID, attemptID, orderID string, limit, offset int) ([]OrderFill, int64, error)
+}

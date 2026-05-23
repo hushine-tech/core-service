@@ -1,0 +1,209 @@
+syntax = "proto3";
+
+package order.v1;
+option go_package = "github.com/hushine-tech/core-service/gen/orderv1;orderv1";
+
+import "google/protobuf/timestamp.proto";
+
+service OrderService {
+  // PlaceOrder routes to mock (backtest) or exchange (live/testnet) based on
+  // account mode. The response distinguishes attempt, order, and fill layers.
+  rpc PlaceOrder(PlaceOrderRequest) returns (PlaceOrderResponse);
+
+  // Intents are the strategy-level "we want to place this" rows; they are the
+  // top tier of the four-layer audit hierarchy (intent → attempt → order → fill).
+  rpc QueryOrderIntents(QueryOrderIntentsRequest) returns (QueryOrderIntentsResponse);
+
+  // Attempts are audit rows for "we tried to place something".
+  rpc QueryOrderAttempts(QueryOrderAttemptsRequest) returns (QueryOrderAttemptsResponse);
+
+  // Orders are exchange-accepted orders, whether or not they have fills yet.
+  rpc QueryOrders(QueryOrdersRequest) returns (QueryOrdersResponse);
+
+  // Fills are actual execution deltas only.
+  rpc QueryOrderFills(QueryOrderFillsRequest) returns (QueryOrderFillsResponse);
+
+  // Resolve an unknown / recovering attempt by intent or attempt id.
+  rpc ResolveOrderAttempt(ResolveOrderAttemptRequest) returns (ResolveOrderAttemptResponse);
+}
+
+message PlaceOrderRequest {
+  int64 account_id = 1;
+  string symbol = 2;
+  string side = 3;           // "BUY" / "SELL" or strategy "LONG" / "SHORT"
+  double qty = 4;
+  optional double price = 5; // limit price; omit for market order
+  double mark_price = 6;     // current mark price (used for mock fill calculation)
+  int64 strategy_id = 7;     // 0 = no strategy (manual order)
+  string market = 8;         // "futures" | "spot"; empty = "futures"
+  string session_id = 9;     // 关联 session（空 = 非 session 触发）
+  string intent_id = 10;     // 可选；空时由服务端生成
+}
+
+message PlaceOrderResponse {
+  string intent_id = 1;
+  string attempt_id = 2;
+  string attempt_status = 3;   // "FAILED" | "ACCEPTED"
+  string error_message = 4;
+  ExchangeOrderEntry order = 5;
+  repeated OrderFillEntry fill_deltas = 6;
+  string client_order_id = 7;
+}
+
+message ResolveOrderAttemptRequest {
+  int64 account_id = 1;
+  string intent_id = 2;
+  string attempt_id = 3;
+  string client_order_id = 4;
+}
+
+message ResolveOrderAttemptResponse {
+  string intent_id = 1;
+  string attempt_id = 2;
+  string attempt_status = 3;
+  string error_message = 4;
+  ExchangeOrderEntry order = 5;
+  repeated OrderFillEntry fill_deltas = 6;
+  string client_order_id = 7;
+}
+
+message QueryOrderIntentsRequest {
+  int64 account_id = 1;       // 可选: 0 且 session_id 为空时表示 "user_id 下全部账号"
+  int64 strategy_id = 2;      // 可选，0 = 不过滤
+  int32 limit = 3;            // 默认 100
+  string session_id = 4;      // 可选，非空时按 session_id 过滤
+  int32 offset = 5;           // 可选，默认 0
+  int64 user_id = 100;
+}
+
+message QueryOrderIntentsResponse {
+  repeated OrderIntentEntry intents = 1;
+  int64 total = 2;
+}
+
+message OrderIntentEntry {
+  google.protobuf.Timestamp time = 1;
+  string intent_id = 2;
+  int64 account_id = 3;
+  string symbol = 4;
+  string side = 5;
+  double requested_qty = 6;
+  double requested_price = 7;
+  int64 strategy_id = 8;
+  string market = 9;
+  string session_id = 10;
+}
+
+message QueryOrderAttemptsRequest {
+  int64 account_id = 1;       // 可选: 0 且 session_id 为空时表示 "user_id 下全部账号"
+  int64 strategy_id = 2;      // 可选，0 = 不过滤
+  int32 limit = 3;            // 默认 100
+  string session_id = 4;      // 可选，非空时按 session_id 过滤
+  int32 offset = 5;           // 可选，默认 0
+  string intent_id = 6;       // 可选，非空时只返回属于该 intent 的 attempts
+  int64 user_id = 100;
+}
+
+message QueryOrderAttemptsResponse {
+  repeated OrderAttemptEntry attempts = 1;
+  int64 total = 2;
+}
+
+message QueryOrdersRequest {
+  int64 account_id = 1;
+  int64 strategy_id = 2;
+  int32 limit = 3;
+  string session_id = 4;
+  int32 offset = 5;
+  string intent_id = 6;       // 可选；非空时只返回该 intent 下的 orders
+  string attempt_id = 7;      // 可选；非空时只返回该 attempt 下的 order（schema 上至多 1 条）
+  int64 user_id = 100;
+}
+
+message QueryOrdersResponse {
+  repeated ExchangeOrderEntry orders = 1;
+  int64 total = 2;
+}
+
+message QueryOrderFillsRequest {
+  int64 account_id = 1;
+  int64 strategy_id = 2;
+  int32 limit = 3;
+  string session_id = 4;
+  int32 offset = 5;
+  string intent_id = 6;       // 可选；非空时只返回该 intent 下的 fills
+  string attempt_id = 7;      // 可选；非空时只返回该 attempt 下的 fills
+  string order_id = 8;        // 可选；非空时只返回该 order 下的 fills
+  int64 user_id = 100;
+}
+
+message QueryOrderFillsResponse {
+  repeated OrderFillEntry fills = 1;
+  int64 total = 2;
+}
+
+message OrderAttemptEntry {
+  google.protobuf.Timestamp time = 1;
+  string attempt_id = 2;
+  string intent_id = 3;
+  string order_id = 4;
+  string exchange_order_id = 5;
+  int64 account_id = 6;
+  string symbol = 7;
+  string side = 8;
+  double requested_qty = 9;
+  double requested_price = 10;
+  double mark_price = 11;
+  string status = 12;
+  int32 mode = 13;
+  string error_message = 14;
+  int64 strategy_id = 15;
+  string market = 16;
+  string session_id = 17;
+  string client_order_id = 18;
+  string recovery_error = 19;
+}
+
+message ExchangeOrderEntry {
+  google.protobuf.Timestamp time = 1;
+  string order_id = 2;
+  string exchange_order_id = 3;
+  string client_order_id = 20;
+  string attempt_id = 4;
+  string intent_id = 5;
+  int64 account_id = 6;
+  string symbol = 7;
+  string side = 8;
+  double orig_qty = 9;
+  double executed_qty = 10;
+  double remaining_qty = 11;
+  double avg_price = 12;
+  string status = 13;
+  int32 mode = 14;
+  string error_message = 15;
+  int64 strategy_id = 16;
+  string market = 17;
+  string session_id = 18;
+  double price = 19;
+}
+
+message OrderFillEntry {
+  google.protobuf.Timestamp time = 1;
+  string fill_id = 2;
+  string exchange_trade_id = 3;
+  string order_id = 4;
+  string exchange_order_id = 5;
+  string attempt_id = 6;
+  string intent_id = 7;
+  int64 account_id = 8;
+  string symbol = 9;
+  string side = 10;
+  double qty = 11;
+  double fill_price = 12;
+  double fee = 13;
+  string status = 14;
+  int32 mode = 15;
+  int64 strategy_id = 16;
+  string market = 17;
+  string session_id = 18;
+}

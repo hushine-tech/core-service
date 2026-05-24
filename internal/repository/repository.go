@@ -36,7 +36,7 @@ type SessionListFilter struct {
 	Offset            int
 }
 
-// Repository is the unified data access interface for account-service.
+// Repository is the unified data access interface for core-service.
 type Repository interface {
 	// User management
 	CreateUser(ctx context.Context, user domain.User) (domain.User, error)
@@ -116,7 +116,7 @@ type Repository interface {
 
 	// Phase D2 (2026-05-06): the demand-driven market-data control plane
 	// (requests / streams / leases / history requests) moved out of
-	// account-service into control-panel-service. See
+	// core-service into control-panel-service. See
 	// `control-panel-service/internal/marketdata/repository/` for the
 	// new owner of these methods.
 }

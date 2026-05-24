@@ -7,7 +7,7 @@ import (
 	"github.com/hushine-tech/core-service/internal/order/accountmeta"
 )
 
-// Account mode constants mirror account-service definitions.
+// Account mode constants mirror core-service definitions.
 // Defined locally to avoid a circular import dependency.
 const (
 	modeBacktest = 0

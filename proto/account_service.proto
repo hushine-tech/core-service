@@ -133,7 +133,7 @@ service AccountService {
   // ListMarketDataStreams / ListMarketDataHistoryRequests /
   // ReportMarketDataStreamState / ReportMarketDataHistoryRequestState /
   // CreateOrRenewMarketDataLease / ReleaseMarketDataLease) was moved out
-  // of account-service into control-panel-service. The new home is
+  // of core-service into control-panel-service. The new home is
   // `controlpanel.marketdata.v1.MarketDataControlPlaneService` —
   // see `control-panel-service/proto/marketdata_service.proto`. Field
   // numbers were preserved across the rename so wire-format diffs are
@@ -632,7 +632,7 @@ message ListSessionSnapshotsRequest {
 
 message ListSessionSnapshotsResponse {
   // Renamed from ``snapshots`` — see ``paginate-session-detail-lists``:
-  // every audit list on the account-service surface uses the same
+  // every audit list on the core-service surface uses the same
   // {items, next_offset, has_more, total} shape now.
   repeated SnapshotEntry items = 1;
   int32 next_offset = 2;

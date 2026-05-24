@@ -21,7 +21,7 @@ func TestResolveMigrationsDirUsesOrderModulePath(t *testing.T) {
 		}
 	}()
 	if err := os.Chdir("../../.."); err != nil {
-		t.Fatalf("chdir account-service root: %v", err)
+		t.Fatalf("chdir core-service root: %v", err)
 	}
 
 	got, err := resolveMigrationsDir()

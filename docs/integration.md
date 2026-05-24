@@ -16,9 +16,9 @@ Downstream services (including `strategy-service`) must migrate to the two-RPC m
 `strategy-service` should use the **same integration code** for backtest, live, and testnet:
 
 - Pass only **`account_id`** (plus wallet payload on update).
-- **Do not** send or branch on trading mode in gRPC requests. Whether an account is backtest or exchange-backed is determined **only** by how the account was **registered** in `account-service` (e.g. HTTP `POST /accounts` with `mode` when the account is created).
+- **Do not** send or branch on trading mode in gRPC requests. Whether an account is backtest or exchange-backed is determined **only** by how the account was **registered** in `core-service` (e.g. HTTP `POST /accounts` with `mode` when the account is created).
 
-`account-service` loads `accounts.mode` from storage and routes internally:
+`core-service` loads `accounts.mode` from storage and routes internally:
 
 | Stored `mode` | `GetOnlineAccountInfo` | `UpdateAccountWalletState` |
 |---------------|------------------------|----------------------------|
@@ -79,6 +79,6 @@ Responses include `wallet.mode` as **informational** (ops, logging). **`strategy
 
 - **Database bootstrap:** `make ensure-db` (or `go run ./cmd/ensure-account-db`) creates database **`account`** if needed and applies `internal/storage/migrations/*.sql`. Env: `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD` (defaults match local dev).
 - **Database:** Use `TIMESCALEDB_DSN` pointing at that database for the service and tests.
-- **Mock exchange (no real Binance):** start `account-service` with `MOCK_BINANCE=1`. Live/testnet accounts then use `internal/exchange.MockOnlineInfoFetcher` instead of REST calls.
+- **Mock exchange (no real Binance):** start `core-service` with `MOCK_BINANCE=1`. Live/testnet accounts then use `internal/exchange.MockOnlineInfoFetcher` instead of REST calls.
 - **Go integration test:** `go test -tags=integration -v ./tests/integration/...` — creates accounts via HTTP handler (same JSON as `curl`), then calls both gRPC RPCs with an in-process gRPC server and mock fetcher. Skips if DSN is unreachable.
 - **Shell e2e:** `bash scripts/integration_e2e.sh` or `make e2e` — builds the binary, starts the server with `MOCK_BINANCE=1`, uses **curl** to `POST /accounts` (backtest with `initial_balance` + live `mode=1`), then runs `go run ./cmd/integration-grpc-client` for `backtest` and `live` scenarios.

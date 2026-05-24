@@ -58,7 +58,7 @@ notification:
   kafka:
     brokers: ["192.168.88.10:19092"]
     topic: "notification.events"
-    group_id: "account-service-notification"
+    group_id: "core-service-notification"
   telegram:
     enabled: true
     bot_token: ""       # override with TELEGRAM_BOT_TOKEN
@@ -80,4 +80,4 @@ log:
   tracing:
     enabled: true
     endpoint: "http://192.168.88.10:4318"
-    service_name: "account-service"
+    service_name: "core-service"

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# End-to-end: TimescaleDB + account-service (HTTP + gRPC) with MOCK_BINANCE for live.
+# End-to-end: TimescaleDB + core-service (HTTP + gRPC) with MOCK_BINANCE for live.
 #
 # Prerequisites: Go 1.22+, TimescaleDB reachable, Python 3 (for JSON) or jq.
 #
@@ -37,8 +37,8 @@ LV_NAME="e2e-lv-${STAMP}"
 USERNAME="e2e-user-${STAMP}"
 PASSWORD="integration-pass-${STAMP}"
 
-BIN="${ROOT}/.build/account-service-e2e"
-go build -o "$BIN" ./cmd/account-service
+BIN="${ROOT}/.build/core-service-e2e"
+go build -o "$BIN" ./cmd/core-service
 
 "$BIN" &
 PID=$!

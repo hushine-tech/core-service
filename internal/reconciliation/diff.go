@@ -35,7 +35,7 @@ type CompareResult struct {
 }
 
 // Compare runs the Phase C field-tier compare between two canonical wallet
-// snapshots. Both MUST be in canonical shape (account-service already
+// snapshots. Both MUST be in canonical shape (core-service already
 // standardizes Binance responses, and strategy-service sends canonical).
 //
 // All run types (checkpoint / event / sampled) produce the same compare

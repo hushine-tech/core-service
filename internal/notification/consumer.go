@@ -16,7 +16,7 @@ func RunKafkaConsumer(ctx context.Context, brokers []string, groupID string, top
 		return errors.New("notification kafka brokers are required")
 	}
 	if groupID == "" {
-		groupID = "account-service-notification"
+		groupID = "core-service-notification"
 	}
 	if topic == "" {
 		topic = "notification.events"

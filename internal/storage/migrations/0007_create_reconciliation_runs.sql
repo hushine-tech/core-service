@@ -1,5 +1,5 @@
 -- Phase C shadow-compare / reconciliation runs table.
--- Written by account-service's reconciliation goroutine; one row per compare
+-- Written by core-service's reconciliation goroutine; one row per compare
 -- run (pass or fail) for audit + distribution analysis.
 -- Both snapshots stored in canonical JSON form so future providers (OKX, …)
 -- can reuse the same compare table without provider-specific schema.

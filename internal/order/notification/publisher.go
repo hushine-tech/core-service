@@ -32,7 +32,7 @@ func NewKafkaPublisher(brokers []string, topic string, clientID string) (*KafkaP
 	if err != nil {
 		return nil, err
 	}
-	return NewKafkaPublisherWithProducer(producer, topic, "account-service-order"), nil
+	return NewKafkaPublisherWithProducer(producer, topic, "core-service-order"), nil
 }
 
 func NewKafkaPublisherWithProducer(producer Producer, topic string, sourceService string) *KafkaPublisher {
@@ -40,7 +40,7 @@ func NewKafkaPublisherWithProducer(producer Producer, topic string, sourceServic
 		topic = "notification.events"
 	}
 	if sourceService == "" {
-		sourceService = "account-service-order"
+		sourceService = "core-service-order"
 	}
 	return &KafkaPublisher{
 		producer:      producer,

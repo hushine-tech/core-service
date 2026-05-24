@@ -1,4 +1,4 @@
-// Command integration-grpc-client calls GetOnlineAccountInfo and UpdateAccountWalletState against a running account-service.
+// Command integration-grpc-client calls GetOnlineAccountInfo and UpdateAccountWalletState against a running core-service.
 //
 // Usage:
 //

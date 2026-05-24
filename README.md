@@ -1,6 +1,6 @@
-# account-service
+# core-service
 
-gRPC account service for `strategy-service` startup wallet snapshots and live synchronization.
+Core gRPC service for users, accounts, wallet snapshots, orders, sessions, reconciliation, and notification delivery.
 
 **Registry RPCs** (for BFFs such as `quant-handler`): `CreateAccount`, `ListAccounts`, and `GetAccount` expose the same persistence rules as HTTP `/accounts` but **never return** API credentials in responses.
 

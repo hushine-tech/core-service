@@ -1,6 +1,6 @@
--- account-service consolidated schema snapshot
+-- core-service consolidated schema snapshot
 -- ------------------------------------------------------------
--- Mirrors the current end state after applying account-service
+-- Mirrors the current end state after applying core-service
 -- internal/storage/migrations/*.sql through:
 --   0000_create_schema_migrations.sql
 --   0012_drop_market_data_control_plane.sql
@@ -200,7 +200,7 @@ CREATE INDEX IF NOT EXISTS idx_reconciliation_runs_hard_fail
     WHERE NOT hard_pass;
 
 -- Phase D2 moved the market-data control plane to control-panel-service.
--- account-service migration 0012 drops:
+-- core-service migration 0012 drops:
 --   market_data_streams
 --   market_data_requests
 --   market_data_leases

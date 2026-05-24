@@ -68,7 +68,7 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	logger.Info(ctx, "system", "account-service starting")
+	logger.Info(ctx, "system", "core-service starting")
 
 	// ── TimescaleDB ───────────────────────────────────────────────────────────
 	repo, err := repository.NewTimescaleRepository(cfg.Database.DSN(), logger.Instance())
@@ -159,7 +159,7 @@ func main() {
 	var orderPublisher ordernotify.Publisher = ordernotify.NoopPublisher{}
 	var orderPublisherCloser interface{ Close() error }
 	if cfg.Notification.Enabled {
-		publisher, err := ordernotify.NewKafkaPublisher(cfg.Notification.Kafka.Brokers, cfg.Notification.Kafka.Topic, "account-service-order-notification")
+		publisher, err := ordernotify.NewKafkaPublisher(cfg.Notification.Kafka.Brokers, cfg.Notification.Kafka.Topic, "core-service-order-notification")
 		if err != nil {
 			logger.Warn(ctx, "system", fmt.Sprintf("order notification kafka publisher disabled: %v", err))
 		} else {
@@ -241,5 +241,5 @@ func main() {
 		<-grpcStopped
 	}
 
-	logger.Info(context.Background(), "system", "account-service stopped")
+	logger.Info(context.Background(), "system", "core-service stopped")
 }

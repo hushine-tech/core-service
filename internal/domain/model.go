@@ -276,7 +276,7 @@ type FieldDiff struct {
 }
 
 // ReconciliationRun is one compare execution — Phase C shadow-compare record.
-// Written by account-service's reconciliation goroutine (never by main flow).
+// Written by core-service's reconciliation goroutine (never by main flow).
 type ReconciliationRun struct {
 	Time             time.Time
 	RunID            string
@@ -321,5 +321,5 @@ func RunTypeFromReason(reason SnapshotReason) ReconciliationRunType {
 // MarketDataRequestStatus / MarketDataRequestScope /
 // MarketDataHistoryRequestStatus enum families) moved to
 // `control-panel-service/internal/domain/marketdata.go` along with the
-// proto / repository / service. account-service no longer references
+// proto / repository / service. core-service no longer references
 // any of them.

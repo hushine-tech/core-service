@@ -69,7 +69,7 @@ type ExchangeConfig struct {
 }
 
 // ReconciliationConfig drives Phase C shadow-compare behavior.
-// When Enabled is true, account-service runs an async compare in a detached
+// When Enabled is true, core-service runs an async compare in a detached
 // goroutine after every mode=1/2 UpdateAccountWalletState; it writes to the
 // reconciliation_runs table and emits metric log events through the existing
 // ELK pipeline. Main request path is unaffected.
@@ -149,7 +149,7 @@ func (r ReconciliationConfig) GoroutineTimeout() time.Duration {
 func Default() *Config {
 	logCfg := elog.DefaultConfig()
 	logCfg.OutputDir = "./logs"
-	logCfg.Tracing.ServiceName = "account-service"
+	logCfg.Tracing.ServiceName = "core-service"
 	if logCfg.Kafka.Topic == "" {
 		logCfg.Kafka.Topic = "app-logs"
 	}
@@ -187,7 +187,7 @@ func Default() *Config {
 			Kafka: NotificationKafkaConfig{
 				Brokers: []string{"192.168.88.10:19092"},
 				Topic:   "notification.events",
-				GroupID: "account-service-notification",
+				GroupID: "core-service-notification",
 			},
 			Telegram: NotificationTelegramConfig{
 				Enabled:             false,

@@ -87,6 +87,7 @@ func (h *Handler) handleAccountByID(w http.ResponseWriter, r *http.Request) {
 type createAccountRequest struct {
 	UserID         int64   `json:"user_id"`
 	Name           string  `json:"name"`
+	Description    string  `json:"description"`
 	Mode           int     `json:"mode"`
 	APIKey         string  `json:"api_key"`
 	APISecret      string  `json:"api_secret"`
@@ -126,7 +127,8 @@ func (h *Handler) createAccount(w http.ResponseWriter, r *http.Request) {
 	}
 	account := domain.Account{
 		UserID:         req.UserID,
-		Name:           req.Name,
+		Name:           strings.TrimSpace(req.Name),
+		Description:    strings.TrimSpace(req.Description),
 		Mode:           domain.AccountMode(req.Mode),
 		APIKey:         req.APIKey,
 		APISecret:      req.APISecret,
@@ -182,11 +184,12 @@ func (h *Handler) createAccount(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusCreated, map[string]any{
-		"account_id": newID,
-		"user_id":    account.UserID,
-		"name":       account.Name,
-		"mode":       int(account.Mode),
-		"created_at": account.CreatedAt,
+		"account_id":  newID,
+		"user_id":     account.UserID,
+		"name":        account.Name,
+		"description": account.Description,
+		"mode":        int(account.Mode),
+		"created_at":  account.CreatedAt,
 	})
 }
 

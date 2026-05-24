@@ -431,6 +431,7 @@ func (s *AccountGRPCService) CreateAccount(ctx context.Context, req *accountv1.C
 	account := domain.Account{
 		UserID:         req.GetUserId(),
 		Name:           name,
+		Description:    strings.TrimSpace(req.GetDescription()),
 		Mode:           domain.AccountMode(req.GetMode()),
 		APIKey:         req.GetApiKey(),
 		APISecret:      req.GetApiSecret(),
@@ -482,10 +483,11 @@ func (s *AccountGRPCService) CreateAccount(ctx context.Context, req *accountv1.C
 	}
 
 	return &accountv1.CreateAccountResponse{
-		AccountId: newID,
-		Name:      account.Name,
-		Mode:      int32(account.Mode),
-		CreatedAt: timestamppb.New(account.CreatedAt),
+		AccountId:   newID,
+		Name:        account.Name,
+		Mode:        int32(account.Mode),
+		CreatedAt:   timestamppb.New(account.CreatedAt),
+		Description: account.Description,
 	}, nil
 }
 
@@ -493,6 +495,17 @@ func (s *AccountGRPCService) CreateAccount(ctx context.Context, req *accountv1.C
 func (s *AccountGRPCService) ListAccounts(ctx context.Context, req *accountv1.ListAccountsRequest) (*accountv1.ListAccountsResponse, error) {
 	if err := requireUserID(req.GetUserId()); err != nil {
 		return nil, err
+	}
+	if req.GetLimit() > 0 || req.GetOffset() > 0 {
+		accounts, meta, err := s.repo.ListAccountsPage(ctx, req.GetUserId(), int(req.GetLimit()), int(req.GetOffset()))
+		if err != nil {
+			return nil, status.Errorf(codes.Unavailable, "list accounts: %v", err)
+		}
+		out := make([]*accountv1.AccountRegistryEntry, 0, len(accounts))
+		for _, a := range accounts {
+			out = append(out, toProtoRegistryEntry(a))
+		}
+		return &accountv1.ListAccountsResponse{Accounts: out, HasMore: meta.HasMore, Total: meta.Total}, nil
 	}
 	accounts, err := s.repo.ListAccounts(ctx, req.GetUserId())
 	if err != nil {
@@ -502,7 +515,7 @@ func (s *AccountGRPCService) ListAccounts(ctx context.Context, req *accountv1.Li
 	for _, a := range accounts {
 		out = append(out, toProtoRegistryEntry(a))
 	}
-	return &accountv1.ListAccountsResponse{Accounts: out}, nil
+	return &accountv1.ListAccountsResponse{Accounts: out, Total: int64(len(out))}, nil
 }
 
 // GetAccount returns one account without credentials.
@@ -523,11 +536,12 @@ func (s *AccountGRPCService) GetAccount(ctx context.Context, req *accountv1.GetA
 
 func toProtoRegistryEntry(a domain.Account) *accountv1.AccountRegistryEntry {
 	return &accountv1.AccountRegistryEntry{
-		AccountId: a.AccountID,
-		Name:      a.Name,
-		Mode:      int32(a.Mode),
-		CreatedAt: timestamppb.New(a.CreatedAt),
-		UserId:    a.UserID,
+		AccountId:   a.AccountID,
+		Name:        a.Name,
+		Mode:        int32(a.Mode),
+		CreatedAt:   timestamppb.New(a.CreatedAt),
+		UserId:      a.UserID,
+		Description: a.Description,
 	}
 }
 
@@ -1040,6 +1054,17 @@ func (s *AccountGRPCService) ListStrategies(ctx context.Context, req *accountv1.
 	if err := requireUserID(req.GetUserId()); err != nil {
 		return nil, err
 	}
+	if req.GetLimit() > 0 || req.GetOffset() > 0 {
+		list, meta, err := s.repo.ListStrategiesPage(ctx, req.GetUserId(), req.GetNamePrefix(), req.GetActiveOnly(), int(req.GetLimit()), int(req.GetOffset()))
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "list strategies: %v", err)
+		}
+		out := make([]*accountv1.StrategyEntry, 0, len(list))
+		for _, st := range list {
+			out = append(out, toProtoStrategy(st, false))
+		}
+		return &accountv1.ListStrategiesResponse{Strategies: out, HasMore: meta.HasMore, Total: meta.Total}, nil
+	}
 	list, err := s.repo.ListStrategies(ctx, req.GetUserId(), req.GetNamePrefix(), req.GetActiveOnly())
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "list strategies: %v", err)
@@ -1048,7 +1073,7 @@ func (s *AccountGRPCService) ListStrategies(ctx context.Context, req *accountv1.
 	for _, st := range list {
 		out = append(out, toProtoStrategy(st, false)) // no code in list
 	}
-	return &accountv1.ListStrategiesResponse{Strategies: out}, nil
+	return &accountv1.ListStrategiesResponse{Strategies: out, Total: int64(len(out))}, nil
 }
 
 func (s *AccountGRPCService) GetStrategy(ctx context.Context, req *accountv1.GetStrategyRequest) (*accountv1.GetStrategyResponse, error) {
@@ -1324,10 +1349,20 @@ func (s *AccountGRPCService) ListSessions(ctx context.Context, req *accountv1.Li
 	if err := requireUserID(req.GetUserId()); err != nil {
 		return nil, err
 	}
-	if req.GetAccountId() == 0 {
-		return nil, status.Error(codes.InvalidArgument, "account_id is required")
-	}
-	list, err := s.repo.ListSessions(ctx, req.GetAccountId(), req.GetUserId(), int(req.GetLimit()), int(req.GetOffset()))
+	list, meta, err := s.repo.ListSessionsPage(ctx, repository.SessionListFilter{
+		AccountID:         req.GetAccountId(),
+		UserID:            req.GetUserId(),
+		RuntimeID:         strings.TrimSpace(req.GetRuntimeId()),
+		StrategyID:        req.GetStrategyId(),
+		Mode:              int(req.GetMode()),
+		ModeSet:           req.GetModeSet(),
+		Status:            strings.TrimSpace(req.GetStatus()),
+		SessionIDContains: strings.TrimSpace(req.GetSessionIdContains()),
+		StartedAfterMs:    req.GetStartedAfterMs(),
+		StartedBeforeMs:   req.GetStartedBeforeMs(),
+		Limit:             int(req.GetLimit()),
+		Offset:            int(req.GetOffset()),
+	})
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "list sessions: %v", err)
 	}
@@ -1335,7 +1370,7 @@ func (s *AccountGRPCService) ListSessions(ctx context.Context, req *accountv1.Li
 	for _, sess := range list {
 		out = append(out, toProtoSession(sess))
 	}
-	return &accountv1.ListSessionsResponse{Sessions: out}, nil
+	return &accountv1.ListSessionsResponse{Sessions: out, HasMore: meta.HasMore, Total: meta.Total}, nil
 }
 
 func (s *AccountGRPCService) ListRunningSessions(ctx context.Context, req *accountv1.ListRunningSessionsRequest) (*accountv1.ListRunningSessionsResponse, error) {

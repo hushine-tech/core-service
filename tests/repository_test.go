@@ -124,6 +124,22 @@ func (m *mockRepo) ListAccounts(_ context.Context, userID int64) ([]domain.Accou
 	return out, nil
 }
 
+func (m *mockRepo) ListAccountsPage(ctx context.Context, userID int64, limit, offset int) ([]domain.Account, repository.PageMeta, error) {
+	out, err := m.ListAccounts(ctx, userID)
+	if err != nil {
+		return nil, repository.PageMeta{}, err
+	}
+	total := len(out)
+	if offset > total {
+		offset = total
+	}
+	end := total
+	if limit > 0 && offset+limit < end {
+		end = offset + limit
+	}
+	return out[offset:end], repository.PageMeta{Total: int64(total), HasMore: end < total}, nil
+}
+
 func (m *mockRepo) UpdateAccountState(_ context.Context, info domain.OnlineAccountInfo) error {
 	m.states[info.AccountID] = info
 	return nil
@@ -179,6 +195,22 @@ func (m *mockRepo) ListStrategies(_ context.Context, userID int64, namePrefix st
 		out = append(out, s)
 	}
 	return out, nil
+}
+
+func (m *mockRepo) ListStrategiesPage(ctx context.Context, userID int64, namePrefix string, activeOnly bool, limit, offset int) ([]domain.Strategy, repository.PageMeta, error) {
+	out, err := m.ListStrategies(ctx, userID, namePrefix, activeOnly)
+	if err != nil {
+		return nil, repository.PageMeta{}, err
+	}
+	total := len(out)
+	if offset > total {
+		offset = total
+	}
+	end := total
+	if limit > 0 && offset+limit < end {
+		end = offset + limit
+	}
+	return out[offset:end], repository.PageMeta{Total: int64(total), HasMore: end < total}, nil
 }
 
 func (m *mockRepo) ArchiveStrategy(_ context.Context, strategyID int64) error {
@@ -248,6 +280,39 @@ func (m *mockRepo) ListSessions(_ context.Context, accountID, userID int64, limi
 		out = out[:limit]
 	}
 	return out, nil
+}
+
+func (m *mockRepo) ListSessionsPage(ctx context.Context, filter repository.SessionListFilter) ([]domain.StrategySession, repository.PageMeta, error) {
+	out, err := m.ListSessions(ctx, filter.AccountID, filter.UserID, 0, 0)
+	if err != nil {
+		return nil, repository.PageMeta{}, err
+	}
+	filtered := make([]domain.StrategySession, 0, len(out))
+	for _, s := range out {
+		if filter.RuntimeID != "" && s.RuntimeID != filter.RuntimeID {
+			continue
+		}
+		if filter.StrategyID > 0 && s.StrategyID != filter.StrategyID {
+			continue
+		}
+		if filter.ModeSet && s.Mode != filter.Mode {
+			continue
+		}
+		if filter.Status != "" && s.Status != filter.Status {
+			continue
+		}
+		filtered = append(filtered, s)
+	}
+	total := len(filtered)
+	offset := filter.Offset
+	if offset > total {
+		offset = total
+	}
+	end := total
+	if filter.Limit > 0 && offset+filter.Limit < end {
+		end = offset + filter.Limit
+	}
+	return filtered[offset:end], repository.PageMeta{Total: int64(total), HasMore: end < total}, nil
 }
 
 func (m *mockRepo) ListRunningSessions(_ context.Context, runtimeID string) ([]domain.StrategySession, error) {

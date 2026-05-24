@@ -70,6 +70,7 @@ type Account struct {
 	AccountID      int64       `json:"account_id"`
 	UserID         int64       `json:"user_id"`
 	Name           string      `json:"name"`
+	Description    string      `json:"description"`
 	Mode           AccountMode `json:"mode"`
 	APIKey         string      `json:"api_key,omitempty"`
 	APISecret      string      `json:"api_secret,omitempty"`

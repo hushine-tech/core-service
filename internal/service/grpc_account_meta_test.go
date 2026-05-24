@@ -19,6 +19,7 @@ const serviceTestUserID int64 = 7
 // stubRepo is a minimal Repository stub for unit tests.
 type stubRepo struct {
 	account              domain.Account
+	createdAccount       domain.Account
 	state                domain.OnlineAccountInfo
 	reconciliationRuns   []domain.ReconciliationRun
 	sessionSnapshots     []domain.SnapshotRow
@@ -72,7 +73,8 @@ func (s *stubRepo) GetUser(_ context.Context, userID int64) (domain.User, error)
 	return domain.User{}, repository.ErrNotFound
 }
 
-func (s *stubRepo) CreateAccount(_ context.Context, _ domain.Account) (int64, error) {
+func (s *stubRepo) CreateAccount(_ context.Context, account domain.Account) (int64, error) {
+	s.createdAccount = account
 	return 1, nil
 }
 func (s *stubRepo) GetAccount(_ context.Context, id, userID int64) (domain.Account, error) {
@@ -99,6 +101,13 @@ func (s *stubRepo) ListAccounts(_ context.Context, userID int64) ([]domain.Accou
 	}
 	return []domain.Account{s.account}, nil
 }
+func (s *stubRepo) ListAccountsPage(ctx context.Context, userID int64, limit, offset int) ([]domain.Account, repository.PageMeta, error) {
+	list, err := s.ListAccounts(ctx, userID)
+	if err != nil {
+		return nil, repository.PageMeta{}, err
+	}
+	return list, repository.PageMeta{Total: int64(len(list))}, nil
+}
 func (s *stubRepo) UpdateAccountState(_ context.Context, info domain.OnlineAccountInfo) error {
 	s.state = info
 	return nil
@@ -119,6 +128,9 @@ func (s *stubRepo) GetStrategy(_ context.Context, _, _ int64) (domain.Strategy, 
 }
 func (s *stubRepo) ListStrategies(_ context.Context, _ int64, _ string, _ bool) ([]domain.Strategy, error) {
 	return nil, errors.New("not implemented")
+}
+func (s *stubRepo) ListStrategiesPage(_ context.Context, _ int64, _ string, _ bool, _, _ int) ([]domain.Strategy, repository.PageMeta, error) {
+	return nil, repository.PageMeta{}, errors.New("not implemented")
 }
 func (s *stubRepo) ArchiveStrategy(_ context.Context, _ int64) error {
 	return errors.New("not implemented")
@@ -146,6 +158,9 @@ func (s *stubRepo) GetSession(_ context.Context, _ string, _ int64) (domain.Stra
 }
 func (s *stubRepo) ListSessions(_ context.Context, _, _ int64, _, _ int) ([]domain.StrategySession, error) {
 	return nil, errors.New("not implemented")
+}
+func (s *stubRepo) ListSessionsPage(_ context.Context, _ repository.SessionListFilter) ([]domain.StrategySession, repository.PageMeta, error) {
+	return nil, repository.PageMeta{}, errors.New("not implemented")
 }
 func (s *stubRepo) ListSessionSnapshots(_ context.Context, _ string, _ int64, limit, offset int) ([]domain.SnapshotRow, int64, bool, error) {
 	s.lastSnapshotsLimit = limit
@@ -256,6 +271,58 @@ func (s *stubRepo) GetNotificationPlan(_ context.Context, planCode string) (doma
 // Phase D2 (2026-05-06): market-data control-plane stub methods removed
 // alongside the proto + repository methods. The control plane now lives
 // in control-panel-service.
+
+func TestCreateAccountStoresDescription(t *testing.T) {
+	repo := &stubRepo{}
+	svc := NewAccountGRPCService(repo, nil, nil, nil)
+
+	resp, err := svc.CreateAccount(context.Background(), &accountv1.CreateAccountRequest{
+		UserId:      serviceTestUserID,
+		Name:        "  backtest-main  ",
+		Mode:        int32(domain.AccountModeBacktest),
+		Description: "  ETH backtest workspace  ",
+	})
+	if err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+	if got := repo.createdAccount.Description; got != "ETH backtest workspace" {
+		t.Fatalf("stored description = %q", got)
+	}
+	if got := resp.GetDescription(); got != "ETH backtest workspace" {
+		t.Fatalf("response description = %q", got)
+	}
+}
+
+func TestListAndGetAccountsReturnDescription(t *testing.T) {
+	repo := &stubRepo{account: domain.Account{
+		AccountID:   1,
+		UserID:      serviceTestUserID,
+		Name:        "testnet",
+		Description: "Binance testnet account",
+		Mode:        domain.AccountModeBinanceTestnet,
+		CreatedAt:   time.Now().UTC(),
+	}}
+	svc := NewAccountGRPCService(repo, nil, nil, nil)
+
+	listResp, err := svc.ListAccounts(context.Background(), &accountv1.ListAccountsRequest{UserId: serviceTestUserID})
+	if err != nil {
+		t.Fatalf("ListAccounts: %v", err)
+	}
+	if len(listResp.GetAccounts()) != 1 {
+		t.Fatalf("accounts len = %d", len(listResp.GetAccounts()))
+	}
+	if got := listResp.GetAccounts()[0].GetDescription(); got != "Binance testnet account" {
+		t.Fatalf("list description = %q", got)
+	}
+
+	getResp, err := svc.GetAccount(context.Background(), &accountv1.GetAccountRequest{AccountId: 1, UserId: serviceTestUserID})
+	if err != nil {
+		t.Fatalf("GetAccount: %v", err)
+	}
+	if got := getResp.GetAccount().GetDescription(); got != "Binance testnet account" {
+		t.Fatalf("get description = %q", got)
+	}
+}
 
 func TestGetAccountMeta_success(t *testing.T) {
 	repo := &stubRepo{account: domain.Account{

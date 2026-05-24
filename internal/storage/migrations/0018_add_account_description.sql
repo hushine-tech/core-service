@@ -1,0 +1,2 @@
+ALTER TABLE accounts
+    ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT '';

@@ -382,6 +382,8 @@ func (x *VerifyUserPasswordResponse) GetValid() bool {
 
 type ListAccountsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
+	Limit         int32                  `protobuf:"varint,1,opt,name=limit,proto3" json:"limit,omitempty"`
+	Offset        int32                  `protobuf:"varint,2,opt,name=offset,proto3" json:"offset,omitempty"`
 	UserId        int64                  `protobuf:"varint,100,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -417,6 +419,20 @@ func (*ListAccountsRequest) Descriptor() ([]byte, []int) {
 	return file_account_service_proto_rawDescGZIP(), []int{7}
 }
 
+func (x *ListAccountsRequest) GetLimit() int32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+func (x *ListAccountsRequest) GetOffset() int32 {
+	if x != nil {
+		return x.Offset
+	}
+	return 0
+}
+
 func (x *ListAccountsRequest) GetUserId() int64 {
 	if x != nil {
 		return x.UserId
@@ -427,6 +443,8 @@ func (x *ListAccountsRequest) GetUserId() int64 {
 type ListAccountsResponse struct {
 	state         protoimpl.MessageState  `protogen:"open.v1"`
 	Accounts      []*AccountRegistryEntry `protobuf:"bytes,1,rep,name=accounts,proto3" json:"accounts,omitempty"`
+	HasMore       bool                    `protobuf:"varint,2,opt,name=has_more,json=hasMore,proto3" json:"has_more,omitempty"`
+	Total         int64                   `protobuf:"varint,3,opt,name=total,proto3" json:"total,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -466,6 +484,20 @@ func (x *ListAccountsResponse) GetAccounts() []*AccountRegistryEntry {
 		return x.Accounts
 	}
 	return nil
+}
+
+func (x *ListAccountsResponse) GetHasMore() bool {
+	if x != nil {
+		return x.HasMore
+	}
+	return false
+}
+
+func (x *ListAccountsResponse) GetTotal() int64 {
+	if x != nil {
+		return x.Total
+	}
+	return 0
 }
 
 type GetAccountRequest struct {
@@ -575,6 +607,7 @@ type CreateAccountRequest struct {
 	PositionMode   string                 `protobuf:"bytes,7,opt,name=position_mode,json=positionMode,proto3" json:"position_mode,omitempty"`           // default: "one_way"
 	SlippageBps    float64                `protobuf:"fixed64,8,opt,name=slippage_bps,json=slippageBps,proto3" json:"slippage_bps,omitempty"`            // default: 0.0
 	DefaultFeeRate float64                `protobuf:"fixed64,9,opt,name=default_fee_rate,json=defaultFeeRate,proto3" json:"default_fee_rate,omitempty"` // default: 0.0004
+	Description    string                 `protobuf:"bytes,10,opt,name=description,proto3" json:"description,omitempty"`
 	UserId         int64                  `protobuf:"varint,100,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
@@ -673,6 +706,13 @@ func (x *CreateAccountRequest) GetDefaultFeeRate() float64 {
 	return 0
 }
 
+func (x *CreateAccountRequest) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
 func (x *CreateAccountRequest) GetUserId() int64 {
 	if x != nil {
 		return x.UserId
@@ -686,6 +726,7 @@ type CreateAccountResponse struct {
 	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
 	Mode          int32                  `protobuf:"varint,3,opt,name=mode,proto3" json:"mode,omitempty"`
 	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	Description   string                 `protobuf:"bytes,5,opt,name=description,proto3" json:"description,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -748,6 +789,13 @@ func (x *CreateAccountResponse) GetCreatedAt() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *CreateAccountResponse) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
 // Account metadata without API credentials (safe for portal responses).
 type AccountRegistryEntry struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -756,6 +804,7 @@ type AccountRegistryEntry struct {
 	Mode          int32                  `protobuf:"varint,3,opt,name=mode,proto3" json:"mode,omitempty"`
 	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	UserId        int64                  `protobuf:"varint,5,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Description   string                 `protobuf:"bytes,6,opt,name=description,proto3" json:"description,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -823,6 +872,13 @@ func (x *AccountRegistryEntry) GetUserId() int64 {
 		return x.UserId
 	}
 	return 0
+}
+
+func (x *AccountRegistryEntry) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
 }
 
 type GetOnlineAccountInfoRequest struct {
@@ -2467,6 +2523,8 @@ type ListStrategiesRequest struct {
 	NamePrefix string `protobuf:"bytes,1,opt,name=name_prefix,json=namePrefix,proto3" json:"name_prefix,omitempty"`
 	// true=只返回未归档，false/unset=全部
 	ActiveOnly    bool  `protobuf:"varint,2,opt,name=active_only,json=activeOnly,proto3" json:"active_only,omitempty"`
+	Limit         int32 `protobuf:"varint,3,opt,name=limit,proto3" json:"limit,omitempty"`
+	Offset        int32 `protobuf:"varint,4,opt,name=offset,proto3" json:"offset,omitempty"`
 	UserId        int64 `protobuf:"varint,100,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2516,6 +2574,20 @@ func (x *ListStrategiesRequest) GetActiveOnly() bool {
 	return false
 }
 
+func (x *ListStrategiesRequest) GetLimit() int32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+func (x *ListStrategiesRequest) GetOffset() int32 {
+	if x != nil {
+		return x.Offset
+	}
+	return 0
+}
+
 func (x *ListStrategiesRequest) GetUserId() int64 {
 	if x != nil {
 		return x.UserId
@@ -2526,6 +2598,8 @@ func (x *ListStrategiesRequest) GetUserId() int64 {
 type ListStrategiesResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Strategies    []*StrategyEntry       `protobuf:"bytes,1,rep,name=strategies,proto3" json:"strategies,omitempty"`
+	HasMore       bool                   `protobuf:"varint,2,opt,name=has_more,json=hasMore,proto3" json:"has_more,omitempty"`
+	Total         int64                  `protobuf:"varint,3,opt,name=total,proto3" json:"total,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2565,6 +2639,20 @@ func (x *ListStrategiesResponse) GetStrategies() []*StrategyEntry {
 		return x.Strategies
 	}
 	return nil
+}
+
+func (x *ListStrategiesResponse) GetHasMore() bool {
+	if x != nil {
+		return x.HasMore
+	}
+	return false
+}
+
+func (x *ListStrategiesResponse) GetTotal() int64 {
+	if x != nil {
+		return x.Total
+	}
+	return 0
 }
 
 type GetStrategyRequest struct {
@@ -4009,13 +4097,22 @@ func (x *GetSessionResponse) GetSession() *StrategySessionEntry {
 }
 
 type ListSessionsRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	AccountId     int64                  `protobuf:"varint,1,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
-	Limit         int32                  `protobuf:"varint,2,opt,name=limit,proto3" json:"limit,omitempty"`
-	Offset        int32                  `protobuf:"varint,3,opt,name=offset,proto3" json:"offset,omitempty"`
-	UserId        int64                  `protobuf:"varint,100,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 0 means all accounts owned by user_id; non-zero keeps legacy account-scoped behavior.
+	AccountId         int64  `protobuf:"varint,1,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
+	Limit             int32  `protobuf:"varint,2,opt,name=limit,proto3" json:"limit,omitempty"`
+	Offset            int32  `protobuf:"varint,3,opt,name=offset,proto3" json:"offset,omitempty"`
+	RuntimeId         string `protobuf:"bytes,4,opt,name=runtime_id,json=runtimeId,proto3" json:"runtime_id,omitempty"`
+	StrategyId        int64  `protobuf:"varint,5,opt,name=strategy_id,json=strategyId,proto3" json:"strategy_id,omitempty"`
+	Mode              int32  `protobuf:"varint,6,opt,name=mode,proto3" json:"mode,omitempty"`
+	ModeSet           bool   `protobuf:"varint,7,opt,name=mode_set,json=modeSet,proto3" json:"mode_set,omitempty"`
+	Status            string `protobuf:"bytes,8,opt,name=status,proto3" json:"status,omitempty"`
+	SessionIdContains string `protobuf:"bytes,9,opt,name=session_id_contains,json=sessionIdContains,proto3" json:"session_id_contains,omitempty"`
+	StartedAfterMs    int64  `protobuf:"varint,10,opt,name=started_after_ms,json=startedAfterMs,proto3" json:"started_after_ms,omitempty"`
+	StartedBeforeMs   int64  `protobuf:"varint,11,opt,name=started_before_ms,json=startedBeforeMs,proto3" json:"started_before_ms,omitempty"`
+	UserId            int64  `protobuf:"varint,100,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *ListSessionsRequest) Reset() {
@@ -4069,6 +4166,62 @@ func (x *ListSessionsRequest) GetOffset() int32 {
 	return 0
 }
 
+func (x *ListSessionsRequest) GetRuntimeId() string {
+	if x != nil {
+		return x.RuntimeId
+	}
+	return ""
+}
+
+func (x *ListSessionsRequest) GetStrategyId() int64 {
+	if x != nil {
+		return x.StrategyId
+	}
+	return 0
+}
+
+func (x *ListSessionsRequest) GetMode() int32 {
+	if x != nil {
+		return x.Mode
+	}
+	return 0
+}
+
+func (x *ListSessionsRequest) GetModeSet() bool {
+	if x != nil {
+		return x.ModeSet
+	}
+	return false
+}
+
+func (x *ListSessionsRequest) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *ListSessionsRequest) GetSessionIdContains() string {
+	if x != nil {
+		return x.SessionIdContains
+	}
+	return ""
+}
+
+func (x *ListSessionsRequest) GetStartedAfterMs() int64 {
+	if x != nil {
+		return x.StartedAfterMs
+	}
+	return 0
+}
+
+func (x *ListSessionsRequest) GetStartedBeforeMs() int64 {
+	if x != nil {
+		return x.StartedBeforeMs
+	}
+	return 0
+}
+
 func (x *ListSessionsRequest) GetUserId() int64 {
 	if x != nil {
 		return x.UserId
@@ -4079,6 +4232,8 @@ func (x *ListSessionsRequest) GetUserId() int64 {
 type ListSessionsResponse struct {
 	state         protoimpl.MessageState  `protogen:"open.v1"`
 	Sessions      []*StrategySessionEntry `protobuf:"bytes,1,rep,name=sessions,proto3" json:"sessions,omitempty"`
+	HasMore       bool                    `protobuf:"varint,2,opt,name=has_more,json=hasMore,proto3" json:"has_more,omitempty"`
+	Total         int64                   `protobuf:"varint,3,opt,name=total,proto3" json:"total,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4118,6 +4273,20 @@ func (x *ListSessionsResponse) GetSessions() []*StrategySessionEntry {
 		return x.Sessions
 	}
 	return nil
+}
+
+func (x *ListSessionsResponse) GetHasMore() bool {
+	if x != nil {
+		return x.HasMore
+	}
+	return false
+}
+
+func (x *ListSessionsResponse) GetTotal() int64 {
+	if x != nil {
+		return x.Total
+	}
+	return 0
 }
 
 type ListRunningSessionsRequest struct {
@@ -5942,17 +6111,21 @@ const file_account_service_proto_rawDesc = "" +
 	"\bpassword\x18\x02 \x01(\tR\bpassword\"X\n" +
 	"\x1aVerifyUserPasswordResponse\x12$\n" +
 	"\x04user\x18\x01 \x01(\v2\x10.account.v1.UserR\x04user\x12\x14\n" +
-	"\x05valid\x18\x02 \x01(\bR\x05valid\".\n" +
-	"\x13ListAccountsRequest\x12\x17\n" +
-	"\auser_id\x18d \x01(\x03R\x06userId\"T\n" +
+	"\x05valid\x18\x02 \x01(\bR\x05valid\"\\\n" +
+	"\x13ListAccountsRequest\x12\x14\n" +
+	"\x05limit\x18\x01 \x01(\x05R\x05limit\x12\x16\n" +
+	"\x06offset\x18\x02 \x01(\x05R\x06offset\x12\x17\n" +
+	"\auser_id\x18d \x01(\x03R\x06userId\"\x85\x01\n" +
 	"\x14ListAccountsResponse\x12<\n" +
-	"\baccounts\x18\x01 \x03(\v2 .account.v1.AccountRegistryEntryR\baccounts\"K\n" +
+	"\baccounts\x18\x01 \x03(\v2 .account.v1.AccountRegistryEntryR\baccounts\x12\x19\n" +
+	"\bhas_more\x18\x02 \x01(\bR\ahasMore\x12\x14\n" +
+	"\x05total\x18\x03 \x01(\x03R\x05total\"K\n" +
 	"\x11GetAccountRequest\x12\x1d\n" +
 	"\n" +
 	"account_id\x18\x01 \x01(\x03R\taccountId\x12\x17\n" +
 	"\auser_id\x18d \x01(\x03R\x06userId\"P\n" +
 	"\x12GetAccountResponse\x12:\n" +
-	"\aaccount\x18\x01 \x01(\v2 .account.v1.AccountRegistryEntryR\aaccount\"\xcb\x02\n" +
+	"\aaccount\x18\x01 \x01(\v2 .account.v1.AccountRegistryEntryR\aaccount\"\xed\x02\n" +
 	"\x14CreateAccountRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
 	"\x04mode\x18\x02 \x01(\x05R\x04mode\x12\x17\n" +
@@ -5964,15 +6137,18 @@ const file_account_service_proto_rawDesc = "" +
 	"marginMode\x12#\n" +
 	"\rposition_mode\x18\a \x01(\tR\fpositionMode\x12!\n" +
 	"\fslippage_bps\x18\b \x01(\x01R\vslippageBps\x12(\n" +
-	"\x10default_fee_rate\x18\t \x01(\x01R\x0edefaultFeeRate\x12\x17\n" +
-	"\auser_id\x18d \x01(\x03R\x06userId\"\x99\x01\n" +
+	"\x10default_fee_rate\x18\t \x01(\x01R\x0edefaultFeeRate\x12 \n" +
+	"\vdescription\x18\n" +
+	" \x01(\tR\vdescription\x12\x17\n" +
+	"\auser_id\x18d \x01(\x03R\x06userId\"\xbb\x01\n" +
 	"\x15CreateAccountResponse\x12\x1d\n" +
 	"\n" +
 	"account_id\x18\x01 \x01(\x03R\taccountId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x12\n" +
 	"\x04mode\x18\x03 \x01(\x05R\x04mode\x129\n" +
 	"\n" +
-	"created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"\xb1\x01\n" +
+	"created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12 \n" +
+	"\vdescription\x18\x05 \x01(\tR\vdescription\"\xd3\x01\n" +
 	"\x14AccountRegistryEntry\x12\x1d\n" +
 	"\n" +
 	"account_id\x18\x01 \x01(\x03R\taccountId\x12\x12\n" +
@@ -5980,7 +6156,8 @@ const file_account_service_proto_rawDesc = "" +
 	"\x04mode\x18\x03 \x01(\x05R\x04mode\x129\n" +
 	"\n" +
 	"created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12\x17\n" +
-	"\auser_id\x18\x05 \x01(\x03R\x06userId\"U\n" +
+	"\auser_id\x18\x05 \x01(\x03R\x06userId\x12 \n" +
+	"\vdescription\x18\x06 \x01(\tR\vdescription\"U\n" +
 	"\x1bGetOnlineAccountInfoRequest\x12\x1d\n" +
 	"\n" +
 	"account_id\x18\x01 \x01(\x03R\taccountId\x12\x17\n" +
@@ -6147,17 +6324,21 @@ const file_account_service_proto_rawDesc = "" +
 	"\x0fruntime_profile\x18\x06 \x01(\tR\x0eruntimeProfile\x12\x17\n" +
 	"\auser_id\x18d \x01(\x03R\x06userId\"O\n" +
 	"\x16CreateStrategyResponse\x125\n" +
-	"\bstrategy\x18\x01 \x01(\v2\x19.account.v1.StrategyEntryR\bstrategy\"r\n" +
+	"\bstrategy\x18\x01 \x01(\v2\x19.account.v1.StrategyEntryR\bstrategy\"\xa0\x01\n" +
 	"\x15ListStrategiesRequest\x12\x1f\n" +
 	"\vname_prefix\x18\x01 \x01(\tR\n" +
 	"namePrefix\x12\x1f\n" +
 	"\vactive_only\x18\x02 \x01(\bR\n" +
-	"activeOnly\x12\x17\n" +
-	"\auser_id\x18d \x01(\x03R\x06userId\"S\n" +
+	"activeOnly\x12\x14\n" +
+	"\x05limit\x18\x03 \x01(\x05R\x05limit\x12\x16\n" +
+	"\x06offset\x18\x04 \x01(\x05R\x06offset\x12\x17\n" +
+	"\auser_id\x18d \x01(\x03R\x06userId\"\x84\x01\n" +
 	"\x16ListStrategiesResponse\x129\n" +
 	"\n" +
 	"strategies\x18\x01 \x03(\v2\x19.account.v1.StrategyEntryR\n" +
-	"strategies\"N\n" +
+	"strategies\x12\x19\n" +
+	"\bhas_more\x18\x02 \x01(\bR\ahasMore\x12\x14\n" +
+	"\x05total\x18\x03 \x01(\x03R\x05total\"N\n" +
 	"\x12GetStrategyRequest\x12\x1f\n" +
 	"\vstrategy_id\x18\x01 \x01(\x03R\n" +
 	"strategyId\x12\x17\n" +
@@ -6282,15 +6463,28 @@ const file_account_service_proto_rawDesc = "" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x17\n" +
 	"\auser_id\x18d \x01(\x03R\x06userId\"P\n" +
 	"\x12GetSessionResponse\x12:\n" +
-	"\asession\x18\x01 \x01(\v2 .account.v1.StrategySessionEntryR\asession\"{\n" +
+	"\asession\x18\x01 \x01(\v2 .account.v1.StrategySessionEntryR\asession\"\x88\x03\n" +
 	"\x13ListSessionsRequest\x12\x1d\n" +
 	"\n" +
 	"account_id\x18\x01 \x01(\x03R\taccountId\x12\x14\n" +
 	"\x05limit\x18\x02 \x01(\x05R\x05limit\x12\x16\n" +
-	"\x06offset\x18\x03 \x01(\x05R\x06offset\x12\x17\n" +
-	"\auser_id\x18d \x01(\x03R\x06userId\"T\n" +
+	"\x06offset\x18\x03 \x01(\x05R\x06offset\x12\x1d\n" +
+	"\n" +
+	"runtime_id\x18\x04 \x01(\tR\truntimeId\x12\x1f\n" +
+	"\vstrategy_id\x18\x05 \x01(\x03R\n" +
+	"strategyId\x12\x12\n" +
+	"\x04mode\x18\x06 \x01(\x05R\x04mode\x12\x19\n" +
+	"\bmode_set\x18\a \x01(\bR\amodeSet\x12\x16\n" +
+	"\x06status\x18\b \x01(\tR\x06status\x12.\n" +
+	"\x13session_id_contains\x18\t \x01(\tR\x11sessionIdContains\x12(\n" +
+	"\x10started_after_ms\x18\n" +
+	" \x01(\x03R\x0estartedAfterMs\x12*\n" +
+	"\x11started_before_ms\x18\v \x01(\x03R\x0fstartedBeforeMs\x12\x17\n" +
+	"\auser_id\x18d \x01(\x03R\x06userId\"\x85\x01\n" +
 	"\x14ListSessionsResponse\x12<\n" +
-	"\bsessions\x18\x01 \x03(\v2 .account.v1.StrategySessionEntryR\bsessions\";\n" +
+	"\bsessions\x18\x01 \x03(\v2 .account.v1.StrategySessionEntryR\bsessions\x12\x19\n" +
+	"\bhas_more\x18\x02 \x01(\bR\ahasMore\x12\x14\n" +
+	"\x05total\x18\x03 \x01(\x03R\x05total\";\n" +
 	"\x1aListRunningSessionsRequest\x12\x1d\n" +
 	"\n" +
 	"runtime_id\x18\x01 \x01(\tR\truntimeId\"[\n" +

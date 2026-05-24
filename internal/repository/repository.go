@@ -16,6 +16,26 @@ var ErrConflict = errors.New("conflict")
 // ErrPermissionDenied 用于用户试图读/写不属于自己的资源 (如 cancel 他人的 request).
 var ErrPermissionDenied = errors.New("permission denied")
 
+type PageMeta struct {
+	Total   int64
+	HasMore bool
+}
+
+type SessionListFilter struct {
+	AccountID         int64
+	UserID            int64
+	RuntimeID         string
+	StrategyID        int64
+	Mode              int
+	ModeSet           bool
+	Status            string
+	SessionIDContains string
+	StartedAfterMs    int64
+	StartedBeforeMs   int64
+	Limit             int
+	Offset            int
+}
+
 // Repository is the unified data access interface for account-service.
 type Repository interface {
 	// User management
@@ -27,6 +47,7 @@ type Repository interface {
 	CreateAccount(ctx context.Context, account domain.Account) (int64, error)
 	GetAccount(ctx context.Context, accountID, userID int64) (domain.Account, error)
 	ListAccounts(ctx context.Context, userID int64) ([]domain.Account, error)
+	ListAccountsPage(ctx context.Context, userID int64, limit, offset int) ([]domain.Account, PageMeta, error)
 
 	// Current state management
 	UpdateAccountState(ctx context.Context, info domain.OnlineAccountInfo) error
@@ -40,6 +61,7 @@ type Repository interface {
 	CreateStrategy(ctx context.Context, s domain.Strategy) (int64, error)
 	GetStrategy(ctx context.Context, strategyID, userID int64) (domain.Strategy, error)
 	ListStrategies(ctx context.Context, userID int64, namePrefix string, activeOnly bool) ([]domain.Strategy, error)
+	ListStrategiesPage(ctx context.Context, userID int64, namePrefix string, activeOnly bool, limit, offset int) ([]domain.Strategy, PageMeta, error)
 	ArchiveStrategy(ctx context.Context, strategyID int64) error
 
 	// Strategy session management
@@ -47,6 +69,7 @@ type Repository interface {
 	UpdateSession(ctx context.Context, sessionID string, status string, barsProcessed int, errMsg string, runtimeID string) error
 	GetSession(ctx context.Context, sessionID string, userID int64) (domain.StrategySession, error)
 	ListSessions(ctx context.Context, accountID, userID int64, limit, offset int) ([]domain.StrategySession, error)
+	ListSessionsPage(ctx context.Context, filter SessionListFilter) ([]domain.StrategySession, PageMeta, error)
 	ListRunningSessions(ctx context.Context, runtimeID string) ([]domain.StrategySession, error)
 	MarkRuntimeSessionsRecoverable(ctx context.Context, runtimeID string, errMsg string) (int64, error)
 	// ListSessionSnapshots returns up to ``limit`` snapshots for a session,

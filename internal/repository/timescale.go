@@ -13,9 +13,9 @@ import (
 
 	_ "github.com/lib/pq"
 
+	"github.com/hushine-tech/core-service/internal/domain"
 	"github.com/hushine-tech/golang-lib/middleware/sqlmiddleware"
 	elog "github.com/hushine-tech/golang-lib/pkg/log"
-	"github.com/hushine-tech/core-service/internal/domain"
 )
 
 // TimescaleRepository implements Repository backed by TimescaleDB (PostgreSQL).
@@ -209,10 +209,10 @@ func (r *TimescaleRepository) GetUser(ctx context.Context, userID int64) (domain
 func (r *TimescaleRepository) CreateAccount(ctx context.Context, a domain.Account) (int64, error) {
 	var newID int64
 	err := r.db.QueryRowContext(ctx, `
-		INSERT INTO accounts (user_id, name, mode, api_key, api_secret, margin_mode, position_mode, slippage_bps, default_fee_rate, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		INSERT INTO accounts (user_id, name, description, mode, api_key, api_secret, margin_mode, position_mode, slippage_bps, default_fee_rate, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		RETURNING account_id`,
-		a.UserID, a.Name, int(a.Mode), a.APIKey, a.APISecret,
+		a.UserID, a.Name, a.Description, int(a.Mode), a.APIKey, a.APISecret,
 		a.MarginMode, a.PositionMode, a.SlippageBps, a.DefaultFeeRate, a.CreatedAt,
 	).Scan(&newID)
 	if err != nil {
@@ -223,7 +223,7 @@ func (r *TimescaleRepository) CreateAccount(ctx context.Context, a domain.Accoun
 
 func (r *TimescaleRepository) GetAccount(ctx context.Context, accountID, userID int64) (domain.Account, error) {
 	query := `
-		SELECT account_id, user_id, name, mode, api_key, api_secret, margin_mode, position_mode,
+		SELECT account_id, user_id, name, description, mode, api_key, api_secret, margin_mode, position_mode,
 		       slippage_bps, default_fee_rate, created_at,
 		       futures_json, spot_json, total_value, wallet_balance, available_balance, state_updated_at
 		FROM accounts WHERE account_id = $1`
@@ -238,7 +238,7 @@ func (r *TimescaleRepository) GetAccount(ctx context.Context, accountID, userID 
 
 func (r *TimescaleRepository) ListAccounts(ctx context.Context, userID int64) ([]domain.Account, error) {
 	query := `
-		SELECT account_id, user_id, name, mode, api_key, api_secret, margin_mode, position_mode,
+		SELECT account_id, user_id, name, description, mode, api_key, api_secret, margin_mode, position_mode,
 		       slippage_bps, default_fee_rate, created_at,
 		       futures_json, spot_json, total_value, wallet_balance, available_balance, state_updated_at
 		FROM accounts`
@@ -265,6 +265,64 @@ func (r *TimescaleRepository) ListAccounts(ctx context.Context, userID int64) ([
 	return accounts, rows.Err()
 }
 
+func normalizePage(limit, offset int) (int, int) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	return limit, offset
+}
+
+func (r *TimescaleRepository) ListAccountsPage(ctx context.Context, userID int64, limit, offset int) ([]domain.Account, PageMeta, error) {
+	limit, offset = normalizePage(limit, offset)
+	where := ""
+	args := []any{}
+	if userID > 0 {
+		args = append(args, userID)
+		where = " WHERE user_id = $1"
+	}
+
+	var total int64
+	if err := r.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM accounts"+where, args...).Scan(&total); err != nil {
+		return nil, PageMeta{}, err
+	}
+
+	listArgs := append([]any{}, args...)
+	listArgs = append(listArgs, limit+1, offset)
+	query := `
+		SELECT account_id, user_id, name, description, mode, api_key, api_secret, margin_mode, position_mode,
+		       slippage_bps, default_fee_rate, created_at,
+		       futures_json, spot_json, total_value, wallet_balance, available_balance, state_updated_at
+		FROM accounts` + where + fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d OFFSET $%d", len(listArgs)-1, len(listArgs))
+	rows, err := r.db.QueryContext(ctx, query, listArgs...)
+	if err != nil {
+		return nil, PageMeta{}, err
+	}
+	defer rows.Close()
+
+	var accounts []domain.Account
+	for rows.Next() {
+		a, err := scanAccount(rows)
+		if err != nil {
+			return nil, PageMeta{}, err
+		}
+		accounts = append(accounts, a)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, PageMeta{}, err
+	}
+	hasMore := len(accounts) > limit
+	if hasMore {
+		accounts = accounts[:limit]
+	}
+	return accounts, PageMeta{Total: total, HasMore: hasMore}, nil
+}
+
 // scanAccount scans a single account row (supports both *sql.Row and *sql.Rows via the scanner interface).
 func scanAccount(s interface {
 	Scan(...any) error
@@ -274,7 +332,7 @@ func scanAccount(s interface {
 	var futuresRaw, spotRaw []byte
 	var stateUpdatedAt sql.NullTime
 	if err := s.Scan(
-		&a.AccountID, &a.UserID, &a.Name, &mode, &a.APIKey, &a.APISecret,
+		&a.AccountID, &a.UserID, &a.Name, &a.Description, &mode, &a.APIKey, &a.APISecret,
 		&a.MarginMode, &a.PositionMode, &a.SlippageBps, &a.DefaultFeeRate, &a.CreatedAt,
 		&futuresRaw, &spotRaw,
 		&a.TotalValue, &a.WalletBalance, &a.AvailableBalance, &stateUpdatedAt,
@@ -450,6 +508,55 @@ func (r *TimescaleRepository) ListStrategies(ctx context.Context, userID int64, 
 	return result, rows.Err()
 }
 
+func (r *TimescaleRepository) ListStrategiesPage(ctx context.Context, userID int64, namePrefix string, activeOnly bool, limit, offset int) ([]domain.Strategy, PageMeta, error) {
+	limit, offset = normalizePage(limit, offset)
+	where := " WHERE 1=1"
+	args := []any{}
+	if userID > 0 {
+		args = append(args, userID)
+		where += fmt.Sprintf(" AND user_id = $%d", len(args))
+	}
+	if namePrefix != "" {
+		args = append(args, namePrefix+"%")
+		where += fmt.Sprintf(" AND name LIKE $%d", len(args))
+	}
+	if activeOnly {
+		where += " AND archived = false"
+	}
+
+	var total int64
+	if err := r.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM strategies"+where, args...).Scan(&total); err != nil {
+		return nil, PageMeta{}, err
+	}
+
+	listArgs := append([]any{}, args...)
+	listArgs = append(listArgs, limit+1, offset)
+	query := `SELECT strategy_id, user_id, name, version, description, '' AS code, archived, created_at, runtime_version, runtime_profile FROM strategies` +
+		where + fmt.Sprintf(" ORDER BY name, version LIMIT $%d OFFSET $%d", len(listArgs)-1, len(listArgs))
+	rows, err := r.db.QueryContext(ctx, query, listArgs...)
+	if err != nil {
+		return nil, PageMeta{}, err
+	}
+	defer rows.Close()
+
+	var result []domain.Strategy
+	for rows.Next() {
+		s, err := scanStrategy(rows)
+		if err != nil {
+			return nil, PageMeta{}, err
+		}
+		result = append(result, s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, PageMeta{}, err
+	}
+	hasMore := len(result) > limit
+	if hasMore {
+		result = result[:limit]
+	}
+	return result, PageMeta{Total: total, HasMore: hasMore}, nil
+}
+
 func (r *TimescaleRepository) ArchiveStrategy(ctx context.Context, strategyID int64) error {
 	res, err := r.sqlExec.ExecContext(ctx,
 		`UPDATE strategies SET archived = true WHERE strategy_id = $1`, strategyID)
@@ -602,6 +709,80 @@ func (r *TimescaleRepository) ListSessions(ctx context.Context, accountID, userI
 		result = append(result, s)
 	}
 	return result, rows.Err()
+}
+
+func (r *TimescaleRepository) ListSessionsPage(ctx context.Context, filter SessionListFilter) ([]domain.StrategySession, PageMeta, error) {
+	limit, offset := normalizePage(filter.Limit, filter.Offset)
+	where := " WHERE 1=1"
+	args := []any{}
+	if filter.AccountID > 0 {
+		args = append(args, filter.AccountID)
+		where += fmt.Sprintf(" AND account_id = $%d", len(args))
+	}
+	if filter.UserID > 0 {
+		args = append(args, filter.UserID)
+		where += fmt.Sprintf(" AND user_id = $%d", len(args))
+	}
+	if filter.RuntimeID != "" {
+		args = append(args, filter.RuntimeID)
+		where += fmt.Sprintf(" AND runtime_id = $%d", len(args))
+	}
+	if filter.StrategyID > 0 {
+		args = append(args, filter.StrategyID)
+		where += fmt.Sprintf(" AND strategy_id = $%d", len(args))
+	}
+	if filter.ModeSet {
+		args = append(args, filter.Mode)
+		where += fmt.Sprintf(" AND mode = $%d", len(args))
+	}
+	if strings.TrimSpace(filter.Status) != "" {
+		args = append(args, strings.TrimSpace(filter.Status))
+		where += fmt.Sprintf(" AND status = $%d", len(args))
+	}
+	if strings.TrimSpace(filter.SessionIDContains) != "" {
+		args = append(args, "%"+strings.TrimSpace(filter.SessionIDContains)+"%")
+		where += fmt.Sprintf(" AND session_id ILIKE $%d", len(args))
+	}
+	if filter.StartedAfterMs > 0 {
+		args = append(args, time.UnixMilli(filter.StartedAfterMs).UTC())
+		where += fmt.Sprintf(" AND started_at >= $%d", len(args))
+	}
+	if filter.StartedBeforeMs > 0 {
+		args = append(args, time.UnixMilli(filter.StartedBeforeMs).UTC())
+		where += fmt.Sprintf(" AND started_at <= $%d", len(args))
+	}
+
+	var total int64
+	if err := r.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM strategy_sessions"+where, args...).Scan(&total); err != nil {
+		return nil, PageMeta{}, err
+	}
+
+	listArgs := append([]any{}, args...)
+	listArgs = append(listArgs, limit+1, offset)
+	query := `SELECT ` + sessionSelectColumns + ` FROM strategy_sessions` + where +
+		fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d OFFSET $%d", len(listArgs)-1, len(listArgs))
+	rows, err := r.db.QueryContext(ctx, query, listArgs...)
+	if err != nil {
+		return nil, PageMeta{}, err
+	}
+	defer rows.Close()
+
+	var result []domain.StrategySession
+	for rows.Next() {
+		s, err := scanSession(rows)
+		if err != nil {
+			return nil, PageMeta{}, err
+		}
+		result = append(result, s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, PageMeta{}, err
+	}
+	hasMore := len(result) > limit
+	if hasMore {
+		result = result[:limit]
+	}
+	return result, PageMeta{Total: total, HasMore: hasMore}, nil
 }
 
 func (r *TimescaleRepository) ListRunningSessions(ctx context.Context, runtimeID string) ([]domain.StrategySession, error) {

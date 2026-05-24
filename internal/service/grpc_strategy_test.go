@@ -109,6 +109,39 @@ func (r *sessionStubRepo) ListSessions(_ context.Context, accountID, userID int6
 	return out, nil
 }
 
+func (r *sessionStubRepo) ListSessionsPage(ctx context.Context, filter repository.SessionListFilter) ([]domain.StrategySession, repository.PageMeta, error) {
+	out, err := r.ListSessions(ctx, filter.AccountID, filter.UserID, 0, 0)
+	if err != nil {
+		return nil, repository.PageMeta{}, err
+	}
+	filtered := make([]domain.StrategySession, 0, len(out))
+	for _, s := range out {
+		if filter.RuntimeID != "" && s.RuntimeID != filter.RuntimeID {
+			continue
+		}
+		if filter.StrategyID > 0 && s.StrategyID != filter.StrategyID {
+			continue
+		}
+		if filter.ModeSet && s.Mode != filter.Mode {
+			continue
+		}
+		if filter.Status != "" && s.Status != filter.Status {
+			continue
+		}
+		filtered = append(filtered, s)
+	}
+	total := len(filtered)
+	offset := filter.Offset
+	if offset > total {
+		offset = total
+	}
+	end := total
+	if filter.Limit > 0 && offset+filter.Limit < end {
+		end = offset + filter.Limit
+	}
+	return filtered[offset:end], repository.PageMeta{Total: int64(total), HasMore: end < total}, nil
+}
+
 func (r *sessionStubRepo) MarkRuntimeSessionsRecoverable(_ context.Context, runtimeID string, errMsg string) (int64, error) {
 	var count int64
 	for id, s := range r.sessions {
@@ -181,6 +214,22 @@ func (r *strategyStubRepo) ListStrategies(_ context.Context, userID int64, prefi
 		out = append(out, s)
 	}
 	return out, nil
+}
+
+func (r *strategyStubRepo) ListStrategiesPage(ctx context.Context, userID int64, prefix string, activeOnly bool, limit, offset int) ([]domain.Strategy, repository.PageMeta, error) {
+	out, err := r.ListStrategies(ctx, userID, prefix, activeOnly)
+	if err != nil {
+		return nil, repository.PageMeta{}, err
+	}
+	total := len(out)
+	if offset > total {
+		offset = total
+	}
+	end := total
+	if limit > 0 && offset+limit < end {
+		end = offset + limit
+	}
+	return out[offset:end], repository.PageMeta{Total: int64(total), HasMore: end < total}, nil
 }
 
 func (r *strategyStubRepo) ArchiveStrategy(_ context.Context, id int64) error {

@@ -89,8 +89,16 @@ func (m *Manager) Decrypt(ciphertext string) (string, error) {
 }
 
 func Fingerprint(apiKey string) string {
-	sum := sha256.Sum256([]byte(strings.TrimSpace(apiKey)))
+	apiKey = strings.TrimSpace(apiKey)
+	if apiKey == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(apiKey))
 	return hex.EncodeToString(sum[:])
+}
+
+func (m *Manager) KeyVersion() string {
+	return m.keyVersion
 }
 
 func parseKey(rawKey string) ([]byte, error) {

@@ -22,6 +22,7 @@ import (
 	"github.com/hushine-tech/core-service/gen/orderv1"
 	"github.com/hushine-tech/core-service/internal/catalog"
 	"github.com/hushine-tech/core-service/internal/config"
+	"github.com/hushine-tech/core-service/internal/credential"
 	"github.com/hushine-tech/core-service/internal/exchange"
 	"github.com/hushine-tech/core-service/internal/httpserver"
 	"github.com/hushine-tech/core-service/internal/logger"
@@ -107,6 +108,14 @@ func main() {
 
 	router := exchange.NewAdapterRouter(fetchers, repo.GetAccountState)
 	symbolCatalog := catalog.New(cfg.Exchange.SymbolCacheDuration(), logger.Instance())
+
+	var credentialManager *credential.Manager
+	if cfg.Credential.EncryptionKey != "" {
+		credentialManager, err = credential.NewManager(cfg.Credential.EncryptionKey, cfg.Credential.KeyVersion)
+		if err != nil {
+			log.Fatalf("init credential manager: %v", err)
+		}
+	}
 
 	// ── Phase C reconciliation (async shadow compare) ────────────────────────
 	// LaunchAsync no-ops when cfg.Exchange.Reconciliation.Enabled is false,
@@ -206,7 +215,7 @@ func main() {
 	grpcSrv := grpc.NewServer(
 		grpc.UnaryInterceptor(grpcmw.UnaryServerInterceptor(logger.Instance())),
 	)
-	accountv1.RegisterAccountServiceServer(grpcSrv, service.NewAccountGRPCService(repo, router, symbolCatalog, reconciler, notificationSvc))
+	accountv1.RegisterAccountServiceServer(grpcSrv, service.NewAccountGRPCService(repo, router, symbolCatalog, reconciler, notificationSvc, service.WithCredentialManager(credentialManager)))
 	orderv1.RegisterOrderServiceServer(grpcSrv, orderService)
 
 	lis, err := net.Listen("tcp", grpcAddr)

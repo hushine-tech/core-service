@@ -17,6 +17,7 @@ import (
 
 	"github.com/hushine-tech/core-service/gen/accountv1"
 	"github.com/hushine-tech/core-service/internal/catalog"
+	"github.com/hushine-tech/core-service/internal/domain"
 	"github.com/hushine-tech/core-service/internal/exchange"
 	"github.com/hushine-tech/core-service/internal/httpserver"
 	"github.com/hushine-tech/core-service/internal/repository"
@@ -196,7 +197,7 @@ func TestRegistryGRPC(t *testing.T) {
 
 	created, err := cli.CreateAccount(ctx, &accountv1.CreateAccountRequest{
 		Name:           name,
-		Mode:           0,
+		Environment:    int32(domain.EnvironmentBacktest),
 		InitialBalance: 5000,
 		UserId:         userID,
 	})
@@ -275,7 +276,7 @@ func TestBacktestMultiSymbolWalletBootstrap(t *testing.T) {
 	cli := accountv1.NewAccountServiceClient(conn)
 	userID := createUser(t, cli, username)
 
-	created, err := cli.CreateAccount(ctx, &accountv1.CreateAccountRequest{Name: name, Mode: 0, UserId: userID})
+	created, err := cli.CreateAccount(ctx, &accountv1.CreateAccountRequest{Name: name, Environment: int32(domain.EnvironmentBacktest), UserId: userID})
 	if err != nil {
 		t.Fatalf("CreateAccount: %v", err)
 	}

@@ -10,6 +10,7 @@ import (
 
 	"github.com/hushine-tech/core-service/gen/accountv1"
 	"github.com/hushine-tech/core-service/internal/catalog"
+	"github.com/hushine-tech/core-service/internal/credential"
 	"github.com/hushine-tech/core-service/internal/domain"
 	"github.com/hushine-tech/core-service/internal/exchange"
 	"github.com/hushine-tech/core-service/internal/notification"
@@ -44,6 +45,15 @@ type AccountGRPCService struct {
 	symbols    *catalog.Catalog
 	reconciler *reconciliation.Service // Phase C; may be nil or disabled
 	notifier   *notification.Service
+	creds      *credential.Manager
+}
+
+type AccountServiceOption func(*AccountGRPCService)
+
+func WithCredentialManager(manager *credential.Manager) AccountServiceOption {
+	return func(s *AccountGRPCService) {
+		s.creds = manager
+	}
 }
 
 func NewAccountGRPCService(
@@ -51,19 +61,23 @@ func NewAccountGRPCService(
 	router *exchange.AdapterRouter,
 	symbols *catalog.Catalog,
 	reconciler *reconciliation.Service,
-	notifierOpt ...*notification.Service,
+	opts ...any,
 ) *AccountGRPCService {
-	var notifier *notification.Service
-	if len(notifierOpt) > 0 {
-		notifier = notifierOpt[0]
-	}
-	return &AccountGRPCService{
+	svc := &AccountGRPCService{
 		repo:       repo,
 		router:     router,
 		symbols:    symbols,
 		reconciler: reconciler,
-		notifier:   notifier,
 	}
+	for _, opt := range opts {
+		switch v := opt.(type) {
+		case *notification.Service:
+			svc.notifier = v
+		case AccountServiceOption:
+			v(svc)
+		}
+	}
+	return svc
 }
 
 func requireUserID(userID int64) error {
@@ -71,6 +85,109 @@ func requireUserID(userID int64) error {
 		return status.Error(codes.InvalidArgument, "user_id is required")
 	}
 	return nil
+}
+
+func validateEnvironment(raw int32) (domain.Environment, error) {
+	env := domain.Environment(raw)
+	switch env {
+	case domain.EnvironmentBacktest, domain.EnvironmentDemo, domain.EnvironmentLive:
+		return env, nil
+	default:
+		return 0, status.Error(codes.InvalidArgument, "environment is invalid")
+	}
+}
+
+func validateExchange(raw int32) (domain.Exchange, error) {
+	exchange := domain.Exchange(raw)
+	switch exchange {
+	case domain.ExchangeBinance, domain.ExchangeOKX:
+		return exchange, nil
+	default:
+		return 0, status.Error(codes.InvalidArgument, "exchange is invalid")
+	}
+}
+
+func validateMarket(raw int32) (domain.Market, error) {
+	market := domain.Market(raw)
+	switch market {
+	case domain.MarketSpot, domain.MarketPerpetualFutures, domain.MarketDeliveryFutures:
+		return market, nil
+	default:
+		return 0, status.Error(codes.InvalidArgument, "market is invalid")
+	}
+}
+
+func normalizeVenueModes(market domain.Market, rawMargin, rawPosition int32) (domain.MarginMode, domain.PositionMode, error) {
+	margin := domain.MarginMode(rawMargin)
+	position := domain.PositionMode(rawPosition)
+	switch market {
+	case domain.MarketSpot:
+		if rawMargin == 0 {
+			margin = domain.MarginModeNone
+		}
+		if rawPosition == 0 {
+			position = domain.PositionModeNone
+		}
+	case domain.MarketPerpetualFutures:
+		if rawMargin == 0 {
+			margin = domain.MarginModeCross
+		}
+		if rawPosition == 0 {
+			position = domain.PositionModeOneWay
+		}
+	}
+	venue := domain.Venue{Market: market, MarginMode: margin, PositionMode: position}
+	if err := venue.ValidateMarketModes(); err != nil {
+		return 0, 0, status.Error(codes.InvalidArgument, err.Error())
+	}
+	return margin, position, nil
+}
+
+func accountModeFromEnvironment(env domain.Environment) domain.AccountMode {
+	switch env {
+	case domain.EnvironmentDemo:
+		return domain.AccountModeBinanceTestnet
+	case domain.EnvironmentLive:
+		return domain.AccountModeBinanceLive
+	default:
+		return domain.AccountModeBacktest
+	}
+}
+
+func (s *AccountGRPCService) ensureVenueCanAttachAccount(ctx context.Context, userID int64, accountID int64, env domain.Environment) error {
+	if accountID == 0 {
+		return nil
+	}
+	account, err := s.repo.GetAccount(ctx, accountID, userID)
+	if err != nil {
+		return mapRepoErr(err)
+	}
+	if account.Status != 0 && account.Status != domain.AccountStatusActive {
+		return status.Error(codes.FailedPrecondition, "account is not active")
+	}
+	if environmentFromAccount(account) != env {
+		return status.Error(codes.FailedPrecondition, "venue environment does not match account environment")
+	}
+	if n, err := s.repo.CountActiveSessionsForAccount(ctx, userID, accountID); err != nil {
+		return mapRepoErr(err)
+	} else if n > 0 {
+		return status.Error(codes.FailedPrecondition, "account has active sessions")
+	}
+	return nil
+}
+
+func environmentFromAccount(account domain.Account) domain.Environment {
+	if account.Environment == domain.EnvironmentDemo || account.Environment == domain.EnvironmentLive {
+		return account.Environment
+	}
+	switch account.Mode {
+	case domain.AccountModeBinanceLive:
+		return domain.EnvironmentLive
+	case domain.AccountModeBinanceTestnet:
+		return domain.EnvironmentDemo
+	default:
+		return domain.EnvironmentBacktest
+	}
 }
 
 func isActiveSessionStatus(raw string) bool {
@@ -415,14 +532,9 @@ func (s *AccountGRPCService) CreateAccount(ctx context.Context, req *accountv1.C
 	if name == "" {
 		return nil, status.Error(codes.InvalidArgument, "name is required")
 	}
-
-	marginMode := req.GetMarginMode()
-	if marginMode == "" {
-		marginMode = "cross"
-	}
-	positionMode := req.GetPositionMode()
-	if positionMode == "" {
-		positionMode = "one_way"
+	env, err := validateEnvironment(req.GetEnvironment())
+	if err != nil {
+		return nil, err
 	}
 	feeRate := req.GetDefaultFeeRate()
 	if feeRate == 0 {
@@ -432,11 +544,11 @@ func (s *AccountGRPCService) CreateAccount(ctx context.Context, req *accountv1.C
 		UserID:         req.GetUserId(),
 		Name:           name,
 		Description:    strings.TrimSpace(req.GetDescription()),
-		Mode:           domain.AccountMode(req.GetMode()),
-		APIKey:         req.GetApiKey(),
-		APISecret:      req.GetApiSecret(),
-		MarginMode:     marginMode,
-		PositionMode:   positionMode,
+		Environment:    env,
+		Status:         domain.AccountStatusActive,
+		Mode:           accountModeFromEnvironment(env),
+		MarginMode:     "cross",
+		PositionMode:   "one_way",
 		SlippageBps:    req.GetSlippageBps(),
 		DefaultFeeRate: feeRate,
 		CreatedAt:      time.Now().UTC(),
@@ -448,8 +560,28 @@ func (s *AccountGRPCService) CreateAccount(ctx context.Context, req *accountv1.C
 	}
 	account.AccountID = newID
 
+	if env == domain.EnvironmentBacktest {
+		accountID := newID
+		if _, err := s.repo.CreateVenue(ctx, domain.Venue{
+			UserID:       req.GetUserId(),
+			AccountID:    &accountID,
+			Exchange:     domain.ExchangeBinance,
+			Market:       domain.MarketPerpetualFutures,
+			Environment:  domain.EnvironmentBacktest,
+			Status:       domain.VenueStatusActive,
+			DisplayName:  "Simulated Binance Perpetual Futures",
+			Description:  "default simulated venue",
+			MarginMode:   domain.MarginModeCross,
+			PositionMode: domain.PositionModeOneWay,
+			CreatedAt:    time.Now().UTC(),
+			UpdatedAt:    time.Now().UTC(),
+		}); err != nil {
+			return nil, status.Errorf(codes.Internal, "create default venue: %v", err)
+		}
+	}
+
 	// 回测账号有初始余额：写入 accounts 表当前状态 + initial_seed 快照
-	if account.Mode == domain.AccountModeBacktest && req.GetInitialBalance() > 0 {
+	if env == domain.EnvironmentBacktest && req.GetInitialBalance() > 0 {
 		totalValue := req.GetInitialBalance()
 		spot := domain.SpotWallet{}
 		if req.GetInitialBalance() > 0 {
@@ -485,9 +617,10 @@ func (s *AccountGRPCService) CreateAccount(ctx context.Context, req *accountv1.C
 	return &accountv1.CreateAccountResponse{
 		AccountId:   newID,
 		Name:        account.Name,
-		Mode:        int32(account.Mode),
+		Environment: int32(account.Environment),
 		CreatedAt:   timestamppb.New(account.CreatedAt),
 		Description: account.Description,
+		Status:      int32(account.Status),
 	}, nil
 }
 
@@ -534,15 +667,358 @@ func (s *AccountGRPCService) GetAccount(ctx context.Context, req *accountv1.GetA
 	return &accountv1.GetAccountResponse{Account: toProtoRegistryEntry(account)}, nil
 }
 
+func (s *AccountGRPCService) CreateVenue(ctx context.Context, req *accountv1.CreateVenueRequest) (*accountv1.CreateVenueResponse, error) {
+	if err := requireUserID(req.GetUserId()); err != nil {
+		return nil, err
+	}
+	env, err := validateEnvironment(req.GetEnvironment())
+	if err != nil {
+		return nil, err
+	}
+	exchangeValue, err := validateExchange(req.GetExchange())
+	if err != nil {
+		return nil, err
+	}
+	market, err := validateMarket(req.GetMarket())
+	if err != nil {
+		return nil, err
+	}
+	marginMode, positionMode, err := normalizeVenueModes(market, req.GetMarginMode(), req.GetPositionMode())
+	if err != nil {
+		return nil, err
+	}
+	statusValue := domain.VenueStatus(req.GetStatus())
+	if statusValue == 0 {
+		statusValue = domain.VenueStatusActive
+	}
+	if statusValue != domain.VenueStatusActive && statusValue != domain.VenueStatusDisabled && statusValue != domain.VenueStatusRevoked {
+		return nil, status.Error(codes.InvalidArgument, "venue status is invalid")
+	}
+	if err := s.ensureVenueCanAttachAccount(ctx, req.GetUserId(), req.GetAccountId(), env); err != nil {
+		return nil, err
+	}
+
+	credentialJSON := strings.TrimSpace(req.GetCredentialJson())
+	encryptedCredential := ""
+	credentialKeyVersion := ""
+	apiKey := strings.TrimSpace(req.GetApiKey())
+	if env != domain.EnvironmentBacktest {
+		if s.creds == nil {
+			return nil, status.Error(codes.FailedPrecondition, "credential manager is not configured")
+		}
+		if apiKey == "" {
+			return nil, status.Error(codes.InvalidArgument, "api_key is required")
+		}
+		if credentialJSON == "" {
+			return nil, status.Error(codes.InvalidArgument, "credential_json is required")
+		}
+		encryptedCredential, err = s.creds.Encrypt(credentialJSON)
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "encrypt credential: %v", err)
+		}
+		credentialKeyVersion = s.creds.KeyVersion()
+	}
+	var accountID *int64
+	if req.GetAccountId() > 0 {
+		id := req.GetAccountId()
+		accountID = &id
+	}
+	now := time.Now().UTC()
+	venue, err := s.repo.CreateVenue(ctx, domain.Venue{
+		UserID:                req.GetUserId(),
+		AccountID:             accountID,
+		Exchange:              exchangeValue,
+		Market:                market,
+		Environment:           env,
+		Status:                statusValue,
+		DisplayName:           strings.TrimSpace(req.GetDisplayName()),
+		Description:           strings.TrimSpace(req.GetDescription()),
+		APIKey:                apiKey,
+		CredentialInfo:        encryptedCredential,
+		CredentialKeyVersion:  credentialKeyVersion,
+		CredentialFingerprint: credential.Fingerprint(apiKey),
+		MarginMode:            marginMode,
+		PositionMode:          positionMode,
+		CreatedAt:             now,
+		UpdatedAt:             now,
+	})
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	return &accountv1.CreateVenueResponse{Venue: toProtoVenue(venue)}, nil
+}
+
+func (s *AccountGRPCService) ListVenues(ctx context.Context, req *accountv1.ListVenuesRequest) (*accountv1.ListVenuesResponse, error) {
+	if err := requireUserID(req.GetUserId()); err != nil {
+		return nil, err
+	}
+	venues, meta, err := s.repo.ListVenues(ctx, req.GetUserId(), req.GetAccountId(), req.GetIncludeUnbound(), req.GetIncludeInactive(), int(req.GetLimit()), int(req.GetOffset()))
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	out := make([]*accountv1.VenueEntry, 0, len(venues))
+	for _, venue := range venues {
+		out = append(out, toProtoVenue(venue))
+	}
+	return &accountv1.ListVenuesResponse{Venues: out, HasMore: meta.HasMore, Total: meta.Total}, nil
+}
+
+func (s *AccountGRPCService) GetVenue(ctx context.Context, req *accountv1.GetVenueRequest) (*accountv1.GetVenueResponse, error) {
+	if err := requireUserID(req.GetUserId()); err != nil {
+		return nil, err
+	}
+	if req.GetVenueId() == 0 {
+		return nil, status.Error(codes.InvalidArgument, "venue_id is required")
+	}
+	venue, err := s.repo.GetVenue(ctx, req.GetVenueId(), req.GetUserId())
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	return &accountv1.GetVenueResponse{Venue: toProtoVenue(venue)}, nil
+}
+
+func (s *AccountGRPCService) BindVenue(ctx context.Context, req *accountv1.BindVenueRequest) (*accountv1.BindVenueResponse, error) {
+	if err := requireUserID(req.GetUserId()); err != nil {
+		return nil, err
+	}
+	if req.GetAccountId() == 0 || req.GetVenueId() == 0 {
+		return nil, status.Error(codes.InvalidArgument, "account_id and venue_id are required")
+	}
+	if n, err := s.repo.CountActiveSessionsForAccount(ctx, req.GetUserId(), req.GetAccountId()); err != nil {
+		return nil, mapRepoErr(err)
+	} else if n > 0 {
+		return nil, status.Error(codes.FailedPrecondition, "account has active sessions")
+	}
+	venue, err := s.repo.BindVenue(ctx, req.GetUserId(), req.GetAccountId(), req.GetVenueId(), strings.TrimSpace(req.GetReason()))
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	return &accountv1.BindVenueResponse{Venue: toProtoVenue(venue)}, nil
+}
+
+func (s *AccountGRPCService) ReleaseVenue(ctx context.Context, req *accountv1.ReleaseVenueRequest) (*accountv1.ReleaseVenueResponse, error) {
+	if err := requireUserID(req.GetUserId()); err != nil {
+		return nil, err
+	}
+	if req.GetVenueId() == 0 {
+		return nil, status.Error(codes.InvalidArgument, "venue_id is required")
+	}
+	venue, err := s.repo.GetVenue(ctx, req.GetVenueId(), req.GetUserId())
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	if venue.AccountID != nil {
+		if n, err := s.repo.CountActiveSessionsForAccount(ctx, req.GetUserId(), *venue.AccountID); err != nil {
+			return nil, mapRepoErr(err)
+		} else if n > 0 {
+			return nil, status.Error(codes.FailedPrecondition, "account has active sessions")
+		}
+	}
+	venue, err = s.repo.ReleaseVenue(ctx, req.GetUserId(), req.GetVenueId(), strings.TrimSpace(req.GetReason()))
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	return &accountv1.ReleaseVenueResponse{Venue: toProtoVenue(venue)}, nil
+}
+
+func (s *AccountGRPCService) ArchiveVenue(ctx context.Context, req *accountv1.ArchiveVenueRequest) (*accountv1.ArchiveVenueResponse, error) {
+	if err := requireUserID(req.GetUserId()); err != nil {
+		return nil, err
+	}
+	if req.GetVenueId() == 0 {
+		return nil, status.Error(codes.InvalidArgument, "venue_id is required")
+	}
+	venue, err := s.repo.GetVenue(ctx, req.GetVenueId(), req.GetUserId())
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	if venue.AccountID != nil {
+		if n, err := s.repo.CountActiveSessionsForAccount(ctx, req.GetUserId(), *venue.AccountID); err != nil {
+			return nil, mapRepoErr(err)
+		} else if n > 0 {
+			return nil, status.Error(codes.FailedPrecondition, "account has active sessions")
+		}
+	}
+	if err := s.repo.ArchiveVenue(ctx, req.GetUserId(), req.GetVenueId(), strings.TrimSpace(req.GetReason())); err != nil {
+		return nil, mapRepoErr(err)
+	}
+	return &accountv1.ArchiveVenueResponse{}, nil
+}
+
+func (s *AccountGRPCService) PreflightStrategySession(ctx context.Context, req *accountv1.PreflightStrategySessionRequest) (*accountv1.PreflightStrategySessionResponse, error) {
+	if err := requireUserID(req.GetUserId()); err != nil {
+		return nil, err
+	}
+	if req.GetAccountId() == 0 {
+		return nil, status.Error(codes.InvalidArgument, "account_id is required")
+	}
+	account, err := s.repo.GetAccount(ctx, req.GetAccountId(), req.GetUserId())
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	var issues []*accountv1.PreflightIssue
+	if account.Status != 0 && account.Status != domain.AccountStatusActive {
+		issues = append(issues, &accountv1.PreflightIssue{Code: "ACCOUNT_INACTIVE", Message: "account is not active"})
+	}
+	if n, err := s.repo.CountActiveSessionsForAccount(ctx, req.GetUserId(), req.GetAccountId()); err != nil {
+		return nil, mapRepoErr(err)
+	} else if n > 0 {
+		issues = append(issues, &accountv1.PreflightIssue{Code: "ACTIVE_SESSION_EXISTS", Message: "account already has an active session"})
+	}
+
+	resolved := make([]*accountv1.VenueEntry, 0, len(req.GetRequiredVenues()))
+	for _, required := range req.GetRequiredVenues() {
+		exchangeValue, err := validateExchange(required.GetExchange())
+		if err != nil {
+			return nil, err
+		}
+		market, err := validateMarket(required.GetMarket())
+		if err != nil {
+			return nil, err
+		}
+		meta, err := s.repo.ResolveVenueRouteMeta(ctx, req.GetAccountId(), exchangeValue, market)
+		if err != nil {
+			if errors.Is(err, repository.ErrNotFound) {
+				issues = append(issues, &accountv1.PreflightIssue{
+					Code:     "VENUE_MISSING",
+					Message:  "active venue is missing",
+					Exchange: int32(exchangeValue),
+					Market:   int32(market),
+				})
+				continue
+			}
+			return nil, mapRepoErr(err)
+		}
+		if meta.Environment != environmentFromAccount(account) {
+			issues = append(issues, &accountv1.PreflightIssue{
+				Code:     "VENUE_ENVIRONMENT_MISMATCH",
+				Message:  "venue environment does not match account environment",
+				Exchange: int32(exchangeValue),
+				Market:   int32(market),
+			})
+			continue
+		}
+		if meta.Environment != domain.EnvironmentBacktest && strings.TrimSpace(meta.CredentialInfo) == "" {
+			issues = append(issues, &accountv1.PreflightIssue{
+				Code:     "VENUE_CREDENTIAL_MISSING",
+				Message:  "venue credential is missing",
+				Exchange: int32(exchangeValue),
+				Market:   int32(market),
+			})
+			continue
+		}
+		resolved = append(resolved, &accountv1.VenueEntry{
+			VenueId:      meta.VenueID,
+			UserId:       meta.UserID,
+			AccountId:    meta.AccountID,
+			Exchange:     int32(meta.Exchange),
+			Market:       int32(meta.Market),
+			Environment:  int32(meta.Environment),
+			Status:       int32(domain.VenueStatusActive),
+			ApiKey:       meta.APIKey,
+			MarginMode:   int32(meta.MarginMode),
+			PositionMode: int32(meta.PositionMode),
+		})
+	}
+	return &accountv1.PreflightStrategySessionResponse{
+		Ok:             len(issues) == 0,
+		Issues:         issues,
+		ResolvedVenues: resolved,
+	}, nil
+}
+
+func (s *AccountGRPCService) GetVenueRouteMeta(ctx context.Context, req *accountv1.GetVenueRouteMetaRequest) (*accountv1.GetVenueRouteMetaResponse, error) {
+	if req.GetAccountId() == 0 {
+		return nil, status.Error(codes.InvalidArgument, "account_id is required")
+	}
+	exchangeValue, err := validateExchange(req.GetExchange())
+	if err != nil {
+		return nil, err
+	}
+	market, err := validateMarket(req.GetMarket())
+	if err != nil {
+		return nil, err
+	}
+	meta, err := s.repo.ResolveVenueRouteMeta(ctx, req.GetAccountId(), exchangeValue, market)
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	credentialJSON := ""
+	if meta.Environment != domain.EnvironmentBacktest {
+		if s.creds == nil {
+			return nil, status.Error(codes.FailedPrecondition, "credential manager is not configured")
+		}
+		if strings.TrimSpace(meta.CredentialInfo) == "" {
+			return nil, status.Error(codes.FailedPrecondition, "venue credential is missing")
+		}
+		credentialJSON, err = s.creds.Decrypt(meta.CredentialInfo)
+		if err != nil {
+			return nil, status.Errorf(codes.FailedPrecondition, "decrypt venue credential: %v", err)
+		}
+	}
+	return &accountv1.GetVenueRouteMetaResponse{
+		AccountId:      meta.AccountID,
+		VenueId:        meta.VenueID,
+		UserId:         meta.UserID,
+		Environment:    int32(meta.Environment),
+		Exchange:       int32(meta.Exchange),
+		Market:         int32(meta.Market),
+		MarginMode:     int32(meta.MarginMode),
+		PositionMode:   int32(meta.PositionMode),
+		ApiKey:         meta.APIKey,
+		CredentialJson: credentialJSON,
+		DefaultFeeRate: meta.DefaultFeeRate,
+		SlippageBps:    meta.SlippageBps,
+	}, nil
+}
+
 func toProtoRegistryEntry(a domain.Account) *accountv1.AccountRegistryEntry {
+	env := environmentFromAccount(a)
+	statusValue := a.Status
+	if statusValue == 0 {
+		statusValue = domain.AccountStatusActive
+	}
 	return &accountv1.AccountRegistryEntry{
 		AccountId:   a.AccountID,
 		Name:        a.Name,
-		Mode:        int32(a.Mode),
+		Environment: int32(env),
 		CreatedAt:   timestamppb.New(a.CreatedAt),
 		UserId:      a.UserID,
 		Description: a.Description,
+		Status:      int32(statusValue),
 	}
+}
+
+func toProtoVenue(v domain.Venue) *accountv1.VenueEntry {
+	var accountID int64
+	if v.AccountID != nil {
+		accountID = *v.AccountID
+	}
+	out := &accountv1.VenueEntry{
+		VenueId:               v.VenueID,
+		UserId:                v.UserID,
+		AccountId:             accountID,
+		Exchange:              int32(v.Exchange),
+		Market:                int32(v.Market),
+		Environment:           int32(v.Environment),
+		Status:                int32(v.Status),
+		DisplayName:           v.DisplayName,
+		Description:           v.Description,
+		ApiKey:                v.APIKey,
+		CredentialFingerprint: v.CredentialFingerprint,
+		MarginMode:            int32(v.MarginMode),
+		PositionMode:          int32(v.PositionMode),
+		CreatedAt:             timestamppb.New(v.CreatedAt),
+		UpdatedAt:             timestamppb.New(v.UpdatedAt),
+		ArchivedReason:        v.ArchivedReason,
+	}
+	if v.LastUsedAt != nil {
+		out.LastUsedAt = timestamppb.New(*v.LastUsedAt)
+	}
+	if v.ArchivedAt != nil {
+		out.ArchivedAt = timestamppb.New(*v.ArchivedAt)
+	}
+	return out
 }
 
 // GetOnlineAccountInfo returns wallet state: backtest from accounts table; live/testnet from exchange (then updates accounts table).
@@ -1617,10 +2093,10 @@ func normalizeServiceSessionType(mode int, sessionType string) string {
 
 func mapRepoErr(err error) error {
 	if errors.Is(err, repository.ErrNotFound) {
-		return status.Error(codes.NotFound, "account not found")
+		return status.Error(codes.NotFound, "resource not found")
 	}
 	if errors.Is(err, repository.ErrConflict) {
-		return status.Error(codes.FailedPrecondition, "account already has an active session")
+		return status.Error(codes.FailedPrecondition, "resource conflict")
 	}
 	return status.Errorf(codes.Unavailable, "repository error: %v", err)
 }

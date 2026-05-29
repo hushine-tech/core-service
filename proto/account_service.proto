@@ -27,6 +27,15 @@ service AccountService {
   // Get one account by id; credentials are never returned.
   rpc GetAccount(GetAccountRequest) returns (GetAccountResponse);
 
+  rpc CreateVenue(CreateVenueRequest) returns (CreateVenueResponse);
+  rpc ListVenues(ListVenuesRequest) returns (ListVenuesResponse);
+  rpc GetVenue(GetVenueRequest) returns (GetVenueResponse);
+  rpc BindVenue(BindVenueRequest) returns (BindVenueResponse);
+  rpc ReleaseVenue(ReleaseVenueRequest) returns (ReleaseVenueResponse);
+  rpc ArchiveVenue(ArchiveVenueRequest) returns (ArchiveVenueResponse);
+  rpc PreflightStrategySession(PreflightStrategySessionRequest) returns (PreflightStrategySessionResponse);
+  rpc GetVenueRouteMeta(GetVenueRouteMetaRequest) returns (GetVenueRouteMetaResponse);
+
   // Latest wallet state: mode=0 reads DB; mode=1/2 fetches from Binance (live/testnet) per account registration.
   rpc GetOnlineAccountInfo(GetOnlineAccountInfoRequest) returns (GetOnlineAccountInfoResponse);
 
@@ -200,12 +209,10 @@ message GetAccountResponse {
 
 message CreateAccountRequest {
   string name = 1;
-  int32 mode = 2;
-  string api_key = 3;
-  string api_secret = 4;
+  int32 environment = 2;
+  reserved 3, 4; // removed: account credentials now live on venues
   double initial_balance = 5;
-  string margin_mode = 6;      // default: "cross"
-  string position_mode = 7;    // default: "one_way"
+  reserved 6, 7; // removed: market modes now live on venues
   double slippage_bps = 8;     // default: 0.0
   double default_fee_rate = 9; // default: 0.0004
   string description = 10;
@@ -215,19 +222,159 @@ message CreateAccountRequest {
 message CreateAccountResponse {
   int64 account_id = 1;
   string name = 2;
-  int32 mode = 3;
+  int32 environment = 3;
   google.protobuf.Timestamp created_at = 4;
   string description = 5;
+  int32 status = 6;
 }
 
 // Account metadata without API credentials (safe for portal responses).
 message AccountRegistryEntry {
   int64 account_id = 1;
   string name = 2;
-  int32 mode = 3;
+  int32 environment = 3;
   google.protobuf.Timestamp created_at = 4;
   int64 user_id = 5;
   string description = 6;
+  int32 status = 7;
+}
+
+message VenueEntry {
+  int64 venue_id = 1;
+  int64 user_id = 2;
+  int64 account_id = 3;
+  int32 exchange = 4;
+  int32 market = 5;
+  int32 environment = 6;
+  int32 status = 7;
+  string display_name = 8;
+  string description = 9;
+  string api_key = 10;
+  string credential_fingerprint = 11;
+  int32 margin_mode = 12;
+  int32 position_mode = 13;
+  google.protobuf.Timestamp created_at = 14;
+  google.protobuf.Timestamp updated_at = 15;
+  google.protobuf.Timestamp last_used_at = 16;
+  google.protobuf.Timestamp archived_at = 17;
+  string archived_reason = 18;
+}
+
+message CreateVenueRequest {
+  int64 user_id = 1;
+  int64 account_id = 2;
+  int32 exchange = 3;
+  int32 market = 4;
+  int32 environment = 5;
+  int32 status = 6;
+  string display_name = 7;
+  string description = 8;
+  string api_key = 9;
+  string credential_json = 10;
+  int32 margin_mode = 11;
+  int32 position_mode = 12;
+}
+
+message CreateVenueResponse {
+  VenueEntry venue = 1;
+}
+
+message ListVenuesRequest {
+  int64 user_id = 1;
+  int64 account_id = 2;
+  bool include_unbound = 3;
+  bool include_inactive = 4;
+  int32 limit = 5;
+  int32 offset = 6;
+}
+
+message ListVenuesResponse {
+  repeated VenueEntry venues = 1;
+  bool has_more = 2;
+  int64 total = 3;
+}
+
+message GetVenueRequest {
+  int64 user_id = 1;
+  int64 venue_id = 2;
+}
+
+message GetVenueResponse {
+  VenueEntry venue = 1;
+}
+
+message BindVenueRequest {
+  int64 user_id = 1;
+  int64 account_id = 2;
+  int64 venue_id = 3;
+  string reason = 4;
+}
+
+message BindVenueResponse {
+  VenueEntry venue = 1;
+}
+
+message ReleaseVenueRequest {
+  int64 user_id = 1;
+  int64 venue_id = 2;
+  string reason = 3;
+}
+
+message ReleaseVenueResponse {
+  VenueEntry venue = 1;
+}
+
+message ArchiveVenueRequest {
+  int64 user_id = 1;
+  int64 venue_id = 2;
+  string reason = 3;
+}
+
+message ArchiveVenueResponse {}
+
+message RequiredVenue {
+  int32 exchange = 1;
+  int32 market = 2;
+}
+
+message PreflightIssue {
+  string code = 1;
+  string message = 2;
+  int32 exchange = 3;
+  int32 market = 4;
+}
+
+message PreflightStrategySessionRequest {
+  int64 user_id = 1;
+  int64 account_id = 2;
+  repeated RequiredVenue required_venues = 3;
+}
+
+message PreflightStrategySessionResponse {
+  bool ok = 1;
+  repeated PreflightIssue issues = 2;
+  repeated VenueEntry resolved_venues = 3;
+}
+
+message GetVenueRouteMetaRequest {
+  int64 account_id = 1;
+  int32 exchange = 2;
+  int32 market = 3;
+}
+
+message GetVenueRouteMetaResponse {
+  int64 account_id = 1;
+  int64 venue_id = 2;
+  int64 user_id = 3;
+  int32 environment = 4;
+  int32 exchange = 5;
+  int32 market = 6;
+  int32 margin_mode = 7;
+  int32 position_mode = 8;
+  string api_key = 9;
+  string credential_json = 10;
+  double default_fee_rate = 11;
+  double slippage_bps = 12;
 }
 
 message GetOnlineAccountInfoRequest {

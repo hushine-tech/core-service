@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/hushine-tech/core-service/gen/accountv1"
+	"github.com/hushine-tech/core-service/internal/credential"
 	"github.com/hushine-tech/core-service/internal/domain"
 	"github.com/hushine-tech/core-service/internal/repository"
 	"google.golang.org/grpc/codes"
@@ -20,6 +21,10 @@ const serviceTestUserID int64 = 7
 type stubRepo struct {
 	account              domain.Account
 	createdAccount       domain.Account
+	venues               []domain.Venue
+	createdVenues        []domain.Venue
+	routeMeta            domain.VenueRouteMeta
+	activeSessionCount   int64
 	state                domain.OnlineAccountInfo
 	reconciliationRuns   []domain.ReconciliationRun
 	sessionSnapshots     []domain.SnapshotRow
@@ -109,34 +114,125 @@ func (s *stubRepo) ListAccountsPage(ctx context.Context, userID int64, limit, of
 	return list, repository.PageMeta{Total: int64(len(list))}, nil
 }
 func (s *stubRepo) CreateVenue(_ context.Context, venue domain.Venue) (domain.Venue, error) {
+	if s.err != nil {
+		return domain.Venue{}, s.err
+	}
+	if venue.VenueID == 0 {
+		venue.VenueID = int64(len(s.createdVenues) + len(s.venues) + 1)
+	}
+	if venue.CreatedAt.IsZero() {
+		venue.CreatedAt = time.Now().UTC()
+	}
+	if venue.UpdatedAt.IsZero() {
+		venue.UpdatedAt = venue.CreatedAt
+	}
+	s.createdVenues = append(s.createdVenues, venue)
+	s.venues = append(s.venues, venue)
 	return venue, s.err
 }
-func (s *stubRepo) GetVenue(_ context.Context, _ int64, _ int64) (domain.Venue, error) {
-	return domain.Venue{}, errors.New("not implemented")
+func (s *stubRepo) GetVenue(_ context.Context, venueID int64, userID int64) (domain.Venue, error) {
+	for _, venue := range s.venues {
+		if venue.VenueID == venueID && (userID == 0 || venue.UserID == userID) {
+			return venue, nil
+		}
+	}
+	return domain.Venue{}, repository.ErrNotFound
 }
-func (s *stubRepo) ListVenues(_ context.Context, _ int64, _ int64, _ bool, _ bool, _ int, _ int) ([]domain.Venue, repository.PageMeta, error) {
-	return nil, repository.PageMeta{}, errors.New("not implemented")
+func (s *stubRepo) ListVenues(_ context.Context, userID int64, accountID int64, includeUnbound bool, includeInactive bool, _ int, _ int) ([]domain.Venue, repository.PageMeta, error) {
+	var out []domain.Venue
+	for _, venue := range s.venues {
+		if userID > 0 && venue.UserID != userID {
+			continue
+		}
+		if accountID > 0 {
+			if venue.AccountID == nil || *venue.AccountID != accountID {
+				continue
+			}
+		} else if !includeUnbound && venue.AccountID == nil {
+			continue
+		}
+		if !includeInactive && venue.Status != domain.VenueStatusActive {
+			continue
+		}
+		out = append(out, venue)
+	}
+	return out, repository.PageMeta{Total: int64(len(out))}, nil
 }
-func (s *stubRepo) BindVenue(_ context.Context, _ int64, _ int64, _ int64, _ string) (domain.Venue, error) {
-	return domain.Venue{}, errors.New("not implemented")
+func (s *stubRepo) BindVenue(_ context.Context, userID int64, accountID int64, venueID int64, _ string) (domain.Venue, error) {
+	account, err := s.GetAccount(context.Background(), accountID, userID)
+	if err != nil {
+		return domain.Venue{}, err
+	}
+	for i, venue := range s.venues {
+		if venue.VenueID == venueID && venue.UserID == userID {
+			if venue.Environment != account.Environment {
+				return domain.Venue{}, repository.ErrConflict
+			}
+			venue.AccountID = &accountID
+			s.venues[i] = venue
+			return venue, nil
+		}
+	}
+	return domain.Venue{}, repository.ErrNotFound
 }
-func (s *stubRepo) ReleaseVenue(_ context.Context, _ int64, _ int64, _ string) (domain.Venue, error) {
-	return domain.Venue{}, errors.New("not implemented")
+func (s *stubRepo) ReleaseVenue(_ context.Context, userID int64, venueID int64, _ string) (domain.Venue, error) {
+	for i, venue := range s.venues {
+		if venue.VenueID == venueID && venue.UserID == userID {
+			venue.AccountID = nil
+			s.venues[i] = venue
+			return venue, nil
+		}
+	}
+	return domain.Venue{}, repository.ErrNotFound
 }
-func (s *stubRepo) ArchiveVenue(_ context.Context, _ int64, _ int64, _ string) error {
-	return errors.New("not implemented")
+func (s *stubRepo) ArchiveVenue(_ context.Context, userID int64, venueID int64, _ string) error {
+	for i, venue := range s.venues {
+		if venue.VenueID == venueID && venue.UserID == userID {
+			s.venues[i].Status = domain.VenueStatusArchived
+			return nil
+		}
+	}
+	return repository.ErrNotFound
 }
-func (s *stubRepo) ListActiveAccountVenues(_ context.Context, _ int64, _ int64) ([]domain.Venue, error) {
-	return nil, errors.New("not implemented")
+func (s *stubRepo) ListActiveAccountVenues(_ context.Context, userID int64, accountID int64) ([]domain.Venue, error) {
+	var out []domain.Venue
+	for _, venue := range s.venues {
+		if venue.UserID == userID && venue.AccountID != nil && *venue.AccountID == accountID && venue.Status == domain.VenueStatusActive {
+			out = append(out, venue)
+		}
+	}
+	return out, nil
 }
 func (s *stubRepo) CountActiveSessionsForAccount(_ context.Context, _ int64, _ int64) (int64, error) {
-	return 0, errors.New("not implemented")
+	return s.activeSessionCount, nil
 }
 func (s *stubRepo) SaveSessionVenues(_ context.Context, _ string, _ []domain.Venue) error {
 	return errors.New("not implemented")
 }
-func (s *stubRepo) ResolveVenueRouteMeta(_ context.Context, _ int64, _ domain.Exchange, _ domain.Market) (domain.VenueRouteMeta, error) {
-	return domain.VenueRouteMeta{}, errors.New("not implemented")
+func (s *stubRepo) ResolveVenueRouteMeta(_ context.Context, accountID int64, exchange domain.Exchange, market domain.Market) (domain.VenueRouteMeta, error) {
+	if s.routeMeta.AccountID != 0 {
+		if s.routeMeta.AccountID == accountID && s.routeMeta.Exchange == exchange && s.routeMeta.Market == market {
+			return s.routeMeta, nil
+		}
+		return domain.VenueRouteMeta{}, repository.ErrNotFound
+	}
+	for _, venue := range s.venues {
+		if venue.AccountID != nil && *venue.AccountID == accountID && venue.Exchange == exchange && venue.Market == market && venue.Status == domain.VenueStatusActive {
+			return domain.VenueRouteMeta{
+				AccountID:      accountID,
+				VenueID:        venue.VenueID,
+				UserID:         venue.UserID,
+				Environment:    venue.Environment,
+				Exchange:       venue.Exchange,
+				Market:         venue.Market,
+				MarginMode:     venue.MarginMode,
+				PositionMode:   venue.PositionMode,
+				APIKey:         venue.APIKey,
+				CredentialInfo: venue.CredentialInfo,
+			}, nil
+		}
+	}
+	return domain.VenueRouteMeta{}, repository.ErrNotFound
 }
 func (s *stubRepo) UpdateAccountState(_ context.Context, info domain.OnlineAccountInfo) error {
 	s.state = info
@@ -309,7 +405,7 @@ func TestCreateAccountStoresDescription(t *testing.T) {
 	resp, err := svc.CreateAccount(context.Background(), &accountv1.CreateAccountRequest{
 		UserId:      serviceTestUserID,
 		Name:        "  backtest-main  ",
-		Mode:        int32(domain.AccountModeBacktest),
+		Environment: int32(domain.EnvironmentBacktest),
 		Description: "  ETH backtest workspace  ",
 	})
 	if err != nil {
@@ -320,6 +416,267 @@ func TestCreateAccountStoresDescription(t *testing.T) {
 	}
 	if got := resp.GetDescription(); got != "ETH backtest workspace" {
 		t.Fatalf("response description = %q", got)
+	}
+}
+
+func TestCreateBacktestAccountCreatesSimulatedVenue(t *testing.T) {
+	repo := &stubRepo{}
+	svc := NewAccountGRPCService(repo, nil, nil, nil)
+
+	resp, err := svc.CreateAccount(context.Background(), &accountv1.CreateAccountRequest{
+		UserId:         serviceTestUserID,
+		Name:           "backtest-main",
+		Environment:    int32(domain.EnvironmentBacktest),
+		InitialBalance: 1000,
+		Description:    "simulation",
+	})
+	if err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+	if resp.GetEnvironment() != int32(domain.EnvironmentBacktest) {
+		t.Fatalf("response environment = %d", resp.GetEnvironment())
+	}
+	if got := repo.createdAccount.Environment; got != domain.EnvironmentBacktest {
+		t.Fatalf("account environment = %v", got)
+	}
+	if len(repo.createdVenues) != 1 {
+		t.Fatalf("created venues len = %d, want 1", len(repo.createdVenues))
+	}
+	venue := repo.createdVenues[0]
+	if venue.AccountID == nil || *venue.AccountID != resp.GetAccountId() {
+		t.Fatalf("venue account_id = %v, want %d", venue.AccountID, resp.GetAccountId())
+	}
+	if venue.Exchange != domain.ExchangeBinance || venue.Market != domain.MarketPerpetualFutures {
+		t.Fatalf("venue route = %v/%v", venue.Exchange, venue.Market)
+	}
+	if venue.Environment != domain.EnvironmentBacktest || venue.Status != domain.VenueStatusActive {
+		t.Fatalf("venue env/status = %v/%v", venue.Environment, venue.Status)
+	}
+	if venue.CredentialInfo != "" || venue.APIKey != "" {
+		t.Fatalf("backtest venue stored credentials: api_key=%q credential_info=%q", venue.APIKey, venue.CredentialInfo)
+	}
+	if repo.state.Futures.InitialBalance != 1000 || repo.state.WalletBalance != 1000 {
+		t.Fatalf("initial state futures=%v wallet=%v", repo.state.Futures.InitialBalance, repo.state.WalletBalance)
+	}
+}
+
+func TestCreateDemoVenueEncryptsCredentials(t *testing.T) {
+	mgr, err := credential.NewManager("12345678901234567890123456789012", "test-v1")
+	if err != nil {
+		t.Fatalf("credential manager: %v", err)
+	}
+	repo := &stubRepo{}
+	svc := NewAccountGRPCService(repo, nil, nil, nil, WithCredentialManager(mgr))
+
+	resp, err := svc.CreateVenue(context.Background(), &accountv1.CreateVenueRequest{
+		UserId:         serviceTestUserID,
+		Environment:    int32(domain.EnvironmentDemo),
+		Exchange:       int32(domain.ExchangeBinance),
+		Market:         int32(domain.MarketPerpetualFutures),
+		Status:         int32(domain.VenueStatusActive),
+		DisplayName:    "Binance testnet",
+		ApiKey:         " api-key-1 ",
+		CredentialJson: `{"api_secret":"secret-1"}`,
+		MarginMode:     int32(domain.MarginModeCross),
+		PositionMode:   int32(domain.PositionModeOneWay),
+	})
+	if err != nil {
+		t.Fatalf("CreateVenue: %v", err)
+	}
+	if resp.GetVenue().GetCredentialFingerprint() == "" {
+		t.Fatal("expected credential fingerprint")
+	}
+	if len(repo.createdVenues) != 1 {
+		t.Fatalf("created venues len = %d, want 1", len(repo.createdVenues))
+	}
+	stored := repo.createdVenues[0]
+	if stored.CredentialInfo == "" || stored.CredentialInfo == `{"api_secret":"secret-1"}` {
+		t.Fatalf("credential_info was not encrypted: %q", stored.CredentialInfo)
+	}
+	plain, err := mgr.Decrypt(stored.CredentialInfo)
+	if err != nil {
+		t.Fatalf("decrypt stored credential: %v", err)
+	}
+	if plain != `{"api_secret":"secret-1"}` {
+		t.Fatalf("decrypted credential = %q", plain)
+	}
+	if stored.APIKey != "api-key-1" {
+		t.Fatalf("api_key = %q", stored.APIKey)
+	}
+}
+
+func TestCreateDemoVenueRequiresAPIKey(t *testing.T) {
+	mgr, err := credential.NewManager("12345678901234567890123456789012", "test-v1")
+	if err != nil {
+		t.Fatalf("credential manager: %v", err)
+	}
+	svc := NewAccountGRPCService(&stubRepo{}, nil, nil, nil, WithCredentialManager(mgr))
+
+	_, err = svc.CreateVenue(context.Background(), &accountv1.CreateVenueRequest{
+		UserId:         serviceTestUserID,
+		Environment:    int32(domain.EnvironmentDemo),
+		Exchange:       int32(domain.ExchangeBinance),
+		Market:         int32(domain.MarketPerpetualFutures),
+		CredentialJson: `{"api_secret":"secret-1"}`,
+	})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("code = %v, want InvalidArgument (err=%v)", status.Code(err), err)
+	}
+}
+
+func TestCreateBoundVenueRejectsEnvironmentMismatch(t *testing.T) {
+	repo := &stubRepo{account: domain.Account{
+		AccountID:   11,
+		UserID:      serviceTestUserID,
+		Environment: domain.EnvironmentBacktest,
+		Status:      domain.AccountStatusActive,
+	}}
+	svc := NewAccountGRPCService(repo, nil, nil, nil)
+
+	_, err := svc.CreateVenue(context.Background(), &accountv1.CreateVenueRequest{
+		UserId:      serviceTestUserID,
+		AccountId:   11,
+		Environment: int32(domain.EnvironmentDemo),
+		Exchange:    int32(domain.ExchangeBinance),
+		Market:      int32(domain.MarketPerpetualFutures),
+	})
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("code = %v, want FailedPrecondition (err=%v)", status.Code(err), err)
+	}
+	if len(repo.createdVenues) != 0 {
+		t.Fatalf("created venues len = %d, want 0", len(repo.createdVenues))
+	}
+}
+
+func TestCreateBoundVenueRejectsActiveSessions(t *testing.T) {
+	repo := &stubRepo{
+		account: domain.Account{
+			AccountID:   11,
+			UserID:      serviceTestUserID,
+			Environment: domain.EnvironmentDemo,
+			Status:      domain.AccountStatusActive,
+		},
+		activeSessionCount: 1,
+	}
+	svc := NewAccountGRPCService(repo, nil, nil, nil)
+
+	_, err := svc.CreateVenue(context.Background(), &accountv1.CreateVenueRequest{
+		UserId:      serviceTestUserID,
+		AccountId:   11,
+		Environment: int32(domain.EnvironmentDemo),
+		Exchange:    int32(domain.ExchangeBinance),
+		Market:      int32(domain.MarketPerpetualFutures),
+	})
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("code = %v, want FailedPrecondition (err=%v)", status.Code(err), err)
+	}
+	if len(repo.createdVenues) != 0 {
+		t.Fatalf("created venues len = %d, want 0", len(repo.createdVenues))
+	}
+}
+
+func TestBindVenueRejectsEnvironmentMismatch(t *testing.T) {
+	repo := &stubRepo{
+		account: domain.Account{
+			AccountID:   11,
+			UserID:      serviceTestUserID,
+			Environment: domain.EnvironmentBacktest,
+			Status:      domain.AccountStatusActive,
+		},
+		venues: []domain.Venue{{
+			VenueID:      22,
+			UserID:       serviceTestUserID,
+			Environment:  domain.EnvironmentDemo,
+			Exchange:     domain.ExchangeBinance,
+			Market:       domain.MarketPerpetualFutures,
+			Status:       domain.VenueStatusActive,
+			MarginMode:   domain.MarginModeCross,
+			PositionMode: domain.PositionModeOneWay,
+		}},
+	}
+	svc := NewAccountGRPCService(repo, nil, nil, nil)
+
+	_, err := svc.BindVenue(context.Background(), &accountv1.BindVenueRequest{
+		UserId:    serviceTestUserID,
+		AccountId: 11,
+		VenueId:   22,
+		Reason:    "test mismatch",
+	})
+	if err == nil {
+		t.Fatal("expected mismatch error")
+	}
+	st, _ := status.FromError(err)
+	if st.Code() != codes.FailedPrecondition {
+		t.Fatalf("code = %v, want FailedPrecondition", st.Code())
+	}
+}
+
+func TestPreflightStrategySessionReportsMissingVenue(t *testing.T) {
+	repo := &stubRepo{account: domain.Account{
+		AccountID:   11,
+		UserID:      serviceTestUserID,
+		Environment: domain.EnvironmentDemo,
+		Status:      domain.AccountStatusActive,
+	}}
+	svc := NewAccountGRPCService(repo, nil, nil, nil)
+
+	resp, err := svc.PreflightStrategySession(context.Background(), &accountv1.PreflightStrategySessionRequest{
+		UserId:    serviceTestUserID,
+		AccountId: 11,
+		RequiredVenues: []*accountv1.RequiredVenue{{
+			Exchange: int32(domain.ExchangeBinance),
+			Market:   int32(domain.MarketPerpetualFutures),
+		}},
+	})
+	if err != nil {
+		t.Fatalf("PreflightStrategySession: %v", err)
+	}
+	if resp.GetOk() {
+		t.Fatal("preflight ok = true, want false")
+	}
+	if len(resp.GetIssues()) != 1 || resp.GetIssues()[0].GetCode() != "VENUE_MISSING" {
+		t.Fatalf("issues = %+v", resp.GetIssues())
+	}
+}
+
+func TestGetVenueRouteMetaDecryptsCredential(t *testing.T) {
+	mgr, err := credential.NewManager("12345678901234567890123456789012", "test-v1")
+	if err != nil {
+		t.Fatalf("credential manager: %v", err)
+	}
+	encrypted, err := mgr.Encrypt(`{"api_secret":"secret-2"}`)
+	if err != nil {
+		t.Fatalf("encrypt: %v", err)
+	}
+	repo := &stubRepo{routeMeta: domain.VenueRouteMeta{
+		AccountID:      11,
+		VenueID:        22,
+		UserID:         serviceTestUserID,
+		Environment:    domain.EnvironmentDemo,
+		Exchange:       domain.ExchangeBinance,
+		Market:         domain.MarketPerpetualFutures,
+		MarginMode:     domain.MarginModeCross,
+		PositionMode:   domain.PositionModeOneWay,
+		APIKey:         "api-key-2",
+		CredentialInfo: encrypted,
+		DefaultFeeRate: 0.0004,
+		SlippageBps:    1.5,
+	}}
+	svc := NewAccountGRPCService(repo, nil, nil, nil, WithCredentialManager(mgr))
+
+	resp, err := svc.GetVenueRouteMeta(context.Background(), &accountv1.GetVenueRouteMetaRequest{
+		AccountId: 11,
+		Exchange:  int32(domain.ExchangeBinance),
+		Market:    int32(domain.MarketPerpetualFutures),
+	})
+	if err != nil {
+		t.Fatalf("GetVenueRouteMeta: %v", err)
+	}
+	if resp.GetCredentialJson() != `{"api_secret":"secret-2"}` {
+		t.Fatalf("credential_json = %q", resp.GetCredentialJson())
+	}
+	if resp.GetApiKey() != "api-key-2" || resp.GetVenueId() != 22 {
+		t.Fatalf("route meta api_key/venue_id = %q/%d", resp.GetApiKey(), resp.GetVenueId())
 	}
 }
 

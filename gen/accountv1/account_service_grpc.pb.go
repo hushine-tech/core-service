@@ -25,6 +25,14 @@ const (
 	AccountService_CreateAccount_FullMethodName                   = "/account.v1.AccountService/CreateAccount"
 	AccountService_ListAccounts_FullMethodName                    = "/account.v1.AccountService/ListAccounts"
 	AccountService_GetAccount_FullMethodName                      = "/account.v1.AccountService/GetAccount"
+	AccountService_CreateVenue_FullMethodName                     = "/account.v1.AccountService/CreateVenue"
+	AccountService_ListVenues_FullMethodName                      = "/account.v1.AccountService/ListVenues"
+	AccountService_GetVenue_FullMethodName                        = "/account.v1.AccountService/GetVenue"
+	AccountService_BindVenue_FullMethodName                       = "/account.v1.AccountService/BindVenue"
+	AccountService_ReleaseVenue_FullMethodName                    = "/account.v1.AccountService/ReleaseVenue"
+	AccountService_ArchiveVenue_FullMethodName                    = "/account.v1.AccountService/ArchiveVenue"
+	AccountService_PreflightStrategySession_FullMethodName        = "/account.v1.AccountService/PreflightStrategySession"
+	AccountService_GetVenueRouteMeta_FullMethodName               = "/account.v1.AccountService/GetVenueRouteMeta"
 	AccountService_GetOnlineAccountInfo_FullMethodName            = "/account.v1.AccountService/GetOnlineAccountInfo"
 	AccountService_UpdateAccountWalletState_FullMethodName        = "/account.v1.AccountService/UpdateAccountWalletState"
 	AccountService_ListSymbols_FullMethodName                     = "/account.v1.AccountService/ListSymbols"
@@ -76,6 +84,14 @@ type AccountServiceClient interface {
 	ListAccounts(ctx context.Context, in *ListAccountsRequest, opts ...grpc.CallOption) (*ListAccountsResponse, error)
 	// Get one account by id; credentials are never returned.
 	GetAccount(ctx context.Context, in *GetAccountRequest, opts ...grpc.CallOption) (*GetAccountResponse, error)
+	CreateVenue(ctx context.Context, in *CreateVenueRequest, opts ...grpc.CallOption) (*CreateVenueResponse, error)
+	ListVenues(ctx context.Context, in *ListVenuesRequest, opts ...grpc.CallOption) (*ListVenuesResponse, error)
+	GetVenue(ctx context.Context, in *GetVenueRequest, opts ...grpc.CallOption) (*GetVenueResponse, error)
+	BindVenue(ctx context.Context, in *BindVenueRequest, opts ...grpc.CallOption) (*BindVenueResponse, error)
+	ReleaseVenue(ctx context.Context, in *ReleaseVenueRequest, opts ...grpc.CallOption) (*ReleaseVenueResponse, error)
+	ArchiveVenue(ctx context.Context, in *ArchiveVenueRequest, opts ...grpc.CallOption) (*ArchiveVenueResponse, error)
+	PreflightStrategySession(ctx context.Context, in *PreflightStrategySessionRequest, opts ...grpc.CallOption) (*PreflightStrategySessionResponse, error)
+	GetVenueRouteMeta(ctx context.Context, in *GetVenueRouteMetaRequest, opts ...grpc.CallOption) (*GetVenueRouteMetaResponse, error)
 	// Latest wallet state: mode=0 reads DB; mode=1/2 fetches from Binance (live/testnet) per account registration.
 	GetOnlineAccountInfo(ctx context.Context, in *GetOnlineAccountInfoRequest, opts ...grpc.CallOption) (*GetOnlineAccountInfoResponse, error)
 	// Bidirectional wallet sync. Routing uses only account_id: look up the account's registered
@@ -203,6 +219,86 @@ func (c *accountServiceClient) GetAccount(ctx context.Context, in *GetAccountReq
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetAccountResponse)
 	err := c.cc.Invoke(ctx, AccountService_GetAccount_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *accountServiceClient) CreateVenue(ctx context.Context, in *CreateVenueRequest, opts ...grpc.CallOption) (*CreateVenueResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateVenueResponse)
+	err := c.cc.Invoke(ctx, AccountService_CreateVenue_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *accountServiceClient) ListVenues(ctx context.Context, in *ListVenuesRequest, opts ...grpc.CallOption) (*ListVenuesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListVenuesResponse)
+	err := c.cc.Invoke(ctx, AccountService_ListVenues_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *accountServiceClient) GetVenue(ctx context.Context, in *GetVenueRequest, opts ...grpc.CallOption) (*GetVenueResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetVenueResponse)
+	err := c.cc.Invoke(ctx, AccountService_GetVenue_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *accountServiceClient) BindVenue(ctx context.Context, in *BindVenueRequest, opts ...grpc.CallOption) (*BindVenueResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(BindVenueResponse)
+	err := c.cc.Invoke(ctx, AccountService_BindVenue_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *accountServiceClient) ReleaseVenue(ctx context.Context, in *ReleaseVenueRequest, opts ...grpc.CallOption) (*ReleaseVenueResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ReleaseVenueResponse)
+	err := c.cc.Invoke(ctx, AccountService_ReleaseVenue_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *accountServiceClient) ArchiveVenue(ctx context.Context, in *ArchiveVenueRequest, opts ...grpc.CallOption) (*ArchiveVenueResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ArchiveVenueResponse)
+	err := c.cc.Invoke(ctx, AccountService_ArchiveVenue_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *accountServiceClient) PreflightStrategySession(ctx context.Context, in *PreflightStrategySessionRequest, opts ...grpc.CallOption) (*PreflightStrategySessionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PreflightStrategySessionResponse)
+	err := c.cc.Invoke(ctx, AccountService_PreflightStrategySession_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *accountServiceClient) GetVenueRouteMeta(ctx context.Context, in *GetVenueRouteMetaRequest, opts ...grpc.CallOption) (*GetVenueRouteMetaResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetVenueRouteMetaResponse)
+	err := c.cc.Invoke(ctx, AccountService_GetVenueRouteMeta_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -519,6 +615,14 @@ type AccountServiceServer interface {
 	ListAccounts(context.Context, *ListAccountsRequest) (*ListAccountsResponse, error)
 	// Get one account by id; credentials are never returned.
 	GetAccount(context.Context, *GetAccountRequest) (*GetAccountResponse, error)
+	CreateVenue(context.Context, *CreateVenueRequest) (*CreateVenueResponse, error)
+	ListVenues(context.Context, *ListVenuesRequest) (*ListVenuesResponse, error)
+	GetVenue(context.Context, *GetVenueRequest) (*GetVenueResponse, error)
+	BindVenue(context.Context, *BindVenueRequest) (*BindVenueResponse, error)
+	ReleaseVenue(context.Context, *ReleaseVenueRequest) (*ReleaseVenueResponse, error)
+	ArchiveVenue(context.Context, *ArchiveVenueRequest) (*ArchiveVenueResponse, error)
+	PreflightStrategySession(context.Context, *PreflightStrategySessionRequest) (*PreflightStrategySessionResponse, error)
+	GetVenueRouteMeta(context.Context, *GetVenueRouteMetaRequest) (*GetVenueRouteMetaResponse, error)
 	// Latest wallet state: mode=0 reads DB; mode=1/2 fetches from Binance (live/testnet) per account registration.
 	GetOnlineAccountInfo(context.Context, *GetOnlineAccountInfoRequest) (*GetOnlineAccountInfoResponse, error)
 	// Bidirectional wallet sync. Routing uses only account_id: look up the account's registered
@@ -609,6 +713,30 @@ func (UnimplementedAccountServiceServer) ListAccounts(context.Context, *ListAcco
 }
 func (UnimplementedAccountServiceServer) GetAccount(context.Context, *GetAccountRequest) (*GetAccountResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetAccount not implemented")
+}
+func (UnimplementedAccountServiceServer) CreateVenue(context.Context, *CreateVenueRequest) (*CreateVenueResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateVenue not implemented")
+}
+func (UnimplementedAccountServiceServer) ListVenues(context.Context, *ListVenuesRequest) (*ListVenuesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListVenues not implemented")
+}
+func (UnimplementedAccountServiceServer) GetVenue(context.Context, *GetVenueRequest) (*GetVenueResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetVenue not implemented")
+}
+func (UnimplementedAccountServiceServer) BindVenue(context.Context, *BindVenueRequest) (*BindVenueResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method BindVenue not implemented")
+}
+func (UnimplementedAccountServiceServer) ReleaseVenue(context.Context, *ReleaseVenueRequest) (*ReleaseVenueResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ReleaseVenue not implemented")
+}
+func (UnimplementedAccountServiceServer) ArchiveVenue(context.Context, *ArchiveVenueRequest) (*ArchiveVenueResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ArchiveVenue not implemented")
+}
+func (UnimplementedAccountServiceServer) PreflightStrategySession(context.Context, *PreflightStrategySessionRequest) (*PreflightStrategySessionResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method PreflightStrategySession not implemented")
+}
+func (UnimplementedAccountServiceServer) GetVenueRouteMeta(context.Context, *GetVenueRouteMetaRequest) (*GetVenueRouteMetaResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetVenueRouteMeta not implemented")
 }
 func (UnimplementedAccountServiceServer) GetOnlineAccountInfo(context.Context, *GetOnlineAccountInfoRequest) (*GetOnlineAccountInfoResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetOnlineAccountInfo not implemented")
@@ -822,6 +950,150 @@ func _AccountService_GetAccount_Handler(srv interface{}, ctx context.Context, de
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(AccountServiceServer).GetAccount(ctx, req.(*GetAccountRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AccountService_CreateVenue_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateVenueRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AccountServiceServer).CreateVenue(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AccountService_CreateVenue_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AccountServiceServer).CreateVenue(ctx, req.(*CreateVenueRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AccountService_ListVenues_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListVenuesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AccountServiceServer).ListVenues(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AccountService_ListVenues_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AccountServiceServer).ListVenues(ctx, req.(*ListVenuesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AccountService_GetVenue_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetVenueRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AccountServiceServer).GetVenue(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AccountService_GetVenue_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AccountServiceServer).GetVenue(ctx, req.(*GetVenueRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AccountService_BindVenue_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BindVenueRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AccountServiceServer).BindVenue(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AccountService_BindVenue_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AccountServiceServer).BindVenue(ctx, req.(*BindVenueRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AccountService_ReleaseVenue_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReleaseVenueRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AccountServiceServer).ReleaseVenue(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AccountService_ReleaseVenue_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AccountServiceServer).ReleaseVenue(ctx, req.(*ReleaseVenueRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AccountService_ArchiveVenue_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ArchiveVenueRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AccountServiceServer).ArchiveVenue(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AccountService_ArchiveVenue_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AccountServiceServer).ArchiveVenue(ctx, req.(*ArchiveVenueRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AccountService_PreflightStrategySession_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PreflightStrategySessionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AccountServiceServer).PreflightStrategySession(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AccountService_PreflightStrategySession_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AccountServiceServer).PreflightStrategySession(ctx, req.(*PreflightStrategySessionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AccountService_GetVenueRouteMeta_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetVenueRouteMetaRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AccountServiceServer).GetVenueRouteMeta(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AccountService_GetVenueRouteMeta_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AccountServiceServer).GetVenueRouteMeta(ctx, req.(*GetVenueRouteMetaRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1378,6 +1650,38 @@ var AccountService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetAccount",
 			Handler:    _AccountService_GetAccount_Handler,
+		},
+		{
+			MethodName: "CreateVenue",
+			Handler:    _AccountService_CreateVenue_Handler,
+		},
+		{
+			MethodName: "ListVenues",
+			Handler:    _AccountService_ListVenues_Handler,
+		},
+		{
+			MethodName: "GetVenue",
+			Handler:    _AccountService_GetVenue_Handler,
+		},
+		{
+			MethodName: "BindVenue",
+			Handler:    _AccountService_BindVenue_Handler,
+		},
+		{
+			MethodName: "ReleaseVenue",
+			Handler:    _AccountService_ReleaseVenue_Handler,
+		},
+		{
+			MethodName: "ArchiveVenue",
+			Handler:    _AccountService_ArchiveVenue_Handler,
+		},
+		{
+			MethodName: "PreflightStrategySession",
+			Handler:    _AccountService_PreflightStrategySession_Handler,
+		},
+		{
+			MethodName: "GetVenueRouteMeta",
+			Handler:    _AccountService_GetVenueRouteMeta_Handler,
 		},
 		{
 			MethodName: "GetOnlineAccountInfo",

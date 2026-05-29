@@ -168,7 +168,7 @@ func TestCreateAccount_BacktestSeedsSpotAndFuturesLedgers(t *testing.T) {
 
 	resp, err := svc.CreateAccount(context.Background(), &accountv1.CreateAccountRequest{
 		Name:           "seeded-backtest",
-		Mode:           0,
+		Environment:    int32(domain.EnvironmentBacktest),
 		InitialBalance: 5000,
 		UserId:         testsUserID,
 	})

@@ -90,6 +90,12 @@ func TestFingerprintStableAndTrimmed(t *testing.T) {
 	}
 }
 
+func TestFingerprintEmptyAPIKey(t *testing.T) {
+	if got := Fingerprint("  "); got != "" {
+		t.Fatalf("empty fingerprint = %q", got)
+	}
+}
+
 func roundTrip(mgr *Manager, plaintext string) (string, error) {
 	ciphertext, err := mgr.Encrypt(plaintext)
 	if err != nil {

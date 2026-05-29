@@ -6,17 +6,22 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hushine-tech/core-service/internal/credential"
 	accountdomain "github.com/hushine-tech/core-service/internal/domain"
 	"github.com/hushine-tech/core-service/internal/repository"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
+const testCredentialKey = "0123456789abcdef0123456789abcdef"
+
 type fakeAccountRepository struct {
-	account       accountdomain.Account
-	accountErr    error
-	accountCalls  int
-	accountUserID int64
+	route         accountdomain.VenueRouteMeta
+	routeErr      error
+	routeCalls    int
+	routeAccount  int64
+	routeExchange accountdomain.Exchange
+	routeMarket   accountdomain.Market
 	session       accountdomain.StrategySession
 	sessionErr    error
 	sessionCalls  int
@@ -24,14 +29,18 @@ type fakeAccountRepository struct {
 	sessionUserID int64
 }
 
-func (f *fakeAccountRepository) GetAccount(_ context.Context, accountID, userID int64) (accountdomain.Account, error) {
-	f.accountCalls++
-	f.accountUserID = userID
-	if f.accountErr != nil {
-		return accountdomain.Account{}, f.accountErr
+func (f *fakeAccountRepository) ResolveVenueRouteMeta(_ context.Context, accountID int64, exchange accountdomain.Exchange, market accountdomain.Market) (accountdomain.VenueRouteMeta, error) {
+	f.routeCalls++
+	f.routeAccount = accountID
+	f.routeExchange = exchange
+	f.routeMarket = market
+	if f.routeErr != nil {
+		return accountdomain.VenueRouteMeta{}, f.routeErr
 	}
-	f.account.AccountID = accountID
-	return f.account, nil
+	f.route.AccountID = accountID
+	f.route.Exchange = exchange
+	f.route.Market = market
+	return f.route, nil
 }
 
 func (f *fakeAccountRepository) GetSession(_ context.Context, sessionID string, userID int64) (accountdomain.StrategySession, error) {
@@ -44,42 +53,109 @@ func (f *fakeAccountRepository) GetSession(_ context.Context, sessionID string, 
 	return f.session, nil
 }
 
-func TestAdapterGetReturnsAccountMeta(t *testing.T) {
+func testCredentialManager(t *testing.T) *credential.Manager {
+	t.Helper()
+	mgr, err := credential.NewManager(testCredentialKey, "v1")
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	return mgr
+}
+
+func TestAdapterGetReturnsBacktestRouteMeta(t *testing.T) {
 	repo := &fakeAccountRepository{
-		account: accountdomain.Account{
+		route: accountdomain.VenueRouteMeta{
+			VenueID:        88,
 			UserID:         42,
-			Mode:           accountdomain.AccountModeBinanceTestnet,
-			MarginMode:     "cross",
-			PositionMode:   "one_way",
-			APIKey:         "key",
-			APISecret:      "secret",
+			Environment:    accountdomain.EnvironmentBacktest,
+			MarginMode:     accountdomain.MarginModeCross,
+			PositionMode:   accountdomain.PositionModeOneWay,
 			DefaultFeeRate: 0.0004,
 			SlippageBps:    2.5,
 		},
 	}
 
-	meta, err := NewAdapter(repo).Get(context.Background(), 7)
+	meta, err := NewAdapter(repo, nil).Get(context.Background(), 7, 1, 2)
 	if err != nil {
 		t.Fatalf("Get() error = %v", err)
 	}
 
-	if repo.accountCalls != 1 {
-		t.Fatalf("GetAccount calls = %d, want 1", repo.accountCalls)
+	if repo.routeCalls != 1 {
+		t.Fatalf("ResolveVenueRouteMeta calls = %d, want 1", repo.routeCalls)
 	}
-	if repo.accountUserID != 0 {
-		t.Fatalf("GetAccount userID = %d, want 0", repo.accountUserID)
+	if repo.routeAccount != 7 || repo.routeExchange != accountdomain.ExchangeBinance || repo.routeMarket != accountdomain.MarketPerpetualFutures {
+		t.Fatalf("route lookup = (%d,%d,%d)", repo.routeAccount, repo.routeExchange, repo.routeMarket)
 	}
-	if meta.AccountID != 7 || meta.UserID != 42 || meta.Mode != 2 {
-		t.Fatalf("meta identity = (%d,%d,%d), want (7,42,2)", meta.AccountID, meta.UserID, meta.Mode)
+	if meta.AccountID != 7 || meta.VenueID != 88 || meta.UserID != 42 {
+		t.Fatalf("meta identity = (%d,%d,%d), want (7,88,42)", meta.AccountID, meta.VenueID, meta.UserID)
+	}
+	if meta.Environment != 0 || meta.Exchange != 1 || meta.Market != 2 {
+		t.Fatalf("meta route = (%d,%d,%d), want (0,1,2)", meta.Environment, meta.Exchange, meta.Market)
 	}
 	if meta.MarginMode != "cross" || meta.PositionMode != "one_way" {
 		t.Fatalf("meta modes = (%q,%q)", meta.MarginMode, meta.PositionMode)
 	}
-	if meta.APIKey != "key" || meta.APISecret != "secret" {
-		t.Fatalf("meta credentials = (%q,%q)", meta.APIKey, meta.APISecret)
+	if meta.APIKey != "" || meta.APISecret != "" || meta.CredentialJSON != "" {
+		t.Fatalf("backtest route should not expose credentials: %+v", meta)
 	}
 	if meta.DefaultFeeRate != 0.0004 || meta.SlippageBps != 2.5 {
 		t.Fatalf("meta fee/slippage = (%v,%v)", meta.DefaultFeeRate, meta.SlippageBps)
+	}
+}
+
+func TestAdapterGetDecryptsExchangeRouteCredential(t *testing.T) {
+	mgr := testCredentialManager(t)
+	ciphertext, err := mgr.Encrypt(`{"api_key":"key","api_secret":"secret"}`)
+	if err != nil {
+		t.Fatalf("Encrypt: %v", err)
+	}
+	repo := &fakeAccountRepository{
+		route: accountdomain.VenueRouteMeta{
+			VenueID:        88,
+			UserID:         42,
+			Environment:    accountdomain.EnvironmentDemo,
+			APIKey:         "key",
+			CredentialInfo: ciphertext,
+			MarginMode:     accountdomain.MarginModeIsolated,
+			PositionMode:   accountdomain.PositionModeHedge,
+		},
+	}
+
+	meta, err := NewAdapter(repo, mgr).Get(context.Background(), 7, 1, 2)
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if meta.APIKey != "key" || meta.APISecret != "secret" {
+		t.Fatalf("meta credentials = (%q,%q)", meta.APIKey, meta.APISecret)
+	}
+	if meta.CredentialJSON != `{"api_key":"key","api_secret":"secret"}` {
+		t.Fatalf("credential json = %q", meta.CredentialJSON)
+	}
+	if meta.MarginMode != "isolated" || meta.PositionMode != "hedge" {
+		t.Fatalf("meta modes = (%q,%q)", meta.MarginMode, meta.PositionMode)
+	}
+}
+
+func TestAdapterGetExchangeRouteRequiresCredentialManager(t *testing.T) {
+	repo := &fakeAccountRepository{
+		route: accountdomain.VenueRouteMeta{
+			Environment:    accountdomain.EnvironmentDemo,
+			CredentialInfo: "v1:anything",
+		},
+	}
+
+	_, err := NewAdapter(repo, nil).Get(context.Background(), 7, 1, 2)
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("code = %v, want %v; err = %v", status.Code(err), codes.FailedPrecondition, err)
+	}
+}
+
+func TestAdapterGetRouteMissingIsFailedPrecondition(t *testing.T) {
+	repo := &fakeAccountRepository{routeErr: repository.ErrNotFound}
+
+	_, err := NewAdapter(repo, nil).Get(context.Background(), 7, 1, 2)
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("code = %v, want %v; err = %v", status.Code(err), codes.FailedPrecondition, err)
 	}
 }
 
@@ -87,7 +163,7 @@ func TestValidateActiveSessionEmptySessionIDSkipsLookup(t *testing.T) {
 	repo := &fakeAccountRepository{}
 	meta := Meta{AccountID: 7, UserID: 42}
 
-	err := NewAdapter(repo).ValidateActiveSession(context.Background(), meta, 99, " \t ")
+	err := NewAdapter(repo, nil).ValidateActiveSession(context.Background(), meta, 99, " \t ")
 	if err != nil {
 		t.Fatalf("ValidateActiveSession() error = %v", err)
 	}
@@ -107,7 +183,7 @@ func TestValidateActiveSessionAllowsActiveStatus(t *testing.T) {
 	}
 	meta := Meta{AccountID: 7, UserID: 42}
 
-	err := NewAdapter(repo).ValidateActiveSession(context.Background(), meta, 99, "session-1")
+	err := NewAdapter(repo, nil).ValidateActiveSession(context.Background(), meta, 99, "session-1")
 	if err != nil {
 		t.Fatalf("ValidateActiveSession() error = %v", err)
 	}
@@ -124,7 +200,7 @@ func TestValidateActiveSessionAccountMismatch(t *testing.T) {
 	}
 	meta := Meta{AccountID: 7, UserID: 42}
 
-	err := NewAdapter(repo).ValidateActiveSession(context.Background(), meta, 99, " session-1 ")
+	err := NewAdapter(repo, nil).ValidateActiveSession(context.Background(), meta, 99, " session-1 ")
 	if status.Code(err) != codes.PermissionDenied {
 		t.Fatalf("code = %v, want %v; err = %v", status.Code(err), codes.PermissionDenied, err)
 	}
@@ -144,7 +220,7 @@ func TestValidateActiveSessionStrategyMismatch(t *testing.T) {
 	}
 	meta := Meta{AccountID: 7, UserID: 42}
 
-	err := NewAdapter(repo).ValidateActiveSession(context.Background(), meta, 99, "session-1")
+	err := NewAdapter(repo, nil).ValidateActiveSession(context.Background(), meta, 99, "session-1")
 	if status.Code(err) != codes.PermissionDenied {
 		t.Fatalf("code = %v, want %v; err = %v", status.Code(err), codes.PermissionDenied, err)
 	}
@@ -162,7 +238,7 @@ func TestValidateActiveSessionNonActiveStatus(t *testing.T) {
 	}
 	meta := Meta{AccountID: 7, UserID: 42}
 
-	err := NewAdapter(repo).ValidateActiveSession(context.Background(), meta, 99, "session-1")
+	err := NewAdapter(repo, nil).ValidateActiveSession(context.Background(), meta, 99, "session-1")
 	if status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("code = %v, want %v; err = %v", status.Code(err), codes.FailedPrecondition, err)
 	}
@@ -171,46 +247,37 @@ func TestValidateActiveSessionNonActiveStatus(t *testing.T) {
 	}
 }
 
-func TestAdapterMapsNotFound(t *testing.T) {
-	repo := &fakeAccountRepository{accountErr: repository.ErrNotFound}
-
-	_, err := NewAdapter(repo).Get(context.Background(), 7)
-	if status.Code(err) != codes.NotFound {
-		t.Fatalf("code = %v, want %v; err = %v", status.Code(err), codes.NotFound, err)
-	}
-}
-
 func TestAdapterMapsPermissionDenied(t *testing.T) {
-	repo := &fakeAccountRepository{accountErr: repository.ErrPermissionDenied}
+	repo := &fakeAccountRepository{routeErr: repository.ErrPermissionDenied}
 
-	_, err := NewAdapter(repo).Get(context.Background(), 7)
+	_, err := NewAdapter(repo, nil).Get(context.Background(), 7, 1, 2)
 	if status.Code(err) != codes.PermissionDenied {
 		t.Fatalf("code = %v, want %v; err = %v", status.Code(err), codes.PermissionDenied, err)
 	}
 }
 
 func TestAdapterMapsUnexpectedError(t *testing.T) {
-	repo := &fakeAccountRepository{accountErr: errors.New("database unavailable")}
+	repo := &fakeAccountRepository{routeErr: errors.New("database unavailable")}
 
-	_, err := NewAdapter(repo).Get(context.Background(), 7)
+	_, err := NewAdapter(repo, nil).Get(context.Background(), 7, 1, 2)
 	if status.Code(err) != codes.Internal {
 		t.Fatalf("code = %v, want %v; err = %v", status.Code(err), codes.Internal, err)
 	}
 }
 
 func TestAdapterMapsContextCanceled(t *testing.T) {
-	repo := &fakeAccountRepository{accountErr: context.Canceled}
+	repo := &fakeAccountRepository{routeErr: context.Canceled}
 
-	_, err := NewAdapter(repo).Get(context.Background(), 7)
+	_, err := NewAdapter(repo, nil).Get(context.Background(), 7, 1, 2)
 	if status.Code(err) != codes.Canceled {
 		t.Fatalf("code = %v, want %v; err = %v", status.Code(err), codes.Canceled, err)
 	}
 }
 
 func TestAdapterMapsContextDeadlineExceeded(t *testing.T) {
-	repo := &fakeAccountRepository{accountErr: context.DeadlineExceeded}
+	repo := &fakeAccountRepository{routeErr: context.DeadlineExceeded}
 
-	_, err := NewAdapter(repo).Get(context.Background(), 7)
+	_, err := NewAdapter(repo, nil).Get(context.Background(), 7, 1, 2)
 	if status.Code(err) != codes.DeadlineExceeded {
 		t.Fatalf("code = %v, want %v; err = %v", status.Code(err), codes.DeadlineExceeded, err)
 	}
@@ -220,7 +287,7 @@ func TestValidateActiveSessionMapsSessionLookupError(t *testing.T) {
 	repo := &fakeAccountRepository{sessionErr: repository.ErrNotFound}
 	meta := Meta{AccountID: 7, UserID: 42}
 
-	err := NewAdapter(repo).ValidateActiveSession(context.Background(), meta, 99, "session-1")
+	err := NewAdapter(repo, nil).ValidateActiveSession(context.Background(), meta, 99, "session-1")
 	if status.Code(err) != codes.NotFound {
 		t.Fatalf("code = %v, want %v; err = %v", status.Code(err), codes.NotFound, err)
 	}
@@ -230,7 +297,7 @@ func TestValidateActiveSessionMapsContextDeadlineExceeded(t *testing.T) {
 	repo := &fakeAccountRepository{sessionErr: context.DeadlineExceeded}
 	meta := Meta{AccountID: 7, UserID: 42}
 
-	err := NewAdapter(repo).ValidateActiveSession(context.Background(), meta, 99, "session-1")
+	err := NewAdapter(repo, nil).ValidateActiveSession(context.Background(), meta, 99, "session-1")
 	if status.Code(err) != codes.DeadlineExceeded {
 		t.Fatalf("code = %v, want %v; err = %v", status.Code(err), codes.DeadlineExceeded, err)
 	}

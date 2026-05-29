@@ -21,11 +21,28 @@ func (p *recordingNotificationPublisher) Publish(_ context.Context, event ordern
 	return p.err
 }
 
+func notificationMeta(environment int32) accountmeta.Meta {
+	meta := testOrderMeta(environment)
+	meta.AccountID = 7
+	meta.VenueID = 70
+	meta.UserID = 42
+	return meta
+}
+
+func notificationRequest() *orderv1.PlaceOrderRequest {
+	req := testPlaceOrderRequest()
+	req.AccountId = 7
+	req.Symbol = "ETHUSDT"
+	req.Side = "BUY"
+	req.Qty = 1
+	return req
+}
+
 func TestPlaceOrderPublishesSucceededNotification(t *testing.T) {
 	pub := &recordingNotificationPublisher{}
 	repo := &stubRepo{}
 	svc := NewOrderGRPCService(
-		&stubMetaGetter{meta: accountmeta.Meta{AccountID: 7, UserID: 42, Mode: 2}},
+		&stubMetaGetter{meta: notificationMeta(environmentDemo)},
 		&stubRouterExec{result: executor.OrderResult{
 			ExchangeOrderID: "ex-1",
 			ClientOrderID:   "client-1",
@@ -40,16 +57,11 @@ func TestPlaceOrderPublishesSucceededNotification(t *testing.T) {
 		pub,
 	)
 
-	resp, err := svc.PlaceOrder(context.Background(), &orderv1.PlaceOrderRequest{
-		AccountId:  7,
-		StrategyId: 9,
-		SessionId:  "sess-1",
-		Market:     "futures",
-		IntentId:   "intent-1",
-		Symbol:     "ETHUSDT",
-		Side:       "BUY",
-		Qty:        1,
-	})
+	req := notificationRequest()
+	req.StrategyId = 9
+	req.SessionId = "sess-1"
+	req.IntentId = "intent-1"
+	resp, err := svc.PlaceOrder(context.Background(), req)
 	if err != nil {
 		t.Fatalf("PlaceOrder: %v", err)
 	}
@@ -75,22 +87,17 @@ func TestPlaceOrderPublishesFailedNotification(t *testing.T) {
 	pub := &recordingNotificationPublisher{}
 	repo := &stubRepo{}
 	svc := NewOrderGRPCService(
-		&stubMetaGetter{meta: accountmeta.Meta{AccountID: 7, UserID: 42, Mode: 2}},
+		&stubMetaGetter{meta: notificationMeta(environmentDemo)},
 		&stubRouterExec{result: executor.OrderResult{ErrorMessage: "exchange rejected"}},
 		repo,
 		pub,
 	)
 
-	resp, err := svc.PlaceOrder(context.Background(), &orderv1.PlaceOrderRequest{
-		AccountId:  7,
-		StrategyId: 9,
-		SessionId:  "sess-1",
-		Market:     "futures",
-		IntentId:   "intent-1",
-		Symbol:     "ETHUSDT",
-		Side:       "BUY",
-		Qty:        1,
-	})
+	req := notificationRequest()
+	req.StrategyId = 9
+	req.SessionId = "sess-1"
+	req.IntentId = "intent-1"
+	resp, err := svc.PlaceOrder(context.Background(), req)
 	if err != nil {
 		t.Fatalf("PlaceOrder: %v", err)
 	}
@@ -133,22 +140,17 @@ func TestPlaceOrderSkipsOrderNotificationForBacktestMode(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			pub := &recordingNotificationPublisher{}
 			svc := NewOrderGRPCService(
-				&stubMetaGetter{meta: accountmeta.Meta{AccountID: 7, UserID: 42, Mode: 0}},
+				&stubMetaGetter{meta: notificationMeta(environmentBacktest)},
 				&stubRouterExec{result: tc.result},
 				&stubRepo{},
 				pub,
 			)
 
-			resp, err := svc.PlaceOrder(context.Background(), &orderv1.PlaceOrderRequest{
-				AccountId:  7,
-				StrategyId: 9,
-				SessionId:  "sess-backtest",
-				Market:     "futures",
-				IntentId:   "intent-backtest-" + tc.name,
-				Symbol:     "ETHUSDT",
-				Side:       "BUY",
-				Qty:        1,
-			})
+			req := notificationRequest()
+			req.StrategyId = 9
+			req.SessionId = "sess-backtest"
+			req.IntentId = "intent-backtest-" + tc.name
+			resp, err := svc.PlaceOrder(context.Background(), req)
 			if err != nil {
 				t.Fatalf("PlaceOrder: %v", err)
 			}
@@ -166,7 +168,7 @@ func TestPlaceOrderNotificationFailureDoesNotBlockOrder(t *testing.T) {
 	pub := &recordingNotificationPublisher{err: errors.New("kafka down")}
 	repo := &stubRepo{}
 	svc := NewOrderGRPCService(
-		&stubMetaGetter{meta: accountmeta.Meta{AccountID: 7, UserID: 42, Mode: 2}},
+		&stubMetaGetter{meta: notificationMeta(environmentDemo)},
 		&stubRouterExec{result: executor.OrderResult{
 			ExchangeOrderID: "ex-1",
 			Symbol:          "ETHUSDT",
@@ -180,16 +182,11 @@ func TestPlaceOrderNotificationFailureDoesNotBlockOrder(t *testing.T) {
 		pub,
 	)
 
-	resp, err := svc.PlaceOrder(context.Background(), &orderv1.PlaceOrderRequest{
-		AccountId:  7,
-		StrategyId: 9,
-		SessionId:  "sess-1",
-		Market:     "futures",
-		IntentId:   "intent-1",
-		Symbol:     "ETHUSDT",
-		Side:       "BUY",
-		Qty:        1,
-	})
+	req := notificationRequest()
+	req.StrategyId = 9
+	req.SessionId = "sess-1"
+	req.IntentId = "intent-1"
+	resp, err := svc.PlaceOrder(context.Background(), req)
 	if err != nil {
 		t.Fatalf("PlaceOrder should not fail on notification error: %v", err)
 	}

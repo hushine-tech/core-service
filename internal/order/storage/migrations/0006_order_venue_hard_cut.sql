@@ -55,7 +55,7 @@ CREATE TABLE order_attempts (
     error_message TEXT NOT NULL DEFAULT '',
     exchange_order_id TEXT NULL,
     recovery_error TEXT NOT NULL DEFAULT '',
-    CONSTRAINT chk_order_attempts_status CHECK (status IN (1, 2, 3, 4, 5))
+    CONSTRAINT chk_order_attempts_status CHECK (status IN (1, 2, 3, 4, 5, 6, 7))
 );
 
 CREATE UNIQUE INDEX uidx_order_attempts_client_order

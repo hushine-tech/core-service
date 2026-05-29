@@ -26,14 +26,16 @@ type PlaceOrderRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	AccountId     int64                  `protobuf:"varint,1,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
 	Symbol        string                 `protobuf:"bytes,2,opt,name=symbol,proto3" json:"symbol,omitempty"`
-	Side          string                 `protobuf:"bytes,3,opt,name=side,proto3" json:"side,omitempty"` // "BUY" / "SELL" or strategy "LONG" / "SHORT"
+	Side          string                 `protobuf:"bytes,3,opt,name=side,proto3" json:"side,omitempty"` // "BUY" / "SELL" or legacy strategy "LONG" / "SHORT"
 	Qty           float64                `protobuf:"fixed64,4,opt,name=qty,proto3" json:"qty,omitempty"`
-	Price         *float64               `protobuf:"fixed64,5,opt,name=price,proto3,oneof" json:"price,omitempty"`                      // limit price; omit for market order
-	MarkPrice     float64                `protobuf:"fixed64,6,opt,name=mark_price,json=markPrice,proto3" json:"mark_price,omitempty"`   // current mark price (used for mock fill calculation)
-	StrategyId    int64                  `protobuf:"varint,7,opt,name=strategy_id,json=strategyId,proto3" json:"strategy_id,omitempty"` // 0 = no strategy (manual order)
-	Market        string                 `protobuf:"bytes,8,opt,name=market,proto3" json:"market,omitempty"`                            // "futures" | "spot"; empty = "futures"
-	SessionId     string                 `protobuf:"bytes,9,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`     // 关联 session（空 = 非 session 触发）
-	IntentId      string                 `protobuf:"bytes,10,opt,name=intent_id,json=intentId,proto3" json:"intent_id,omitempty"`       // 可选；空时由服务端生成
+	Price         *float64               `protobuf:"fixed64,5,opt,name=price,proto3,oneof" json:"price,omitempty"`                             // limit price; omit for market order
+	MarkPrice     float64                `protobuf:"fixed64,6,opt,name=mark_price,json=markPrice,proto3" json:"mark_price,omitempty"`          // current mark price (used for mock fill calculation)
+	StrategyId    int64                  `protobuf:"varint,7,opt,name=strategy_id,json=strategyId,proto3" json:"strategy_id,omitempty"`        // 0 = no strategy (manual order)
+	Market        int32                  `protobuf:"varint,8,opt,name=market,proto3" json:"market,omitempty"`                                  // 1=spot, 2=perpetual_futures, 3=delivery_futures
+	SessionId     string                 `protobuf:"bytes,9,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`            // 关联 session（空 = 非 session 触发）
+	IntentId      string                 `protobuf:"bytes,10,opt,name=intent_id,json=intentId,proto3" json:"intent_id,omitempty"`              // 可选；空时由服务端生成
+	Exchange      int32                  `protobuf:"varint,11,opt,name=exchange,proto3" json:"exchange,omitempty"`                             // 1=binance, 2=okx
+	PositionSide  int32                  `protobuf:"varint,12,opt,name=position_side,json=positionSide,proto3" json:"position_side,omitempty"` // 0=none/BOTH, 1=long, 2=short
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -117,11 +119,11 @@ func (x *PlaceOrderRequest) GetStrategyId() int64 {
 	return 0
 }
 
-func (x *PlaceOrderRequest) GetMarket() string {
+func (x *PlaceOrderRequest) GetMarket() int32 {
 	if x != nil {
 		return x.Market
 	}
-	return ""
+	return 0
 }
 
 func (x *PlaceOrderRequest) GetSessionId() string {
@@ -136,6 +138,20 @@ func (x *PlaceOrderRequest) GetIntentId() string {
 		return x.IntentId
 	}
 	return ""
+}
+
+func (x *PlaceOrderRequest) GetExchange() int32 {
+	if x != nil {
+		return x.Exchange
+	}
+	return 0
+}
+
+func (x *PlaceOrderRequest) GetPositionSide() int32 {
+	if x != nil {
+		return x.PositionSide
+	}
+	return 0
 }
 
 type PlaceOrderResponse struct {
@@ -536,8 +552,12 @@ type OrderIntentEntry struct {
 	RequestedQty   float64                `protobuf:"fixed64,6,opt,name=requested_qty,json=requestedQty,proto3" json:"requested_qty,omitempty"`
 	RequestedPrice float64                `protobuf:"fixed64,7,opt,name=requested_price,json=requestedPrice,proto3" json:"requested_price,omitempty"`
 	StrategyId     int64                  `protobuf:"varint,8,opt,name=strategy_id,json=strategyId,proto3" json:"strategy_id,omitempty"`
-	Market         string                 `protobuf:"bytes,9,opt,name=market,proto3" json:"market,omitempty"`
+	Market         int32                  `protobuf:"varint,9,opt,name=market,proto3" json:"market,omitempty"`
 	SessionId      string                 `protobuf:"bytes,10,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	VenueId        int64                  `protobuf:"varint,11,opt,name=venue_id,json=venueId,proto3" json:"venue_id,omitempty"`
+	Environment    int32                  `protobuf:"varint,12,opt,name=environment,proto3" json:"environment,omitempty"`
+	Exchange       int32                  `protobuf:"varint,13,opt,name=exchange,proto3" json:"exchange,omitempty"`
+	PositionSide   int32                  `protobuf:"varint,14,opt,name=position_side,json=positionSide,proto3" json:"position_side,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -628,11 +648,11 @@ func (x *OrderIntentEntry) GetStrategyId() int64 {
 	return 0
 }
 
-func (x *OrderIntentEntry) GetMarket() string {
+func (x *OrderIntentEntry) GetMarket() int32 {
 	if x != nil {
 		return x.Market
 	}
-	return ""
+	return 0
 }
 
 func (x *OrderIntentEntry) GetSessionId() string {
@@ -640,6 +660,34 @@ func (x *OrderIntentEntry) GetSessionId() string {
 		return x.SessionId
 	}
 	return ""
+}
+
+func (x *OrderIntentEntry) GetVenueId() int64 {
+	if x != nil {
+		return x.VenueId
+	}
+	return 0
+}
+
+func (x *OrderIntentEntry) GetEnvironment() int32 {
+	if x != nil {
+		return x.Environment
+	}
+	return 0
+}
+
+func (x *OrderIntentEntry) GetExchange() int32 {
+	if x != nil {
+		return x.Exchange
+	}
+	return 0
+}
+
+func (x *OrderIntentEntry) GetPositionSide() int32 {
+	if x != nil {
+		return x.PositionSide
+	}
+	return 0
 }
 
 type QueryOrderAttemptsRequest struct {
@@ -1112,13 +1160,16 @@ type OrderAttemptEntry struct {
 	RequestedPrice  float64                `protobuf:"fixed64,10,opt,name=requested_price,json=requestedPrice,proto3" json:"requested_price,omitempty"`
 	MarkPrice       float64                `protobuf:"fixed64,11,opt,name=mark_price,json=markPrice,proto3" json:"mark_price,omitempty"`
 	Status          string                 `protobuf:"bytes,12,opt,name=status,proto3" json:"status,omitempty"`
-	Mode            int32                  `protobuf:"varint,13,opt,name=mode,proto3" json:"mode,omitempty"`
+	Environment     int32                  `protobuf:"varint,13,opt,name=environment,proto3" json:"environment,omitempty"`
 	ErrorMessage    string                 `protobuf:"bytes,14,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
 	StrategyId      int64                  `protobuf:"varint,15,opt,name=strategy_id,json=strategyId,proto3" json:"strategy_id,omitempty"`
-	Market          string                 `protobuf:"bytes,16,opt,name=market,proto3" json:"market,omitempty"`
+	Market          int32                  `protobuf:"varint,16,opt,name=market,proto3" json:"market,omitempty"`
 	SessionId       string                 `protobuf:"bytes,17,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
 	ClientOrderId   string                 `protobuf:"bytes,18,opt,name=client_order_id,json=clientOrderId,proto3" json:"client_order_id,omitempty"`
 	RecoveryError   string                 `protobuf:"bytes,19,opt,name=recovery_error,json=recoveryError,proto3" json:"recovery_error,omitempty"`
+	VenueId         int64                  `protobuf:"varint,20,opt,name=venue_id,json=venueId,proto3" json:"venue_id,omitempty"`
+	Exchange        int32                  `protobuf:"varint,21,opt,name=exchange,proto3" json:"exchange,omitempty"`
+	PositionSide    int32                  `protobuf:"varint,22,opt,name=position_side,json=positionSide,proto3" json:"position_side,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -1237,9 +1288,9 @@ func (x *OrderAttemptEntry) GetStatus() string {
 	return ""
 }
 
-func (x *OrderAttemptEntry) GetMode() int32 {
+func (x *OrderAttemptEntry) GetEnvironment() int32 {
 	if x != nil {
-		return x.Mode
+		return x.Environment
 	}
 	return 0
 }
@@ -1258,11 +1309,11 @@ func (x *OrderAttemptEntry) GetStrategyId() int64 {
 	return 0
 }
 
-func (x *OrderAttemptEntry) GetMarket() string {
+func (x *OrderAttemptEntry) GetMarket() int32 {
 	if x != nil {
 		return x.Market
 	}
-	return ""
+	return 0
 }
 
 func (x *OrderAttemptEntry) GetSessionId() string {
@@ -1286,6 +1337,27 @@ func (x *OrderAttemptEntry) GetRecoveryError() string {
 	return ""
 }
 
+func (x *OrderAttemptEntry) GetVenueId() int64 {
+	if x != nil {
+		return x.VenueId
+	}
+	return 0
+}
+
+func (x *OrderAttemptEntry) GetExchange() int32 {
+	if x != nil {
+		return x.Exchange
+	}
+	return 0
+}
+
+func (x *OrderAttemptEntry) GetPositionSide() int32 {
+	if x != nil {
+		return x.PositionSide
+	}
+	return 0
+}
+
 type ExchangeOrderEntry struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	Time            *timestamppb.Timestamp `protobuf:"bytes,1,opt,name=time,proto3" json:"time,omitempty"`
@@ -1302,12 +1374,15 @@ type ExchangeOrderEntry struct {
 	RemainingQty    float64                `protobuf:"fixed64,11,opt,name=remaining_qty,json=remainingQty,proto3" json:"remaining_qty,omitempty"`
 	AvgPrice        float64                `protobuf:"fixed64,12,opt,name=avg_price,json=avgPrice,proto3" json:"avg_price,omitempty"`
 	Status          string                 `protobuf:"bytes,13,opt,name=status,proto3" json:"status,omitempty"`
-	Mode            int32                  `protobuf:"varint,14,opt,name=mode,proto3" json:"mode,omitempty"`
+	Environment     int32                  `protobuf:"varint,14,opt,name=environment,proto3" json:"environment,omitempty"`
 	ErrorMessage    string                 `protobuf:"bytes,15,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
 	StrategyId      int64                  `protobuf:"varint,16,opt,name=strategy_id,json=strategyId,proto3" json:"strategy_id,omitempty"`
-	Market          string                 `protobuf:"bytes,17,opt,name=market,proto3" json:"market,omitempty"`
+	Market          int32                  `protobuf:"varint,17,opt,name=market,proto3" json:"market,omitempty"`
 	SessionId       string                 `protobuf:"bytes,18,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
 	Price           float64                `protobuf:"fixed64,19,opt,name=price,proto3" json:"price,omitempty"`
+	VenueId         int64                  `protobuf:"varint,21,opt,name=venue_id,json=venueId,proto3" json:"venue_id,omitempty"`
+	Exchange        int32                  `protobuf:"varint,22,opt,name=exchange,proto3" json:"exchange,omitempty"`
+	PositionSide    int32                  `protobuf:"varint,23,opt,name=position_side,json=positionSide,proto3" json:"position_side,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -1440,9 +1515,9 @@ func (x *ExchangeOrderEntry) GetStatus() string {
 	return ""
 }
 
-func (x *ExchangeOrderEntry) GetMode() int32 {
+func (x *ExchangeOrderEntry) GetEnvironment() int32 {
 	if x != nil {
-		return x.Mode
+		return x.Environment
 	}
 	return 0
 }
@@ -1461,11 +1536,11 @@ func (x *ExchangeOrderEntry) GetStrategyId() int64 {
 	return 0
 }
 
-func (x *ExchangeOrderEntry) GetMarket() string {
+func (x *ExchangeOrderEntry) GetMarket() int32 {
 	if x != nil {
 		return x.Market
 	}
-	return ""
+	return 0
 }
 
 func (x *ExchangeOrderEntry) GetSessionId() string {
@@ -1478,6 +1553,27 @@ func (x *ExchangeOrderEntry) GetSessionId() string {
 func (x *ExchangeOrderEntry) GetPrice() float64 {
 	if x != nil {
 		return x.Price
+	}
+	return 0
+}
+
+func (x *ExchangeOrderEntry) GetVenueId() int64 {
+	if x != nil {
+		return x.VenueId
+	}
+	return 0
+}
+
+func (x *ExchangeOrderEntry) GetExchange() int32 {
+	if x != nil {
+		return x.Exchange
+	}
+	return 0
+}
+
+func (x *ExchangeOrderEntry) GetPositionSide() int32 {
+	if x != nil {
+		return x.PositionSide
 	}
 	return 0
 }
@@ -1498,10 +1594,13 @@ type OrderFillEntry struct {
 	FillPrice       float64                `protobuf:"fixed64,12,opt,name=fill_price,json=fillPrice,proto3" json:"fill_price,omitempty"`
 	Fee             float64                `protobuf:"fixed64,13,opt,name=fee,proto3" json:"fee,omitempty"`
 	Status          string                 `protobuf:"bytes,14,opt,name=status,proto3" json:"status,omitempty"`
-	Mode            int32                  `protobuf:"varint,15,opt,name=mode,proto3" json:"mode,omitempty"`
+	Environment     int32                  `protobuf:"varint,15,opt,name=environment,proto3" json:"environment,omitempty"`
 	StrategyId      int64                  `protobuf:"varint,16,opt,name=strategy_id,json=strategyId,proto3" json:"strategy_id,omitempty"`
-	Market          string                 `protobuf:"bytes,17,opt,name=market,proto3" json:"market,omitempty"`
+	Market          int32                  `protobuf:"varint,17,opt,name=market,proto3" json:"market,omitempty"`
 	SessionId       string                 `protobuf:"bytes,18,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	VenueId         int64                  `protobuf:"varint,19,opt,name=venue_id,json=venueId,proto3" json:"venue_id,omitempty"`
+	Exchange        int32                  `protobuf:"varint,20,opt,name=exchange,proto3" json:"exchange,omitempty"`
+	PositionSide    int32                  `protobuf:"varint,21,opt,name=position_side,json=positionSide,proto3" json:"position_side,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -1634,9 +1733,9 @@ func (x *OrderFillEntry) GetStatus() string {
 	return ""
 }
 
-func (x *OrderFillEntry) GetMode() int32 {
+func (x *OrderFillEntry) GetEnvironment() int32 {
 	if x != nil {
-		return x.Mode
+		return x.Environment
 	}
 	return 0
 }
@@ -1648,11 +1747,11 @@ func (x *OrderFillEntry) GetStrategyId() int64 {
 	return 0
 }
 
-func (x *OrderFillEntry) GetMarket() string {
+func (x *OrderFillEntry) GetMarket() int32 {
 	if x != nil {
 		return x.Market
 	}
-	return ""
+	return 0
 }
 
 func (x *OrderFillEntry) GetSessionId() string {
@@ -1662,11 +1761,32 @@ func (x *OrderFillEntry) GetSessionId() string {
 	return ""
 }
 
+func (x *OrderFillEntry) GetVenueId() int64 {
+	if x != nil {
+		return x.VenueId
+	}
+	return 0
+}
+
+func (x *OrderFillEntry) GetExchange() int32 {
+	if x != nil {
+		return x.Exchange
+	}
+	return 0
+}
+
+func (x *OrderFillEntry) GetPositionSide() int32 {
+	if x != nil {
+		return x.PositionSide
+	}
+	return 0
+}
+
 var File_order_service_proto protoreflect.FileDescriptor
 
 const file_order_service_proto_rawDesc = "" +
 	"\n" +
-	"\x13order_service.proto\x12\border.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xa9\x02\n" +
+	"\x13order_service.proto\x12\border.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xea\x02\n" +
 	"\x11PlaceOrderRequest\x12\x1d\n" +
 	"\n" +
 	"account_id\x18\x01 \x01(\x03R\taccountId\x12\x16\n" +
@@ -1678,11 +1798,13 @@ const file_order_service_proto_rawDesc = "" +
 	"mark_price\x18\x06 \x01(\x01R\tmarkPrice\x12\x1f\n" +
 	"\vstrategy_id\x18\a \x01(\x03R\n" +
 	"strategyId\x12\x16\n" +
-	"\x06market\x18\b \x01(\tR\x06market\x12\x1d\n" +
+	"\x06market\x18\b \x01(\x05R\x06market\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\t \x01(\tR\tsessionId\x12\x1b\n" +
 	"\tintent_id\x18\n" +
-	" \x01(\tR\bintentIdB\b\n" +
+	" \x01(\tR\bintentId\x12\x1a\n" +
+	"\bexchange\x18\v \x01(\x05R\bexchange\x12#\n" +
+	"\rposition_side\x18\f \x01(\x05R\fpositionSideB\b\n" +
 	"\x06_price\"\xb3\x02\n" +
 	"\x12PlaceOrderResponse\x12\x1b\n" +
 	"\tintent_id\x18\x01 \x01(\tR\bintentId\x12\x1d\n" +
@@ -1723,7 +1845,7 @@ const file_order_service_proto_rawDesc = "" +
 	"\auser_id\x18d \x01(\x03R\x06userId\"g\n" +
 	"\x19QueryOrderIntentsResponse\x124\n" +
 	"\aintents\x18\x01 \x03(\v2\x1a.order.v1.OrderIntentEntryR\aintents\x12\x14\n" +
-	"\x05total\x18\x02 \x01(\x03R\x05total\"\xd0\x02\n" +
+	"\x05total\x18\x02 \x01(\x03R\x05total\"\xce\x03\n" +
 	"\x10OrderIntentEntry\x12.\n" +
 	"\x04time\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\x04time\x12\x1b\n" +
 	"\tintent_id\x18\x02 \x01(\tR\bintentId\x12\x1d\n" +
@@ -1735,10 +1857,14 @@ const file_order_service_proto_rawDesc = "" +
 	"\x0frequested_price\x18\a \x01(\x01R\x0erequestedPrice\x12\x1f\n" +
 	"\vstrategy_id\x18\b \x01(\x03R\n" +
 	"strategyId\x12\x16\n" +
-	"\x06market\x18\t \x01(\tR\x06market\x12\x1d\n" +
+	"\x06market\x18\t \x01(\x05R\x06market\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\n" +
-	" \x01(\tR\tsessionId\"\xde\x01\n" +
+	" \x01(\tR\tsessionId\x12\x19\n" +
+	"\bvenue_id\x18\v \x01(\x03R\avenueId\x12 \n" +
+	"\venvironment\x18\f \x01(\x05R\venvironment\x12\x1a\n" +
+	"\bexchange\x18\r \x01(\x05R\bexchange\x12#\n" +
+	"\rposition_side\x18\x0e \x01(\x05R\fpositionSide\"\xde\x01\n" +
 	"\x19QueryOrderAttemptsRequest\x12\x1d\n" +
 	"\n" +
 	"account_id\x18\x01 \x01(\x03R\taccountId\x12\x1f\n" +
@@ -1785,7 +1911,7 @@ const file_order_service_proto_rawDesc = "" +
 	"\auser_id\x18d \x01(\x03R\x06userId\"_\n" +
 	"\x17QueryOrderFillsResponse\x12.\n" +
 	"\x05fills\x18\x01 \x03(\v2\x18.order.v1.OrderFillEntryR\x05fills\x12\x14\n" +
-	"\x05total\x18\x02 \x01(\x03R\x05total\"\xf6\x04\n" +
+	"\x05total\x18\x02 \x01(\x03R\x05total\"\xe0\x05\n" +
 	"\x11OrderAttemptEntry\x12.\n" +
 	"\x04time\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\x04time\x12\x1d\n" +
 	"\n" +
@@ -1802,16 +1928,19 @@ const file_order_service_proto_rawDesc = "" +
 	" \x01(\x01R\x0erequestedPrice\x12\x1d\n" +
 	"\n" +
 	"mark_price\x18\v \x01(\x01R\tmarkPrice\x12\x16\n" +
-	"\x06status\x18\f \x01(\tR\x06status\x12\x12\n" +
-	"\x04mode\x18\r \x01(\x05R\x04mode\x12#\n" +
+	"\x06status\x18\f \x01(\tR\x06status\x12 \n" +
+	"\venvironment\x18\r \x01(\x05R\venvironment\x12#\n" +
 	"\rerror_message\x18\x0e \x01(\tR\ferrorMessage\x12\x1f\n" +
 	"\vstrategy_id\x18\x0f \x01(\x03R\n" +
 	"strategyId\x12\x16\n" +
-	"\x06market\x18\x10 \x01(\tR\x06market\x12\x1d\n" +
+	"\x06market\x18\x10 \x01(\x05R\x06market\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x11 \x01(\tR\tsessionId\x12&\n" +
 	"\x0fclient_order_id\x18\x12 \x01(\tR\rclientOrderId\x12%\n" +
-	"\x0erecovery_error\x18\x13 \x01(\tR\rrecoveryError\"\xf9\x04\n" +
+	"\x0erecovery_error\x18\x13 \x01(\tR\rrecoveryError\x12\x19\n" +
+	"\bvenue_id\x18\x14 \x01(\x03R\avenueId\x12\x1a\n" +
+	"\bexchange\x18\x15 \x01(\x05R\bexchange\x12#\n" +
+	"\rposition_side\x18\x16 \x01(\x05R\fpositionSide\"\xe3\x05\n" +
 	"\x12ExchangeOrderEntry\x12.\n" +
 	"\x04time\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\x04time\x12\x19\n" +
 	"\border_id\x18\x02 \x01(\tR\aorderId\x12*\n" +
@@ -1829,15 +1958,18 @@ const file_order_service_proto_rawDesc = "" +
 	" \x01(\x01R\vexecutedQty\x12#\n" +
 	"\rremaining_qty\x18\v \x01(\x01R\fremainingQty\x12\x1b\n" +
 	"\tavg_price\x18\f \x01(\x01R\bavgPrice\x12\x16\n" +
-	"\x06status\x18\r \x01(\tR\x06status\x12\x12\n" +
-	"\x04mode\x18\x0e \x01(\x05R\x04mode\x12#\n" +
+	"\x06status\x18\r \x01(\tR\x06status\x12 \n" +
+	"\venvironment\x18\x0e \x01(\x05R\venvironment\x12#\n" +
 	"\rerror_message\x18\x0f \x01(\tR\ferrorMessage\x12\x1f\n" +
 	"\vstrategy_id\x18\x10 \x01(\x03R\n" +
 	"strategyId\x12\x16\n" +
-	"\x06market\x18\x11 \x01(\tR\x06market\x12\x1d\n" +
+	"\x06market\x18\x11 \x01(\x05R\x06market\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x12 \x01(\tR\tsessionId\x12\x14\n" +
-	"\x05price\x18\x13 \x01(\x01R\x05price\"\x9a\x04\n" +
+	"\x05price\x18\x13 \x01(\x01R\x05price\x12\x19\n" +
+	"\bvenue_id\x18\x15 \x01(\x03R\avenueId\x12\x1a\n" +
+	"\bexchange\x18\x16 \x01(\x05R\bexchange\x12#\n" +
+	"\rposition_side\x18\x17 \x01(\x05R\fpositionSide\"\x84\x05\n" +
 	"\x0eOrderFillEntry\x12.\n" +
 	"\x04time\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\x04time\x12\x17\n" +
 	"\afill_id\x18\x02 \x01(\tR\x06fillId\x12*\n" +
@@ -1856,13 +1988,16 @@ const file_order_service_proto_rawDesc = "" +
 	"\n" +
 	"fill_price\x18\f \x01(\x01R\tfillPrice\x12\x10\n" +
 	"\x03fee\x18\r \x01(\x01R\x03fee\x12\x16\n" +
-	"\x06status\x18\x0e \x01(\tR\x06status\x12\x12\n" +
-	"\x04mode\x18\x0f \x01(\x05R\x04mode\x12\x1f\n" +
+	"\x06status\x18\x0e \x01(\tR\x06status\x12 \n" +
+	"\venvironment\x18\x0f \x01(\x05R\venvironment\x12\x1f\n" +
 	"\vstrategy_id\x18\x10 \x01(\x03R\n" +
 	"strategyId\x12\x16\n" +
-	"\x06market\x18\x11 \x01(\tR\x06market\x12\x1d\n" +
+	"\x06market\x18\x11 \x01(\x05R\x06market\x12\x1d\n" +
 	"\n" +
-	"session_id\x18\x12 \x01(\tR\tsessionId2\x9e\x04\n" +
+	"session_id\x18\x12 \x01(\tR\tsessionId\x12\x19\n" +
+	"\bvenue_id\x18\x13 \x01(\x03R\avenueId\x12\x1a\n" +
+	"\bexchange\x18\x14 \x01(\x05R\bexchange\x12#\n" +
+	"\rposition_side\x18\x15 \x01(\x05R\fpositionSide2\x9e\x04\n" +
 	"\fOrderService\x12G\n" +
 	"\n" +
 	"PlaceOrder\x12\x1b.order.v1.PlaceOrderRequest\x1a\x1c.order.v1.PlaceOrderResponse\x12\\\n" +

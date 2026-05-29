@@ -21,7 +21,7 @@ import (
 
 // MetaGetter fetches account metadata (allows test injection).
 type MetaGetter interface {
-	Get(ctx context.Context, accountID int64) (accountmeta.Meta, error)
+	Get(ctx context.Context, accountID int64, exchange int32, market int32) (accountmeta.Meta, error)
 	ValidateActiveSession(ctx context.Context, meta accountmeta.Meta, strategyID int64, sessionID string) error
 }
 
@@ -48,6 +48,21 @@ const (
 	attemptStatusRecovering     = "RECOVERING"
 	attemptStatusRecovered      = "RECOVERED"
 	attemptStatusRecoveryFailed = "RECOVERY_FAILED"
+
+	environmentBacktest = int32(0)
+	environmentDemo     = int32(1)
+	environmentLive     = int32(2)
+
+	exchangeBinance = int32(1)
+	exchangeOKX     = int32(2)
+
+	marketSpot             = int32(1)
+	marketPerpetualFutures = int32(2)
+	marketDeliveryFutures  = int32(3)
+
+	positionSideBoth  = int32(0)
+	positionSideLong  = int32(1)
+	positionSideShort = int32(2)
 )
 
 func NewOrderGRPCService(meta MetaGetter, router RouterExecutor, repo repository.Repository, notifierOpt ...ordernotify.Publisher) *OrderGRPCService {
@@ -69,10 +84,16 @@ func (s *OrderGRPCService) PlaceOrder(ctx context.Context, req *orderv1.PlaceOrd
 	if req.GetQty() == 0 {
 		return nil, status.Error(codes.InvalidArgument, "qty must be non-zero")
 	}
+	if err := validateRouteRequest(req.GetExchange(), req.GetMarket(), req.GetPositionSide()); err != nil {
+		return nil, err
+	}
 
-	meta, err := s.metaGetter.Get(ctx, accountID)
+	meta, err := s.metaGetter.Get(ctx, accountID, req.GetExchange(), req.GetMarket())
 	if err != nil {
-		return nil, status.Errorf(codes.Unavailable, "get account meta: %v", err)
+		return nil, err
+	}
+	if err := validatePositionSide(meta, req.GetPositionSide()); err != nil {
+		return nil, err
 	}
 	if err := s.metaGetter.ValidateActiveSession(ctx, meta, req.GetStrategyId(), req.GetSessionId()); err != nil {
 		return nil, err
@@ -85,20 +106,26 @@ func (s *OrderGRPCService) PlaceOrder(ctx context.Context, req *orderv1.PlaceOrd
 	}
 	attemptID := uuid.New().String()
 	clientOrderID := buildClientOrderID(intentID, attemptID)
-	market := normalizedMarket(req.GetMarket())
+	market := meta.Market
 
 	intent := repository.OrderIntent{
 		IntentID:       intentID,
 		Time:           now,
 		AccountID:      accountID,
+		VenueID:        meta.VenueID,
 		UserID:         meta.UserID,
 		StrategyID:     req.GetStrategyId(),
 		SessionID:      req.GetSessionId(),
+		Environment:    meta.Environment,
+		Exchange:       meta.Exchange,
 		Market:         market,
+		PositionSide:   req.GetPositionSide(),
+		OrderType:      1,
 		Symbol:         req.GetSymbol(),
 		Side:           req.GetSide(),
 		RequestedQty:   req.GetQty(),
 		RequestedPrice: req.GetPrice(),
+		Status:         "REQUESTED",
 	}
 	if err := s.repo.UpsertOrderIntent(ctx, intent); err != nil {
 		return nil, status.Errorf(codes.Internal, "upsert order intent: %v", err)
@@ -109,10 +136,15 @@ func (s *OrderGRPCService) PlaceOrder(ctx context.Context, req *orderv1.PlaceOrd
 		IntentID:       intentID,
 		Time:           now,
 		AccountID:      accountID,
+		VenueID:        meta.VenueID,
 		UserID:         meta.UserID,
 		StrategyID:     req.GetStrategyId(),
 		SessionID:      req.GetSessionId(),
+		Environment:    meta.Environment,
+		Exchange:       meta.Exchange,
 		Market:         market,
+		PositionSide:   req.GetPositionSide(),
+		OrderType:      1,
 		Symbol:         req.GetSymbol(),
 		Side:           req.GetSide(),
 		RequestedQty:   req.GetQty(),
@@ -120,7 +152,6 @@ func (s *OrderGRPCService) PlaceOrder(ctx context.Context, req *orderv1.PlaceOrd
 		MarkPrice:      req.GetMarkPrice(),
 		Status:         attemptStatusPending,
 		ClientOrderID:  clientOrderID,
-		Mode:           meta.Mode,
 	}
 	if err := s.repo.CreateOrderAttempt(ctx, attempt); err != nil {
 		return nil, status.Errorf(codes.Internal, "create order attempt: %v", err)
@@ -139,6 +170,9 @@ func (s *OrderGRPCService) PlaceOrder(ctx context.Context, req *orderv1.PlaceOrd
 		Price:         price,
 		MarkPrice:     req.GetMarkPrice(),
 		ClientOrderID: clientOrderID,
+		Exchange:      meta.Exchange,
+		Market:        meta.Market,
+		PositionSide:  req.GetPositionSide(),
 	}
 
 	result, execErr := s.routerExec.Execute(ctx, orderReq, meta)
@@ -273,12 +307,7 @@ func (s *OrderGRPCService) ResolveOrderAttempt(ctx context.Context, req *orderv1
 		return nil, status.Error(codes.InvalidArgument, "intent_id, attempt_id, or client_order_id is required")
 	}
 
-	meta, err := s.metaGetter.Get(ctx, accountID)
-	if err != nil {
-		return nil, status.Errorf(codes.Unavailable, "get account meta: %v", err)
-	}
-
-	attempt, err := s.repo.FindOrderAttempt(ctx, meta.UserID, accountID, req.GetIntentId(), req.GetAttemptId(), req.GetClientOrderId())
+	attempt, err := s.repo.FindOrderAttempt(ctx, 0, accountID, req.GetIntentId(), req.GetAttemptId(), req.GetClientOrderId())
 	if err != nil {
 		if err == repository.ErrNotFound {
 			return &orderv1.ResolveOrderAttemptResponse{
@@ -303,6 +332,11 @@ func (s *OrderGRPCService) ResolveOrderAttempt(ctx context.Context, req *orderv1
 			FillDeltas:    resp.GetFillDeltas(),
 			ClientOrderId: resp.GetClientOrderId(),
 		}, nil
+	}
+
+	meta, err := s.metaGetter.Get(ctx, accountID, attempt.Exchange, attempt.Market)
+	if err != nil {
+		return nil, err
 	}
 
 	resp, err := s.resolveAttempt(ctx, meta, attempt, attempt.StrategyID, attempt.SessionID, attempt.Market)
@@ -341,7 +375,7 @@ func (s *OrderGRPCService) resolveAttempt(
 	attempt repository.OrderAttempt,
 	strategyID int64,
 	sessionID string,
-	market string,
+	market int32,
 ) (*orderv1.PlaceOrderResponse, error) {
 	resolveReq := executor.RecoveryRequest{
 		AccountID:       attempt.AccountID,
@@ -350,7 +384,7 @@ func (s *OrderGRPCService) resolveAttempt(
 		ExchangeOrderID: attempt.ExchangeOrderID,
 	}
 	logger.Warn(ctx, "system", fmt.Sprintf(
-		"order recovery start: intent_id=%s attempt_id=%s client_order_id=%s exchange_order_id=%s symbol=%s market=%s",
+		"order recovery start: intent_id=%s attempt_id=%s client_order_id=%s exchange_order_id=%s symbol=%s market=%d",
 		attempt.IntentID, attempt.AttemptID, attempt.ClientOrderID, attempt.ExchangeOrderID, attempt.Symbol, market,
 	))
 
@@ -441,7 +475,7 @@ func (s *OrderGRPCService) resolveAttempt(
 }
 
 func (s *OrderGRPCService) publishOrderNotification(ctx context.Context, attempt repository.OrderAttempt, order *repository.Order) {
-	if attempt.Mode == 0 {
+	if attempt.Environment == environmentBacktest {
 		return
 	}
 	eventType, severity, title, ok := orderNotificationClass(attempt.Status)
@@ -513,7 +547,7 @@ func buildPersistedExecution(
 	attempt repository.OrderAttempt,
 	strategyID int64,
 	sessionID string,
-	market string,
+	market int32,
 	result executor.OrderResult,
 ) (*repository.Order, []repository.OrderFill) {
 	now := time.Now().UTC()
@@ -526,10 +560,14 @@ func buildPersistedExecution(
 		IntentID:        attempt.IntentID,
 		Time:            now,
 		AccountID:       attempt.AccountID,
+		VenueID:         attempt.VenueID,
 		UserID:          meta.UserID,
 		StrategyID:      strategyID,
 		SessionID:       sessionID,
+		Environment:     attempt.Environment,
+		Exchange:        attempt.Exchange,
 		Market:          market,
+		PositionSide:    attempt.PositionSide,
 		Symbol:          nonEmpty(result.Symbol, attempt.Symbol),
 		Side:            nonEmpty(result.Side, attempt.Side),
 		OrigQty:         fallbackPositive(result.OrigQty, abs(attempt.RequestedQty)),
@@ -539,7 +577,6 @@ func buildPersistedExecution(
 		Price:           result.Price,
 		Status:          nonEmpty(result.Status, "NEW"),
 		ErrorMessage:    result.ErrorMessage,
-		Mode:            meta.Mode,
 	}
 
 	fills := make([]repository.OrderFill, 0, len(result.Fills))
@@ -557,16 +594,19 @@ func buildPersistedExecution(
 			IntentID:        attempt.IntentID,
 			Time:            now,
 			AccountID:       attempt.AccountID,
+			VenueID:         attempt.VenueID,
 			UserID:          meta.UserID,
+			Environment:     attempt.Environment,
+			Exchange:        attempt.Exchange,
+			Market:          market,
+			PositionSide:    attempt.PositionSide,
 			Symbol:          order.Symbol,
 			Side:            order.Side,
 			Qty:             fill.Qty,
 			FillPrice:       fill.FillPrice,
 			Fee:             fill.Fee,
 			Status:          fillStatus,
-			Mode:            meta.Mode,
 			StrategyID:      strategyID,
-			Market:          market,
 			SessionID:       sessionID,
 		})
 	}
@@ -637,12 +677,16 @@ func toProtoIntent(item repository.OrderIntent) *orderv1.OrderIntentEntry {
 		Time:           timestamppb.New(item.Time),
 		IntentId:       item.IntentID,
 		AccountId:      item.AccountID,
+		VenueId:        item.VenueID,
 		Symbol:         item.Symbol,
 		Side:           item.Side,
 		RequestedQty:   item.RequestedQty,
 		RequestedPrice: item.RequestedPrice,
 		StrategyId:     item.StrategyID,
+		Environment:    item.Environment,
+		Exchange:       item.Exchange,
 		Market:         item.Market,
+		PositionSide:   item.PositionSide,
 		SessionId:      item.SessionID,
 	}
 }
@@ -661,13 +705,16 @@ func toProtoAttempt(item repository.OrderAttempt) *orderv1.OrderAttemptEntry {
 		RequestedPrice:  item.RequestedPrice,
 		MarkPrice:       item.MarkPrice,
 		Status:          item.Status,
-		Mode:            item.Mode,
+		Environment:     item.Environment,
 		ErrorMessage:    item.ErrorMessage,
 		StrategyId:      item.StrategyID,
 		Market:          item.Market,
 		SessionId:       item.SessionID,
 		ClientOrderId:   item.ClientOrderID,
 		RecoveryError:   item.RecoveryError,
+		VenueId:         item.VenueID,
+		Exchange:        item.Exchange,
+		PositionSide:    item.PositionSide,
 	}
 }
 
@@ -687,12 +734,15 @@ func toProtoOrder(item repository.Order) *orderv1.ExchangeOrderEntry {
 		RemainingQty:    item.RemainingQty,
 		AvgPrice:        item.AvgPrice,
 		Status:          item.Status,
-		Mode:            item.Mode,
+		Environment:     item.Environment,
 		ErrorMessage:    item.ErrorMessage,
 		StrategyId:      item.StrategyID,
 		Market:          item.Market,
 		SessionId:       item.SessionID,
 		Price:           item.Price,
+		VenueId:         item.VenueID,
+		Exchange:        item.Exchange,
+		PositionSide:    item.PositionSide,
 	}
 }
 
@@ -712,10 +762,13 @@ func toProtoFill(item repository.OrderFill) *orderv1.OrderFillEntry {
 		FillPrice:       item.FillPrice,
 		Fee:             item.Fee,
 		Status:          item.Status,
-		Mode:            item.Mode,
+		Environment:     item.Environment,
 		StrategyId:      item.StrategyID,
 		Market:          item.Market,
 		SessionId:       item.SessionID,
+		VenueId:         item.VenueID,
+		Exchange:        item.Exchange,
+		PositionSide:    item.PositionSide,
 	}
 }
 
@@ -737,13 +790,6 @@ func fallbackRemaining(origQty, executedQty, remainingQty, fallbackOrig float64)
 	return orig - executedQty
 }
 
-func normalizedMarket(v string) string {
-	if strings.TrimSpace(v) == "" {
-		return "futures"
-	}
-	return strings.TrimSpace(strings.ToLower(v))
-}
-
 func nonEmpty(v, fallback string) string {
 	if strings.TrimSpace(v) == "" {
 		return fallback
@@ -760,4 +806,42 @@ func abs(v float64) float64 {
 
 func logSaveFailure(ctx context.Context, msg string, err error) {
 	logger.Error(ctx, "system", fmt.Sprintf("%s: %v", msg, err))
+}
+
+func validateRouteRequest(exchange, market, positionSide int32) error {
+	switch exchange {
+	case exchangeBinance, exchangeOKX:
+	default:
+		return status.Errorf(codes.InvalidArgument, "unsupported exchange: %d", exchange)
+	}
+	switch market {
+	case marketSpot, marketPerpetualFutures, marketDeliveryFutures:
+	default:
+		return status.Errorf(codes.InvalidArgument, "unsupported market: %d", market)
+	}
+	switch positionSide {
+	case positionSideBoth, positionSideLong, positionSideShort:
+		return nil
+	default:
+		return status.Errorf(codes.InvalidArgument, "unsupported position_side: %d", positionSide)
+	}
+}
+
+func validatePositionSide(meta accountmeta.Meta, positionSide int32) error {
+	if meta.Market == marketSpot {
+		if positionSide != positionSideBoth {
+			return status.Error(codes.InvalidArgument, "spot orders must not set position_side")
+		}
+		return nil
+	}
+	if strings.EqualFold(meta.PositionMode, "hedge") {
+		if positionSide != positionSideLong && positionSide != positionSideShort {
+			return status.Error(codes.InvalidArgument, "hedge futures orders require position_side")
+		}
+		return nil
+	}
+	if positionSide != positionSideBoth {
+		return status.Error(codes.InvalidArgument, "one-way futures orders must use position_side=BOTH")
+	}
+	return nil
 }

@@ -9,7 +9,9 @@ import (
 
 var testMeta = accountmeta.Meta{
 	AccountID:      1,
-	Mode:           0,
+	Environment:    environmentBacktest,
+	Exchange:       exchangeBinance,
+	Market:         marketPerpetualFutures,
 	DefaultFeeRate: 0.0004,
 	SlippageBps:    5.0,
 }

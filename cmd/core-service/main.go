@@ -185,7 +185,7 @@ func main() {
 		}
 	}()
 
-	orderMetaGetter := orderaccountmeta.NewAdapter(repo)
+	orderMetaGetter := orderaccountmeta.NewAdapter(repo, credentialManager)
 	orderService := ordersvc.NewOrderGRPCService(orderMetaGetter, orderRouter, orderRepository, orderPublisher)
 
 	// ── HTTP Server ───────────────────────────────────────────────────────────

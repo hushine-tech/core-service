@@ -20,7 +20,7 @@ type stubMetaGetter struct {
 	validatedSessions []string
 }
 
-func (s *stubMetaGetter) Get(_ context.Context, _ int64) (accountmeta.Meta, error) {
+func (s *stubMetaGetter) Get(_ context.Context, _ int64, _ int32, _ int32) (accountmeta.Meta, error) {
 	return s.meta, s.err
 }
 
@@ -187,12 +187,42 @@ func (s *stubRepo) ListOrderFillsByAttempt(_ context.Context, attemptID string) 
 
 func newTestSvc(meta accountmeta.Meta, metaErr error, result executor.OrderResult, execErr error) (*OrderGRPCService, *stubRepo) {
 	repo := &stubRepo{}
+	if meta.Environment == 0 && meta.Exchange == 0 && meta.Market == 0 {
+		meta = testOrderMeta(environmentBacktest)
+	}
 	svc := NewOrderGRPCService(&stubMetaGetter{meta: meta, err: metaErr}, &stubRouterExec{result: result, err: execErr}, repo)
 	return svc, repo
 }
 
+func testOrderMeta(environment int32) accountmeta.Meta {
+	return accountmeta.Meta{
+		AccountID:      1,
+		VenueID:        10,
+		UserID:         77,
+		Environment:    environment,
+		Exchange:       exchangeBinance,
+		Market:         marketPerpetualFutures,
+		PositionMode:   "one_way",
+		DefaultFeeRate: 0.0004,
+		SlippageBps:    2.5,
+	}
+}
+
+func testPlaceOrderRequest() *orderv1.PlaceOrderRequest {
+	return &orderv1.PlaceOrderRequest{
+		AccountId:    1,
+		Exchange:     exchangeBinance,
+		Market:       marketPerpetualFutures,
+		PositionSide: positionSideBoth,
+		Symbol:       "ETHUSDT",
+		Side:         "BUY",
+		Qty:          1,
+		MarkPrice:    2500,
+	}
+}
+
 func TestPlaceOrder_validationErrors(t *testing.T) {
-	svc, _ := newTestSvc(accountmeta.Meta{Mode: 0}, nil, executor.OrderResult{}, nil)
+	svc, _ := newTestSvc(testOrderMeta(environmentBacktest), nil, executor.OrderResult{}, nil)
 
 	cases := []struct {
 		req  *orderv1.PlaceOrderRequest
@@ -216,7 +246,7 @@ func TestPlaceOrder_validationErrors(t *testing.T) {
 
 func TestPlaceOrderRejectsTerminalSessionBeforePersistingOrExecuting(t *testing.T) {
 	metaGetter := &stubMetaGetter{
-		meta:        accountmeta.Meta{AccountID: 1, UserID: 77, Mode: 2},
+		meta:        testOrderMeta(environmentDemo),
 		validateErr: status.Error(codes.FailedPrecondition, "session is not active"),
 	}
 	router := &stubRouterExec{
@@ -232,15 +262,11 @@ func TestPlaceOrderRejectsTerminalSessionBeforePersistingOrExecuting(t *testing.
 	repo := &stubRepo{}
 	svc := NewOrderGRPCService(metaGetter, router, repo)
 
-	_, err := svc.PlaceOrder(context.Background(), &orderv1.PlaceOrderRequest{
-		AccountId:  1,
-		Symbol:     "ETHUSDT",
-		Side:       "BUY",
-		Qty:        0.1,
-		StrategyId: 9,
-		SessionId:  "sess-terminal",
-		Market:     "futures",
-	})
+	req := testPlaceOrderRequest()
+	req.Qty = 0.1
+	req.StrategyId = 9
+	req.SessionId = "sess-terminal"
+	_, err := svc.PlaceOrder(context.Background(), req)
 	if status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("code = %v, want FailedPrecondition (err=%v)", status.Code(err), err)
 	}
@@ -257,7 +283,7 @@ func TestPlaceOrderRejectsTerminalSessionBeforePersistingOrExecuting(t *testing.
 }
 
 func TestPlaceOrder_filledOrderCreatesAttemptOrderAndFill(t *testing.T) {
-	meta := accountmeta.Meta{UserID: 77, Mode: 0}
+	meta := testOrderMeta(environmentBacktest)
 	result := executor.OrderResult{
 		ExchangeOrderID: "ex-order-1",
 		Symbol:          "BTCUSDT",
@@ -275,10 +301,14 @@ func TestPlaceOrder_filledOrderCreatesAttemptOrderAndFill(t *testing.T) {
 	}
 	svc, repo := newTestSvc(meta, nil, result, nil)
 
-	resp, err := svc.PlaceOrder(context.Background(), &orderv1.PlaceOrderRequest{
-		AccountId: 1, Symbol: "BTCUSDT", Side: "BUY", Qty: 0.1, MarkPrice: 50000,
-		StrategyId: 9, SessionId: "sess-1", Market: "futures", IntentId: "intent-1",
-	})
+	req := testPlaceOrderRequest()
+	req.Symbol = "BTCUSDT"
+	req.Qty = 0.1
+	req.MarkPrice = 50000
+	req.StrategyId = 9
+	req.SessionId = "sess-1"
+	req.IntentId = "intent-1"
+	resp, err := svc.PlaceOrder(context.Background(), req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -306,7 +336,7 @@ func TestPlaceOrder_filledOrderCreatesAttemptOrderAndFill(t *testing.T) {
 }
 
 func TestPlaceOrder_fillPendingPersistsOrderWithoutSettleableFill(t *testing.T) {
-	meta := accountmeta.Meta{UserID: 77, Mode: 2}
+	meta := testOrderMeta(environmentDemo)
 	result := executor.OrderResult{
 		ExchangeOrderID: "ex-order-missing-fee",
 		Symbol:          "ETHUSDT",
@@ -321,10 +351,13 @@ func TestPlaceOrder_fillPendingPersistsOrderWithoutSettleableFill(t *testing.T) 
 	}
 	svc, repo := newTestSvc(meta, nil, result, nil)
 
-	resp, err := svc.PlaceOrder(context.Background(), &orderv1.PlaceOrderRequest{
-		AccountId: 1, Symbol: "ETHUSDT", Side: "BUY", Qty: 0.5, MarkPrice: 2400,
-		StrategyId: 9, SessionId: "sess-1", Market: "futures", IntentId: "intent-missing-fee",
-	})
+	req := testPlaceOrderRequest()
+	req.Qty = 0.5
+	req.MarkPrice = 2400
+	req.StrategyId = 9
+	req.SessionId = "sess-1"
+	req.IntentId = "intent-missing-fee"
+	resp, err := svc.PlaceOrder(context.Background(), req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -347,25 +380,29 @@ func TestPlaceOrder_fillPendingPersistsOrderWithoutSettleableFill(t *testing.T) 
 
 func TestPlaceOrder_failedMetaLookup(t *testing.T) {
 	svc, _ := newTestSvc(accountmeta.Meta{}, fmt.Errorf("account not found"), executor.OrderResult{}, nil)
-	_, err := svc.PlaceOrder(context.Background(), &orderv1.PlaceOrderRequest{
-		AccountId: 99, Symbol: "BTCUSDT", Side: "BUY", Qty: 1, MarkPrice: 50000,
-	})
+	req := testPlaceOrderRequest()
+	req.AccountId = 99
+	req.Symbol = "BTCUSDT"
+	req.MarkPrice = 50000
+	_, err := svc.PlaceOrder(context.Background(), req)
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if s, _ := status.FromError(err); s.Code() != codes.Unavailable {
-		t.Errorf("want Unavailable, got %v", s.Code())
+	if s, _ := status.FromError(err); s.Code() != codes.Unknown {
+		t.Errorf("want Unknown, got %v", s.Code())
 	}
 }
 
 func TestPlaceOrder_failedAttemptDoesNotCreateOrderOrFill(t *testing.T) {
-	meta := accountmeta.Meta{UserID: 55, Mode: 1}
+	meta := testOrderMeta(environmentLive)
+	meta.UserID = 55
 	result := executor.OrderResult{Status: "FAILED", ErrorMessage: "exchange error", OrigQty: 1, RemainingQty: 1}
 	svc, repo := newTestSvc(meta, nil, result, nil)
 
-	resp, err := svc.PlaceOrder(context.Background(), &orderv1.PlaceOrderRequest{
-		AccountId: 1, Symbol: "ETHUSDT", Side: "SELL", Qty: 1, MarkPrice: 3000,
-	})
+	req := testPlaceOrderRequest()
+	req.Side = "SELL"
+	req.MarkPrice = 3000
+	resp, err := svc.PlaceOrder(context.Background(), req)
 	if err != nil {
 		t.Fatalf("unexpected gRPC error: %v", err)
 	}
@@ -384,7 +421,7 @@ func TestPlaceOrder_failedAttemptDoesNotCreateOrderOrFill(t *testing.T) {
 }
 
 func TestPlaceOrder_finalizeFailureAfterExchangeAcceptReturnsRecoverableState(t *testing.T) {
-	meta := accountmeta.Meta{UserID: 77, Mode: 0}
+	meta := testOrderMeta(environmentBacktest)
 	result := executor.OrderResult{
 		ExchangeOrderID: "ex-order-1",
 		Symbol:          "BTCUSDT",
@@ -403,10 +440,14 @@ func TestPlaceOrder_finalizeFailureAfterExchangeAcceptReturnsRecoverableState(t 
 	svc, repo := newTestSvc(meta, nil, result, nil)
 	repo.finalizeErr = fmt.Errorf("db unavailable")
 
-	resp, err := svc.PlaceOrder(context.Background(), &orderv1.PlaceOrderRequest{
-		AccountId: 1, Symbol: "BTCUSDT", Side: "BUY", Qty: 0.1, MarkPrice: 50000,
-		StrategyId: 9, SessionId: "sess-1", Market: "futures", IntentId: "intent-1",
-	})
+	req := testPlaceOrderRequest()
+	req.Symbol = "BTCUSDT"
+	req.Qty = 0.1
+	req.MarkPrice = 50000
+	req.StrategyId = 9
+	req.SessionId = "sess-1"
+	req.IntentId = "intent-1"
+	resp, err := svc.PlaceOrder(context.Background(), req)
 	if err != nil {
 		t.Fatalf("unexpected gRPC error: %v", err)
 	}
@@ -422,7 +463,7 @@ func TestPlaceOrder_finalizeFailureAfterExchangeAcceptReturnsRecoverableState(t 
 }
 
 func TestPlaceOrder_executeErrorResolvesRecoveredOrder(t *testing.T) {
-	meta := accountmeta.Meta{UserID: 77, Mode: 2}
+	meta := testOrderMeta(environmentDemo)
 	svc, repo := newTestSvc(meta, nil, executor.OrderResult{}, fmt.Errorf("rpc timeout"))
 	router := svc.routerExec.(*stubRouterExec)
 	router.resolveResult = executor.OrderResult{
@@ -443,10 +484,14 @@ func TestPlaceOrder_executeErrorResolvesRecoveredOrder(t *testing.T) {
 		}},
 	}
 
-	resp, err := svc.PlaceOrder(context.Background(), &orderv1.PlaceOrderRequest{
-		AccountId: 1, Symbol: "BTCUSDT", Side: "BUY", Qty: 0.1, MarkPrice: 50000,
-		StrategyId: 9, SessionId: "sess-1", Market: "futures", IntentId: "intent-1",
-	})
+	req := testPlaceOrderRequest()
+	req.Symbol = "BTCUSDT"
+	req.Qty = 0.1
+	req.MarkPrice = 50000
+	req.StrategyId = 9
+	req.SessionId = "sess-1"
+	req.IntentId = "intent-1"
+	resp, err := svc.PlaceOrder(context.Background(), req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -462,7 +507,7 @@ func TestPlaceOrder_executeErrorResolvesRecoveredOrder(t *testing.T) {
 }
 
 func TestResolveOrderAttempt_notFoundReturnsFailed(t *testing.T) {
-	meta := accountmeta.Meta{UserID: 77, Mode: 2}
+	meta := testOrderMeta(environmentDemo)
 	svc, _ := newTestSvc(meta, nil, executor.OrderResult{}, nil)
 
 	resp, err := svc.ResolveOrderAttempt(context.Background(), &orderv1.ResolveOrderAttemptRequest{

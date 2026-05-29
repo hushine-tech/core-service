@@ -31,8 +31,8 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type OrderServiceClient interface {
-	// PlaceOrder routes to mock (backtest) or exchange (live/testnet) based on
-	// account mode. The response distinguishes attempt, order, and fill layers.
+	// PlaceOrder routes by account_id + exchange + market to one active venue.
+	// The response distinguishes attempt, order, and fill layers.
 	PlaceOrder(ctx context.Context, in *PlaceOrderRequest, opts ...grpc.CallOption) (*PlaceOrderResponse, error)
 	// Intents are the strategy-level "we want to place this" rows; they are the
 	// top tier of the four-layer audit hierarchy (intent → attempt → order → fill).
@@ -119,8 +119,8 @@ func (c *orderServiceClient) ResolveOrderAttempt(ctx context.Context, in *Resolv
 // All implementations must embed UnimplementedOrderServiceServer
 // for forward compatibility.
 type OrderServiceServer interface {
-	// PlaceOrder routes to mock (backtest) or exchange (live/testnet) based on
-	// account mode. The response distinguishes attempt, order, and fill layers.
+	// PlaceOrder routes by account_id + exchange + market to one active venue.
+	// The response distinguishes attempt, order, and fill layers.
 	PlaceOrder(context.Context, *PlaceOrderRequest) (*PlaceOrderResponse, error)
 	// Intents are the strategy-level "we want to place this" rows; they are the
 	// top tier of the four-layer audit hierarchy (intent → attempt → order → fill).

@@ -6,8 +6,8 @@ option go_package = "github.com/hushine-tech/core-service/gen/orderv1;orderv1";
 import "google/protobuf/timestamp.proto";
 
 service OrderService {
-  // PlaceOrder routes to mock (backtest) or exchange (live/testnet) based on
-  // account mode. The response distinguishes attempt, order, and fill layers.
+  // PlaceOrder routes by account_id + exchange + market to one active venue.
+  // The response distinguishes attempt, order, and fill layers.
   rpc PlaceOrder(PlaceOrderRequest) returns (PlaceOrderResponse);
 
   // Intents are the strategy-level "we want to place this" rows; they are the
@@ -30,14 +30,16 @@ service OrderService {
 message PlaceOrderRequest {
   int64 account_id = 1;
   string symbol = 2;
-  string side = 3;           // "BUY" / "SELL" or strategy "LONG" / "SHORT"
+  string side = 3;           // "BUY" / "SELL" or legacy strategy "LONG" / "SHORT"
   double qty = 4;
   optional double price = 5; // limit price; omit for market order
   double mark_price = 6;     // current mark price (used for mock fill calculation)
   int64 strategy_id = 7;     // 0 = no strategy (manual order)
-  string market = 8;         // "futures" | "spot"; empty = "futures"
+  int32 market = 8;          // 1=spot, 2=perpetual_futures, 3=delivery_futures
   string session_id = 9;     // 关联 session（空 = 非 session 触发）
   string intent_id = 10;     // 可选；空时由服务端生成
+  int32 exchange = 11;       // 1=binance, 2=okx
+  int32 position_side = 12;  // 0=none/BOTH, 1=long, 2=short
 }
 
 message PlaceOrderResponse {
@@ -90,8 +92,12 @@ message OrderIntentEntry {
   double requested_qty = 6;
   double requested_price = 7;
   int64 strategy_id = 8;
-  string market = 9;
+  int32 market = 9;
   string session_id = 10;
+  int64 venue_id = 11;
+  int32 environment = 12;
+  int32 exchange = 13;
+  int32 position_side = 14;
 }
 
 message QueryOrderAttemptsRequest {
@@ -155,13 +161,16 @@ message OrderAttemptEntry {
   double requested_price = 10;
   double mark_price = 11;
   string status = 12;
-  int32 mode = 13;
+  int32 environment = 13;
   string error_message = 14;
   int64 strategy_id = 15;
-  string market = 16;
+  int32 market = 16;
   string session_id = 17;
   string client_order_id = 18;
   string recovery_error = 19;
+  int64 venue_id = 20;
+  int32 exchange = 21;
+  int32 position_side = 22;
 }
 
 message ExchangeOrderEntry {
@@ -179,12 +188,15 @@ message ExchangeOrderEntry {
   double remaining_qty = 11;
   double avg_price = 12;
   string status = 13;
-  int32 mode = 14;
+  int32 environment = 14;
   string error_message = 15;
   int64 strategy_id = 16;
-  string market = 17;
+  int32 market = 17;
   string session_id = 18;
   double price = 19;
+  int64 venue_id = 21;
+  int32 exchange = 22;
+  int32 position_side = 23;
 }
 
 message OrderFillEntry {
@@ -202,8 +214,11 @@ message OrderFillEntry {
   double fill_price = 12;
   double fee = 13;
   string status = 14;
-  int32 mode = 15;
+  int32 environment = 15;
   int64 strategy_id = 16;
-  string market = 17;
+  int32 market = 17;
   string session_id = 18;
+  int64 venue_id = 19;
+  int32 exchange = 20;
+  int32 position_side = 21;
 }

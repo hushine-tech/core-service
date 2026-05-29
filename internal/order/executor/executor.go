@@ -10,8 +10,11 @@ import (
 // OrderRequest is the normalised order payload passed to all executors.
 type OrderRequest struct {
 	AccountID     int64
+	Exchange      int32
+	Market        int32
 	Symbol        string
 	Side          string // "BUY" / "SELL"
+	PositionSide  int32  // 0=BOTH/none, 1=LONG, 2=SHORT
 	Qty           float64
 	Price         *float64 // nil = market order
 	MarkPrice     float64  // current mark price (used by mock executor)

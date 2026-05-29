@@ -18,7 +18,7 @@ func (s *stubExecutor) Resolve(_ context.Context, req RecoveryRequest, _ account
 	return OrderResult{Status: s.name, Symbol: req.Symbol}, nil
 }
 
-func TestRouter_routesByMode(t *testing.T) {
+func TestRouter_routesByVenueRoute(t *testing.T) {
 	mock := &stubExecutor{"mock"}
 	live := &stubExecutor{"live"}
 	testnet := &stubExecutor{"testnet"}
@@ -27,27 +27,30 @@ func TestRouter_routesByMode(t *testing.T) {
 	req := OrderRequest{Symbol: "BTCUSDT", Side: "BUY", Qty: 1}
 
 	for _, tc := range []struct {
-		mode     int32
-		wantName string
+		name        string
+		environment int32
+		exchange    int32
+		market      int32
+		wantName    string
 	}{
-		{0, "mock"},
-		{1, "live"},
-		{2, "testnet"},
+		{"backtest", environmentBacktest, exchangeBinance, marketPerpetualFutures, "mock"},
+		{"live-binance-perpetual", environmentLive, exchangeBinance, marketPerpetualFutures, "live"},
+		{"demo-binance-perpetual", environmentDemo, exchangeBinance, marketPerpetualFutures, "testnet"},
 	} {
-		meta := accountmeta.Meta{Mode: tc.mode}
+		meta := accountmeta.Meta{Environment: tc.environment, Exchange: tc.exchange, Market: tc.market}
 		res, err := router.Execute(context.Background(), req, meta)
 		if err != nil {
-			t.Fatalf("mode %d: unexpected error: %v", tc.mode, err)
+			t.Fatalf("%s: unexpected error: %v", tc.name, err)
 		}
 		if res.Status != tc.wantName {
-			t.Errorf("mode %d: got %q, want %q", tc.mode, res.Status, tc.wantName)
+			t.Errorf("%s: got %q, want %q", tc.name, res.Status, tc.wantName)
 		}
 	}
 }
 
-func TestRouter_unknownMode(t *testing.T) {
+func TestRouter_unsupportedRoute(t *testing.T) {
 	router := NewRouter(&stubExecutor{"m"}, &stubExecutor{"l"}, &stubExecutor{"t"})
-	meta := accountmeta.Meta{Mode: 99}
+	meta := accountmeta.Meta{Environment: environmentLive, Exchange: exchangeBinance, Market: 99}
 	res, err := router.Execute(context.Background(), OrderRequest{}, meta)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -57,7 +60,7 @@ func TestRouter_unknownMode(t *testing.T) {
 	}
 }
 
-func TestRouterResolve_routesByMode(t *testing.T) {
+func TestRouterResolve_routesByVenueRoute(t *testing.T) {
 	mock := &stubExecutor{"mock"}
 	live := &stubExecutor{"live"}
 	testnet := &stubExecutor{"testnet"}
@@ -66,20 +69,23 @@ func TestRouterResolve_routesByMode(t *testing.T) {
 	req := RecoveryRequest{Symbol: "BTCUSDT", ClientOrderID: "coid-1"}
 
 	for _, tc := range []struct {
-		mode     int32
-		wantName string
+		name        string
+		environment int32
+		exchange    int32
+		market      int32
+		wantName    string
 	}{
-		{0, "mock"},
-		{1, "live"},
-		{2, "testnet"},
+		{"backtest", environmentBacktest, exchangeBinance, marketPerpetualFutures, "mock"},
+		{"live-binance-perpetual", environmentLive, exchangeBinance, marketPerpetualFutures, "live"},
+		{"demo-binance-perpetual", environmentDemo, exchangeBinance, marketPerpetualFutures, "testnet"},
 	} {
-		meta := accountmeta.Meta{Mode: tc.mode}
+		meta := accountmeta.Meta{Environment: tc.environment, Exchange: tc.exchange, Market: tc.market}
 		res, err := router.Resolve(context.Background(), req, meta)
 		if err != nil {
-			t.Fatalf("mode %d: unexpected error: %v", tc.mode, err)
+			t.Fatalf("%s: unexpected error: %v", tc.name, err)
 		}
 		if res.Status != tc.wantName {
-			t.Errorf("mode %d: got %q, want %q", tc.mode, res.Status, tc.wantName)
+			t.Errorf("%s: got %q, want %q", tc.name, res.Status, tc.wantName)
 		}
 	}
 }

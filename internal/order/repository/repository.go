@@ -12,14 +12,22 @@ type OrderIntent struct {
 	IntentID       string
 	Time           time.Time
 	AccountID      int64
+	VenueID        int64
 	UserID         int64
 	StrategyID     int64
 	SessionID      string
-	Market         string
+	Environment    int32
+	Exchange       int32
+	Market         int32
+	PositionSide   int32
+	OrderType      int32
 	Symbol         string
 	Side           string
 	RequestedQty   float64
 	RequestedPrice float64
+	Status         string
+	RejectCode     string
+	RejectMessage  string
 }
 
 type OrderAttempt struct {
@@ -27,10 +35,15 @@ type OrderAttempt struct {
 	IntentID        string
 	Time            time.Time
 	AccountID       int64
+	VenueID         int64
 	UserID          int64
 	StrategyID      int64
 	SessionID       string
-	Market          string
+	Environment     int32
+	Exchange        int32
+	Market          int32
+	PositionSide    int32
+	OrderType       int32
 	Symbol          string
 	Side            string
 	RequestedQty    float64
@@ -42,7 +55,6 @@ type OrderAttempt struct {
 	RecoveryError   string
 	OrderID         string
 	ExchangeOrderID string
-	Mode            int32
 }
 
 type Order struct {
@@ -53,10 +65,14 @@ type Order struct {
 	IntentID        string
 	Time            time.Time
 	AccountID       int64
+	VenueID         int64
 	UserID          int64
 	StrategyID      int64
 	SessionID       string
-	Market          string
+	Environment     int32
+	Exchange        int32
+	Market          int32
+	PositionSide    int32
 	Symbol          string
 	Side            string
 	OrigQty         float64
@@ -66,7 +82,6 @@ type Order struct {
 	Price           float64
 	Status          string
 	ErrorMessage    string
-	Mode            int32
 }
 
 type OrderFill struct {
@@ -78,6 +93,7 @@ type OrderFill struct {
 	IntentID        string
 	Time            time.Time
 	AccountID       int64
+	VenueID         int64
 	UserID          int64
 	Symbol          string
 	Side            string
@@ -85,9 +101,11 @@ type OrderFill struct {
 	FillPrice       float64
 	Fee             float64
 	Status          string
-	Mode            int32
 	StrategyID      int64
-	Market          string
+	Environment     int32
+	Exchange        int32
+	Market          int32
+	PositionSide    int32
 	SessionID       string
 }
 

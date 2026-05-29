@@ -7,15 +7,18 @@ import (
 	"github.com/hushine-tech/core-service/internal/order/accountmeta"
 )
 
-// Account mode constants mirror core-service definitions.
-// Defined locally to avoid a circular import dependency.
+// Route constants mirror core-service domain enums.
+// Defined locally to keep the order package independent from the account domain.
 const (
-	modeBacktest = 0
-	modeLive     = 1
-	modeTestnet  = 2
+	environmentBacktest = 0
+	environmentDemo     = 1
+	environmentLive     = 2
+
+	exchangeBinance        = 1
+	marketPerpetualFutures = 2
 )
 
-// Router dispatches orders to the appropriate executor based on account mode.
+// Router dispatches orders to the appropriate executor based on venue route metadata.
 type Router struct {
 	mock           Executor
 	binanceLive    Executor
@@ -27,27 +30,33 @@ func NewRouter(mock, live, testnet Executor) *Router {
 }
 
 func (r *Router) Execute(ctx context.Context, req OrderRequest, meta accountmeta.Meta) (OrderResult, error) {
-	switch meta.Mode {
-	case modeBacktest:
+	switch {
+	case meta.Environment == environmentBacktest:
 		return r.mock.Execute(ctx, req, meta)
-	case modeLive:
+	case meta.Exchange == exchangeBinance && meta.Market == marketPerpetualFutures && meta.Environment == environmentLive:
 		return r.binanceLive.Execute(ctx, req, meta)
-	case modeTestnet:
+	case meta.Exchange == exchangeBinance && meta.Market == marketPerpetualFutures && meta.Environment == environmentDemo:
 		return r.binanceTestnet.Execute(ctx, req, meta)
 	default:
-		return OrderResult{Status: "FAILED", ErrorMessage: fmt.Sprintf("unsupported account mode: %d", meta.Mode)}, nil
+		return OrderResult{Status: "FAILED", ErrorMessage: fmt.Sprintf(
+			"unsupported order route: environment=%d exchange=%d market=%d",
+			meta.Environment, meta.Exchange, meta.Market,
+		)}, nil
 	}
 }
 
 func (r *Router) Resolve(ctx context.Context, req RecoveryRequest, meta accountmeta.Meta) (OrderResult, error) {
-	switch meta.Mode {
-	case modeBacktest:
+	switch {
+	case meta.Environment == environmentBacktest:
 		return r.mock.Resolve(ctx, req, meta)
-	case modeLive:
+	case meta.Exchange == exchangeBinance && meta.Market == marketPerpetualFutures && meta.Environment == environmentLive:
 		return r.binanceLive.Resolve(ctx, req, meta)
-	case modeTestnet:
+	case meta.Exchange == exchangeBinance && meta.Market == marketPerpetualFutures && meta.Environment == environmentDemo:
 		return r.binanceTestnet.Resolve(ctx, req, meta)
 	default:
-		return OrderResult{}, fmt.Errorf("unsupported account mode: %d", meta.Mode)
+		return OrderResult{}, fmt.Errorf(
+			"unsupported order route: environment=%d exchange=%d market=%d",
+			meta.Environment, meta.Exchange, meta.Market,
+		)
 	}
 }

@@ -154,6 +154,78 @@ func accountModeFromEnvironment(env domain.Environment) domain.AccountMode {
 	}
 }
 
+func marginModeText(mode domain.MarginMode) string {
+	switch mode {
+	case domain.MarginModeCross:
+		return "cross"
+	case domain.MarginModeIsolated:
+		return "isolated"
+	default:
+		return ""
+	}
+}
+
+func positionModeText(mode domain.PositionMode) string {
+	switch mode {
+	case domain.PositionModeOneWay:
+		return "one_way"
+	case domain.PositionModeHedge:
+		return "hedge"
+	default:
+		return ""
+	}
+}
+
+func apiSecretFromCredentialJSON(raw string) (string, error) {
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		return "", status.Errorf(codes.FailedPrecondition, "invalid venue credential json: %v", err)
+	}
+	for _, key := range []string{"api_secret", "secret", "secret_key"} {
+		if v, ok := payload[key].(string); ok && strings.TrimSpace(v) != "" {
+			return strings.TrimSpace(v), nil
+		}
+	}
+	return "", status.Error(codes.FailedPrecondition, "venue credential missing api_secret")
+}
+
+func (s *AccountGRPCService) accountForExchangeFetch(ctx context.Context, account domain.Account) (domain.Account, error) {
+	if account.Mode == domain.AccountModeBacktest {
+		return account, nil
+	}
+	meta, err := s.repo.ResolveVenueRouteMeta(ctx, account.AccountID, domain.ExchangeBinance, domain.MarketPerpetualFutures)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return domain.Account{}, status.Error(codes.FailedPrecondition, "no active binance perpetual_futures venue for account")
+		}
+		return domain.Account{}, mapRepoErr(err)
+	}
+	if s.creds == nil {
+		return domain.Account{}, status.Error(codes.FailedPrecondition, "credential manager is not configured")
+	}
+	if strings.TrimSpace(meta.CredentialInfo) == "" {
+		return domain.Account{}, status.Error(codes.FailedPrecondition, "venue credential is missing")
+	}
+	credentialJSON, err := s.creds.Decrypt(meta.CredentialInfo)
+	if err != nil {
+		return domain.Account{}, status.Errorf(codes.FailedPrecondition, "decrypt venue credential: %v", err)
+	}
+	apiSecret, err := apiSecretFromCredentialJSON(credentialJSON)
+	if err != nil {
+		return domain.Account{}, err
+	}
+	account.UserID = meta.UserID
+	account.Environment = meta.Environment
+	account.Mode = accountModeFromEnvironment(meta.Environment)
+	account.APIKey = meta.APIKey
+	account.APISecret = apiSecret
+	account.MarginMode = marginModeText(meta.MarginMode)
+	account.PositionMode = positionModeText(meta.PositionMode)
+	account.DefaultFeeRate = meta.DefaultFeeRate
+	account.SlippageBps = meta.SlippageBps
+	return account, nil
+}
+
 func (s *AccountGRPCService) ensureVenueCanAttachAccount(ctx context.Context, userID int64, accountID int64, env domain.Environment) error {
 	if accountID == 0 {
 		return nil
@@ -1037,7 +1109,11 @@ func (s *AccountGRPCService) GetOnlineAccountInfo(ctx context.Context, req *acco
 		return nil, mapRepoErr(err)
 	}
 
-	info, err := s.router.GetOnlineInfo(ctx, account)
+	fetchAccount, err := s.accountForExchangeFetch(ctx, account)
+	if err != nil {
+		return nil, err
+	}
+	info, err := s.router.GetOnlineInfo(ctx, fetchAccount)
 	if err != nil {
 		return nil, status.Errorf(codes.Unavailable, "get online info: %v", err)
 	}
@@ -1124,7 +1200,11 @@ func (s *AccountGRPCService) UpdateAccountWalletState(ctx context.Context, req *
 		return &accountv1.UpdateAccountWalletStateResponse{Wallet: toProtoAccountWalletState(saved)}, nil
 
 	case domain.AccountModeBinanceLive, domain.AccountModeBinanceTestnet:
-		info, err := s.router.GetOnlineInfo(ctx, account)
+		fetchAccount, err := s.accountForExchangeFetch(ctx, account)
+		if err != nil {
+			return nil, err
+		}
+		info, err := s.router.GetOnlineInfo(ctx, fetchAccount)
 		if err != nil {
 			return nil, status.Errorf(codes.Unavailable, "fetch from exchange: %v", err)
 		}

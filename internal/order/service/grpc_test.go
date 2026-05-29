@@ -282,6 +282,32 @@ func TestPlaceOrderRejectsTerminalSessionBeforePersistingOrExecuting(t *testing.
 	}
 }
 
+func TestPlaceOrderRejectsUnsupportedHedgeBeforePersistingOrExecuting(t *testing.T) {
+	meta := testOrderMeta(environmentDemo)
+	meta.PositionMode = "hedge"
+	metaGetter := &stubMetaGetter{meta: meta}
+	router := &stubRouterExec{}
+	repo := &stubRepo{}
+	svc := NewOrderGRPCService(metaGetter, router, repo)
+
+	req := testPlaceOrderRequest()
+	req.PositionSide = positionSideLong
+	req.StrategyId = 9
+	req.SessionId = "sess-hedge"
+
+	_, err := svc.PlaceOrder(context.Background(), req)
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("code = %v, want FailedPrecondition (err=%v)", status.Code(err), err)
+	}
+	if router.executeCalls != 0 {
+		t.Fatalf("executor called %d time(s), want 0", router.executeCalls)
+	}
+	if len(repo.intents) != 0 || len(repo.attempts) != 0 || len(repo.orders) != 0 || len(repo.fills) != 0 {
+		t.Fatalf("order state persisted despite unsupported hedge mode: intents=%d attempts=%d orders=%d fills=%d",
+			len(repo.intents), len(repo.attempts), len(repo.orders), len(repo.fills))
+	}
+}
+
 func TestPlaceOrder_filledOrderCreatesAttemptOrderAndFill(t *testing.T) {
 	meta := testOrderMeta(environmentBacktest)
 	result := executor.OrderResult{

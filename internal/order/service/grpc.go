@@ -835,10 +835,7 @@ func validatePositionSide(meta accountmeta.Meta, positionSide int32) error {
 		return nil
 	}
 	if strings.EqualFold(meta.PositionMode, "hedge") {
-		if positionSide != positionSideLong && positionSide != positionSideShort {
-			return status.Error(codes.InvalidArgument, "hedge futures orders require position_side")
-		}
-		return nil
+		return status.Error(codes.FailedPrecondition, "hedge futures orders are not supported yet")
 	}
 	if positionSide != positionSideBoth {
 		return status.Error(codes.InvalidArgument, "one-way futures orders must use position_side=BOTH")

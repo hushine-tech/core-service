@@ -25,9 +25,11 @@ import (
 // real Binance.
 type fakeOnlineInfoFetcher struct {
 	info domain.OnlineAccountInfo
+	seen domain.Account
 }
 
 func (f *fakeOnlineInfoFetcher) FetchOnlineAccountInfo(_ context.Context, account domain.Account) (domain.OnlineAccountInfo, error) {
+	f.seen = account
 	resp := f.info
 	resp.AccountID = account.AccountID
 	resp.Mode = account.Mode
@@ -71,16 +73,16 @@ func TestUpdateAccountWalletState_Mode2_LaunchesReconciliation(t *testing.T) {
 
 	// Create a mode=2 testnet account.
 	accountID, err := repo.CreateAccount(ctx, domain.Account{
-		UserID:    testsUserID,
-		Name:      "testnet-acc",
-		Mode:      domain.AccountModeBinanceTestnet,
-		APIKey:    "test-key",
-		APISecret: "test-secret",
-		CreatedAt: time.Now().UTC(),
+		UserID:      testsUserID,
+		Name:        "testnet-acc",
+		Environment: domain.EnvironmentDemo,
+		Mode:        domain.AccountModeBinanceTestnet,
+		CreatedAt:   time.Now().UTC(),
 	})
 	if err != nil {
 		t.Fatalf("create account: %v", err)
 	}
+	credManager := seedBinancePerpVenue(t, repo, accountID, domain.EnvironmentDemo, "test-key", "test-secret")
 
 	// Seed an authoritative snapshot the fake exchange will return.
 	fakeExchange := &fakeOnlineInfoFetcher{
@@ -104,7 +106,7 @@ func TestUpdateAccountWalletState_Mode2_LaunchesReconciliation(t *testing.T) {
 		repo.GetAccountState,
 	)
 	reconciler := reconciliation.NewService(enabledReconConfig(), repo)
-	svc := service.NewAccountGRPCService(repo, router, testCatalog(), reconciler)
+	svc := service.NewAccountGRPCService(repo, router, testCatalog(), reconciler, service.WithCredentialManager(credManager))
 
 	// Call UpdateAccountWalletState with a slightly-different local snapshot.
 	resp, err := svc.UpdateAccountWalletState(ctx, &accountv1.UpdateAccountWalletStateRequest{
@@ -112,7 +114,7 @@ func TestUpdateAccountWalletState_Mode2_LaunchesReconciliation(t *testing.T) {
 		SnapshotReason: int32(domain.SnapshotReasonOrderFill),
 		Futures: &accountv1.FuturesWallet{
 			WalletBalance:      10000,
-			AvailableBalance:   9499,   // 1 USDT drift vs exchange — within threshold
+			AvailableBalance:   9499, // 1 USDT drift vs exchange — within threshold
 			MarginBalance:      10050,
 			TotalMarginBalance: 10050,
 		},
@@ -206,13 +208,13 @@ func TestUpdateAccountWalletState_Mode2_DisabledReconcilerSkips(t *testing.T) {
 	repo := newMockRepo()
 
 	accountID, _ := repo.CreateAccount(ctx, domain.Account{
-		UserID:    testsUserID,
-		Name:      "testnet-acc",
-		Mode:      domain.AccountModeBinanceTestnet,
-		APIKey:    "test-key",
-		APISecret: "test-secret",
-		CreatedAt: time.Now().UTC(),
+		UserID:      testsUserID,
+		Name:        "testnet-acc",
+		Environment: domain.EnvironmentDemo,
+		Mode:        domain.AccountModeBinanceTestnet,
+		CreatedAt:   time.Now().UTC(),
 	})
+	credManager := seedBinancePerpVenue(t, repo, accountID, domain.EnvironmentDemo, "test-key", "test-secret")
 
 	fakeExchange := &fakeOnlineInfoFetcher{
 		info: domain.OnlineAccountInfo{
@@ -233,7 +235,7 @@ func TestUpdateAccountWalletState_Mode2_DisabledReconcilerSkips(t *testing.T) {
 	disabled := config.DefaultReconciliationConfig()
 	disabled.Enabled = false
 	reconciler := reconciliation.NewService(disabled, repo)
-	svc := service.NewAccountGRPCService(repo, router, testCatalog(), reconciler)
+	svc := service.NewAccountGRPCService(repo, router, testCatalog(), reconciler, service.WithCredentialManager(credManager))
 
 	_, err := svc.UpdateAccountWalletState(ctx, &accountv1.UpdateAccountWalletStateRequest{
 		AccountId:      accountID,

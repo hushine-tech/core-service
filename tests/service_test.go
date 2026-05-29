@@ -7,6 +7,7 @@ import (
 
 	"github.com/hushine-tech/core-service/gen/accountv1"
 	"github.com/hushine-tech/core-service/internal/catalog"
+	"github.com/hushine-tech/core-service/internal/credential"
 	"github.com/hushine-tech/core-service/internal/domain"
 	"github.com/hushine-tech/core-service/internal/exchange"
 	"github.com/hushine-tech/core-service/internal/service"
@@ -61,6 +62,36 @@ func setupService(t *testing.T) (*service.AccountGRPCService, *mockRepo, int64) 
 	return service.NewAccountGRPCService(repo, router, testCatalog(), nil), repo, id
 }
 
+func seedBinancePerpVenue(t *testing.T, repo *mockRepo, accountID int64, env domain.Environment, apiKey, apiSecret string) *credential.Manager {
+	t.Helper()
+	credManager, err := credential.NewManager("0123456789abcdef0123456789abcdef", "v1")
+	if err != nil {
+		t.Fatalf("credential manager: %v", err)
+	}
+	encryptedCredential, err := credManager.Encrypt(`{"api_key":"` + apiKey + `","api_secret":"` + apiSecret + `"}`)
+	if err != nil {
+		t.Fatalf("encrypt venue credential: %v", err)
+	}
+	_, err = repo.CreateVenue(context.Background(), domain.Venue{
+		UserID:         testsUserID,
+		AccountID:      &accountID,
+		Exchange:       domain.ExchangeBinance,
+		Market:         domain.MarketPerpetualFutures,
+		Environment:    env,
+		Status:         domain.VenueStatusActive,
+		APIKey:         apiKey,
+		CredentialInfo: encryptedCredential,
+		MarginMode:     domain.MarginModeCross,
+		PositionMode:   domain.PositionModeOneWay,
+		CreatedAt:      time.Now().UTC(),
+		UpdatedAt:      time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatalf("create venue: %v", err)
+	}
+	return credManager
+}
+
 func TestGetOnlineAccountInfo_Backtest(t *testing.T) {
 	svc, _, id := setupService(t)
 	resp, err := svc.GetOnlineAccountInfo(context.Background(), &accountv1.GetOnlineAccountInfoRequest{
@@ -86,16 +117,16 @@ func TestGetOnlineAccountInfo_TestnetFetchesExchangeAndRefreshesStoredState(t *t
 	repo := newMockRepo()
 	ctx := context.Background()
 	accountID, err := repo.CreateAccount(ctx, domain.Account{
-		UserID:    testsUserID,
-		Name:      "testnet",
-		Mode:      domain.AccountModeBinanceTestnet,
-		APIKey:    "test-key",
-		APISecret: "test-secret",
-		CreatedAt: time.Now().UTC(),
+		UserID:      testsUserID,
+		Name:        "testnet",
+		Environment: domain.EnvironmentDemo,
+		Mode:        domain.AccountModeBinanceTestnet,
+		CreatedAt:   time.Now().UTC(),
 	})
 	if err != nil {
 		t.Fatalf("create account: %v", err)
 	}
+	credManager := seedBinancePerpVenue(t, repo, accountID, domain.EnvironmentDemo, "test-key", "test-secret")
 	_ = repo.UpdateAccountState(ctx, domain.OnlineAccountInfo{
 		AccountID: accountID,
 		Mode:      domain.AccountModeBinanceTestnet,
@@ -126,16 +157,17 @@ func TestGetOnlineAccountInfo_TestnetFetchesExchangeAndRefreshesStoredState(t *t
 		TotalValue:       4321,
 		UpdatedAt:        time.Now().UTC(),
 	}
+	fetcher := &fakeOnlineInfoFetcher{info: exchangeInfo}
 	router := exchange.NewAdapterRouter(
 		map[exchange.ExchangeTarget]exchange.OnlineInfoFetcher{
-			{Provider: exchange.ProviderBinance, Environment: exchange.EnvTestnet}: &fakeOnlineInfoFetcher{info: exchangeInfo},
+			{Provider: exchange.ProviderBinance, Environment: exchange.EnvTestnet}: fetcher,
 		},
 		func(_ context.Context, _ int64) (domain.OnlineAccountInfo, error) {
 			t.Fatal("testnet GetOnlineAccountInfo must not read local wallet state")
 			return domain.OnlineAccountInfo{}, nil
 		},
 	)
-	svc := service.NewAccountGRPCService(repo, router, testCatalog(), nil)
+	svc := service.NewAccountGRPCService(repo, router, testCatalog(), nil, service.WithCredentialManager(credManager))
 
 	resp, err := svc.GetOnlineAccountInfo(ctx, &accountv1.GetOnlineAccountInfoRequest{
 		AccountId: accountID,
@@ -150,6 +182,9 @@ func TestGetOnlineAccountInfo_TestnetFetchesExchangeAndRefreshesStoredState(t *t
 	}
 	if got := wallet.GetFutures().GetWalletBalance(); got != 4321 {
 		t.Fatalf("expected exchange wallet balance, got %f", got)
+	}
+	if fetcher.seen.APIKey != "test-key" || fetcher.seen.APISecret != "test-secret" {
+		t.Fatalf("exchange fetch did not receive venue credentials: api_key=%q api_secret=%q", fetcher.seen.APIKey, fetcher.seen.APISecret)
 	}
 
 	stored, err := repo.GetAccountState(ctx, accountID)
@@ -226,16 +261,18 @@ func TestGetOnlineAccountInfo_Live_NoAdapter(t *testing.T) {
 	repo := newMockRepo()
 	ctx := context.Background()
 	id, err := repo.CreateAccount(ctx, domain.Account{
-		UserID:    testsUserID,
-		Name:      "live",
-		Mode:      domain.AccountModeBinanceLive,
-		CreatedAt: time.Now(),
+		UserID:      testsUserID,
+		Name:        "live",
+		Environment: domain.EnvironmentLive,
+		Mode:        domain.AccountModeBinanceLive,
+		CreatedAt:   time.Now(),
 	})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
+	credManager := seedBinancePerpVenue(t, repo, id, domain.EnvironmentLive, "live-key", "live-secret")
 	router := exchange.NewAdapterRouter(nil, repo.GetAccountState)
-	svc := service.NewAccountGRPCService(repo, router, testCatalog(), nil)
+	svc := service.NewAccountGRPCService(repo, router, testCatalog(), nil, service.WithCredentialManager(credManager))
 
 	_, err = svc.GetOnlineAccountInfo(ctx, &accountv1.GetOnlineAccountInfoRequest{AccountId: id, UserId: testsUserID})
 	if err == nil {
@@ -349,16 +386,18 @@ func TestUpdateAccountWalletState_Live_NoAdapter(t *testing.T) {
 	repo := newMockRepo()
 	ctx := context.Background()
 	id, err := repo.CreateAccount(ctx, domain.Account{
-		UserID:    testsUserID,
-		Name:      "live",
-		Mode:      domain.AccountModeBinanceLive,
-		CreatedAt: time.Now(),
+		UserID:      testsUserID,
+		Name:        "live",
+		Environment: domain.EnvironmentLive,
+		Mode:        domain.AccountModeBinanceLive,
+		CreatedAt:   time.Now(),
 	})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
+	credManager := seedBinancePerpVenue(t, repo, id, domain.EnvironmentLive, "live-key", "live-secret")
 	router := exchange.NewAdapterRouter(nil, repo.GetAccountState)
-	svc := service.NewAccountGRPCService(repo, router, testCatalog(), nil)
+	svc := service.NewAccountGRPCService(repo, router, testCatalog(), nil, service.WithCredentialManager(credManager))
 
 	_, err = svc.UpdateAccountWalletState(ctx, &accountv1.UpdateAccountWalletStateRequest{
 		AccountId:     id,

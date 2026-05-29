@@ -18,6 +18,7 @@ type mockRepo struct {
 	nextUserID           int64
 	nextStrategyID       int64
 	accounts             map[int64]domain.Account
+	venues               map[int64]domain.Venue
 	states               map[int64]domain.OnlineAccountInfo
 	snapshots            []domain.SnapshotReason // log of reasons written
 	strategies           map[int64]domain.Strategy
@@ -53,6 +54,7 @@ func newMockRepo() *mockRepo {
 		nextUserID:           1,
 		nextStrategyID:       1,
 		accounts:             make(map[int64]domain.Account),
+		venues:               make(map[int64]domain.Venue),
 		states:               make(map[int64]domain.OnlineAccountInfo),
 		strategies:           make(map[int64]domain.Strategy),
 		accountStrategies:    make(map[int64]map[int64]domain.AccountStrategy),
@@ -138,6 +140,166 @@ func (m *mockRepo) ListAccountsPage(ctx context.Context, userID int64, limit, of
 		end = offset + limit
 	}
 	return out[offset:end], repository.PageMeta{Total: int64(total), HasMore: end < total}, nil
+}
+
+func (m *mockRepo) CreateVenue(_ context.Context, venue domain.Venue) (domain.Venue, error) {
+	venue.VenueID = m.nextID
+	m.nextID++
+	if venue.Status == 0 {
+		venue.Status = domain.VenueStatusActive
+	}
+	if venue.CredentialKeyVersion == "" {
+		venue.CredentialKeyVersion = "v1"
+	}
+	m.venues[venue.VenueID] = venue
+	return venue, nil
+}
+
+func (m *mockRepo) GetVenue(_ context.Context, venueID, userID int64) (domain.Venue, error) {
+	venue, ok := m.venues[venueID]
+	if !ok {
+		return domain.Venue{}, errNotFound
+	}
+	if userID > 0 && venue.UserID != userID {
+		return domain.Venue{}, errNotFound
+	}
+	return venue, nil
+}
+
+func (m *mockRepo) ListVenues(_ context.Context, userID, accountID int64, includeUnbound bool, includeInactive bool, limit, offset int) ([]domain.Venue, repository.PageMeta, error) {
+	out := make([]domain.Venue, 0, len(m.venues))
+	for _, venue := range m.venues {
+		if userID > 0 && venue.UserID != userID {
+			continue
+		}
+		if accountID > 0 {
+			bound := venue.AccountID != nil && *venue.AccountID == accountID
+			if !bound && !(includeUnbound && venue.AccountID == nil) {
+				continue
+			}
+		} else if !includeUnbound && venue.AccountID == nil {
+			continue
+		}
+		if !includeInactive && venue.Status != domain.VenueStatusActive {
+			continue
+		}
+		out = append(out, venue)
+	}
+	total := len(out)
+	if offset > total {
+		offset = total
+	}
+	end := total
+	if limit > 0 && offset+limit < end {
+		end = offset + limit
+	}
+	return out[offset:end], repository.PageMeta{Total: int64(total), HasMore: end < total}, nil
+}
+
+func (m *mockRepo) BindVenue(_ context.Context, userID, accountID, venueID int64, _ string) (domain.Venue, error) {
+	account, ok := m.accounts[accountID]
+	if !ok || account.UserID != userID {
+		return domain.Venue{}, errNotFound
+	}
+	for _, session := range m.sessions {
+		if session.UserID == userID && session.AccountID == accountID && (session.Status == "running" || session.Status == "stopping" || session.Status == "recoverable") {
+			return domain.Venue{}, repository.ErrConflict
+		}
+	}
+	venue, ok := m.venues[venueID]
+	if !ok || venue.UserID != userID {
+		return domain.Venue{}, errNotFound
+	}
+	if venue.Environment != account.Environment {
+		return domain.Venue{}, repository.ErrConflict
+	}
+	if venue.AccountID != nil && *venue.AccountID != accountID {
+		return domain.Venue{}, repository.ErrConflict
+	}
+	venue.AccountID = &accountID
+	m.venues[venueID] = venue
+	return venue, nil
+}
+
+func (m *mockRepo) ReleaseVenue(_ context.Context, userID, venueID int64, _ string) (domain.Venue, error) {
+	venue, ok := m.venues[venueID]
+	if !ok || venue.UserID != userID {
+		return domain.Venue{}, errNotFound
+	}
+	if venue.AccountID != nil {
+		for _, session := range m.sessions {
+			if session.UserID == userID && session.AccountID == *venue.AccountID && (session.Status == "running" || session.Status == "stopping" || session.Status == "recoverable") {
+				return domain.Venue{}, repository.ErrConflict
+			}
+		}
+	}
+	venue.AccountID = nil
+	m.venues[venueID] = venue
+	return venue, nil
+}
+
+func (m *mockRepo) ArchiveVenue(_ context.Context, userID, venueID int64, reason string) error {
+	venue, ok := m.venues[venueID]
+	if !ok || venue.UserID != userID {
+		return errNotFound
+	}
+	if venue.AccountID != nil {
+		for _, session := range m.sessions {
+			if session.UserID == userID && session.AccountID == *venue.AccountID && (session.Status == "running" || session.Status == "stopping" || session.Status == "recoverable") {
+				return repository.ErrConflict
+			}
+		}
+	}
+	venue.AccountID = nil
+	venue.Status = domain.VenueStatusArchived
+	venue.ArchivedReason = reason
+	m.venues[venueID] = venue
+	return nil
+}
+
+func (m *mockRepo) ListActiveAccountVenues(_ context.Context, userID, accountID int64) ([]domain.Venue, error) {
+	out := make([]domain.Venue, 0)
+	for _, venue := range m.venues {
+		if venue.UserID == userID && venue.AccountID != nil && *venue.AccountID == accountID && venue.Status == domain.VenueStatusActive {
+			out = append(out, venue)
+		}
+	}
+	return out, nil
+}
+
+func (m *mockRepo) CountActiveSessionsForAccount(_ context.Context, userID, accountID int64) (int64, error) {
+	var count int64
+	for _, session := range m.sessions {
+		if session.UserID == userID && session.AccountID == accountID && (session.Status == "running" || session.Status == "stopping" || session.Status == "recoverable") {
+			count++
+		}
+	}
+	return count, nil
+}
+
+func (m *mockRepo) SaveSessionVenues(_ context.Context, _ string, _ []domain.Venue) error {
+	return nil
+}
+
+func (m *mockRepo) ResolveVenueRouteMeta(_ context.Context, accountID int64, exchange domain.Exchange, market domain.Market) (domain.VenueRouteMeta, error) {
+	for _, venue := range m.venues {
+		if venue.AccountID == nil || *venue.AccountID != accountID || venue.Exchange != exchange || venue.Market != market || venue.Status != domain.VenueStatusActive {
+			continue
+		}
+		return domain.VenueRouteMeta{
+			AccountID:      accountID,
+			VenueID:        venue.VenueID,
+			UserID:         venue.UserID,
+			Environment:    venue.Environment,
+			Exchange:       venue.Exchange,
+			Market:         venue.Market,
+			MarginMode:     venue.MarginMode,
+			PositionMode:   venue.PositionMode,
+			APIKey:         venue.APIKey,
+			CredentialInfo: venue.CredentialInfo,
+		}, nil
+	}
+	return domain.VenueRouteMeta{}, errNotFound
 }
 
 func (m *mockRepo) UpdateAccountState(_ context.Context, info domain.OnlineAccountInfo) error {

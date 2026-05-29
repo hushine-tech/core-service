@@ -108,6 +108,36 @@ func (s *stubRepo) ListAccountsPage(ctx context.Context, userID int64, limit, of
 	}
 	return list, repository.PageMeta{Total: int64(len(list))}, nil
 }
+func (s *stubRepo) CreateVenue(_ context.Context, venue domain.Venue) (domain.Venue, error) {
+	return venue, s.err
+}
+func (s *stubRepo) GetVenue(_ context.Context, _ int64, _ int64) (domain.Venue, error) {
+	return domain.Venue{}, errors.New("not implemented")
+}
+func (s *stubRepo) ListVenues(_ context.Context, _ int64, _ int64, _ bool, _ bool, _ int, _ int) ([]domain.Venue, repository.PageMeta, error) {
+	return nil, repository.PageMeta{}, errors.New("not implemented")
+}
+func (s *stubRepo) BindVenue(_ context.Context, _ int64, _ int64, _ int64, _ string) (domain.Venue, error) {
+	return domain.Venue{}, errors.New("not implemented")
+}
+func (s *stubRepo) ReleaseVenue(_ context.Context, _ int64, _ int64, _ string) (domain.Venue, error) {
+	return domain.Venue{}, errors.New("not implemented")
+}
+func (s *stubRepo) ArchiveVenue(_ context.Context, _ int64, _ int64, _ string) error {
+	return errors.New("not implemented")
+}
+func (s *stubRepo) ListActiveAccountVenues(_ context.Context, _ int64, _ int64) ([]domain.Venue, error) {
+	return nil, errors.New("not implemented")
+}
+func (s *stubRepo) CountActiveSessionsForAccount(_ context.Context, _ int64, _ int64) (int64, error) {
+	return 0, errors.New("not implemented")
+}
+func (s *stubRepo) SaveSessionVenues(_ context.Context, _ string, _ []domain.Venue) error {
+	return errors.New("not implemented")
+}
+func (s *stubRepo) ResolveVenueRouteMeta(_ context.Context, _ int64, _ domain.Exchange, _ domain.Market) (domain.VenueRouteMeta, error) {
+	return domain.VenueRouteMeta{}, errors.New("not implemented")
+}
 func (s *stubRepo) UpdateAccountState(_ context.Context, info domain.OnlineAccountInfo) error {
 	s.state = info
 	return nil

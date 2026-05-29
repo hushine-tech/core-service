@@ -48,6 +48,16 @@ type Repository interface {
 	GetAccount(ctx context.Context, accountID, userID int64) (domain.Account, error)
 	ListAccounts(ctx context.Context, userID int64) ([]domain.Account, error)
 	ListAccountsPage(ctx context.Context, userID int64, limit, offset int) ([]domain.Account, PageMeta, error)
+	CreateVenue(ctx context.Context, venue domain.Venue) (domain.Venue, error)
+	GetVenue(ctx context.Context, venueID, userID int64) (domain.Venue, error)
+	ListVenues(ctx context.Context, userID, accountID int64, includeUnbound bool, includeInactive bool, limit, offset int) ([]domain.Venue, PageMeta, error)
+	BindVenue(ctx context.Context, userID, accountID, venueID int64, reason string) (domain.Venue, error)
+	ReleaseVenue(ctx context.Context, userID, venueID int64, reason string) (domain.Venue, error)
+	ArchiveVenue(ctx context.Context, userID, venueID int64, reason string) error
+	ListActiveAccountVenues(ctx context.Context, userID, accountID int64) ([]domain.Venue, error)
+	CountActiveSessionsForAccount(ctx context.Context, userID, accountID int64) (int64, error)
+	SaveSessionVenues(ctx context.Context, sessionID string, venues []domain.Venue) error
+	ResolveVenueRouteMeta(ctx context.Context, accountID int64, exchange domain.Exchange, market domain.Market) (domain.VenueRouteMeta, error)
 
 	// Current state management
 	UpdateAccountState(ctx context.Context, info domain.OnlineAccountInfo) error

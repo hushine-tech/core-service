@@ -166,6 +166,33 @@ type SessionVenue struct {
 	CapturedAt            time.Time
 }
 
+type VenueRouteMeta struct {
+	AccountID      int64
+	VenueID        int64
+	UserID         int64
+	Environment    Environment
+	Exchange       Exchange
+	Market         Market
+	MarginMode     MarginMode
+	PositionMode   PositionMode
+	APIKey         string
+	CredentialInfo string
+	DefaultFeeRate float64
+	SlippageBps    float64
+}
+
+type RequiredVenue struct {
+	Exchange Exchange
+	Market   Market
+}
+
+type PreflightIssue struct {
+	Code     string
+	Message  string
+	Exchange Exchange
+	Market   Market
+}
+
 // AccountMode defines the type and data source of an account.
 // 0 = backtest (virtual), 1 = Binance live, 2 = Binance testnet, 3 = other (future)
 type AccountMode int
@@ -197,6 +224,7 @@ type StrategySession struct {
 	AccountID      int64
 	UserID         int64
 	StrategyID     int64
+	Environment    Environment
 	Mode           int    // 0=backtest, 1=live, 2=testnet
 	Status         string // running, stopping, recoverable, finished, stopped, failed, stop_failed (completed = legacy)
 	Interval       string // "1m", "5m", etc.
@@ -231,18 +259,20 @@ type SnapshotRow struct {
 
 // Account represents a registered trading account.
 type Account struct {
-	AccountID      int64       `json:"account_id"`
-	UserID         int64       `json:"user_id"`
-	Name           string      `json:"name"`
-	Description    string      `json:"description"`
-	Mode           AccountMode `json:"mode"`
-	APIKey         string      `json:"api_key,omitempty"`
-	APISecret      string      `json:"api_secret,omitempty"`
-	MarginMode     string      `json:"margin_mode"`
-	PositionMode   string      `json:"position_mode"`
-	SlippageBps    float64     `json:"slippage_bps"`
-	DefaultFeeRate float64     `json:"default_fee_rate"`
-	CreatedAt      time.Time   `json:"created_at"`
+	AccountID      int64         `json:"account_id"`
+	UserID         int64         `json:"user_id"`
+	Name           string        `json:"name"`
+	Description    string        `json:"description"`
+	Environment    Environment   `json:"environment"`
+	Status         AccountStatus `json:"status"`
+	Mode           AccountMode   `json:"mode"`
+	APIKey         string        `json:"api_key,omitempty"`
+	APISecret      string        `json:"api_secret,omitempty"`
+	MarginMode     string        `json:"margin_mode"`
+	PositionMode   string        `json:"position_mode"`
+	SlippageBps    float64       `json:"slippage_bps"`
+	DefaultFeeRate float64       `json:"default_fee_rate"`
+	CreatedAt      time.Time     `json:"created_at"`
 	// 当前钱包状态（存储在 accounts 表）
 	FuturesJSON      *FuturesWallet `json:"futures_json,omitempty"`
 	SpotJSON         *SpotWallet    `json:"spot_json,omitempty"`

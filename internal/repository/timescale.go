@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	_ "github.com/lib/pq"
 
 	"github.com/hushine-tech/core-service/internal/domain"
@@ -208,12 +209,20 @@ func (r *TimescaleRepository) GetUser(ctx context.Context, userID int64) (domain
 // CreateAccount inserts a new account and returns the auto-assigned BIGINT ID.
 func (r *TimescaleRepository) CreateAccount(ctx context.Context, a domain.Account) (int64, error) {
 	var newID int64
+	env := normalizeAccountEnvironment(a)
+	status := a.Status
+	if status == 0 {
+		status = domain.AccountStatusActive
+	}
+	createdAt := a.CreatedAt
+	if createdAt.IsZero() {
+		createdAt = time.Now().UTC()
+	}
 	err := r.db.QueryRowContext(ctx, `
-		INSERT INTO accounts (user_id, name, description, mode, api_key, api_secret, margin_mode, position_mode, slippage_bps, default_fee_rate, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		INSERT INTO accounts (user_id, name, description, environment, status, slippage_bps, default_fee_rate, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
 		RETURNING account_id`,
-		a.UserID, a.Name, a.Description, int(a.Mode), a.APIKey, a.APISecret,
-		a.MarginMode, a.PositionMode, a.SlippageBps, a.DefaultFeeRate, a.CreatedAt,
+		a.UserID, a.Name, a.Description, int16(env), int16(status), a.SlippageBps, a.DefaultFeeRate, createdAt,
 	).Scan(&newID)
 	if err != nil {
 		return 0, err
@@ -223,9 +232,8 @@ func (r *TimescaleRepository) CreateAccount(ctx context.Context, a domain.Accoun
 
 func (r *TimescaleRepository) GetAccount(ctx context.Context, accountID, userID int64) (domain.Account, error) {
 	query := `
-		SELECT account_id, user_id, name, description, mode, api_key, api_secret, margin_mode, position_mode,
-		       slippage_bps, default_fee_rate, created_at,
-		       futures_json, spot_json, total_value, wallet_balance, available_balance, state_updated_at
+		SELECT account_id, user_id, name, description, environment, status, slippage_bps, default_fee_rate, created_at,
+		       snapshot_json, total_value, wallet_balance, available_balance, state_updated_at
 		FROM accounts WHERE account_id = $1`
 	args := []any{accountID}
 	if userID > 0 {
@@ -238,9 +246,8 @@ func (r *TimescaleRepository) GetAccount(ctx context.Context, accountID, userID 
 
 func (r *TimescaleRepository) ListAccounts(ctx context.Context, userID int64) ([]domain.Account, error) {
 	query := `
-		SELECT account_id, user_id, name, description, mode, api_key, api_secret, margin_mode, position_mode,
-		       slippage_bps, default_fee_rate, created_at,
-		       futures_json, spot_json, total_value, wallet_balance, available_balance, state_updated_at
+		SELECT account_id, user_id, name, description, environment, status, slippage_bps, default_fee_rate, created_at,
+		       snapshot_json, total_value, wallet_balance, available_balance, state_updated_at
 		FROM accounts`
 	args := []any{}
 	if userID > 0 {
@@ -295,9 +302,8 @@ func (r *TimescaleRepository) ListAccountsPage(ctx context.Context, userID int64
 	listArgs := append([]any{}, args...)
 	listArgs = append(listArgs, limit+1, offset)
 	query := `
-		SELECT account_id, user_id, name, description, mode, api_key, api_secret, margin_mode, position_mode,
-		       slippage_bps, default_fee_rate, created_at,
-		       futures_json, spot_json, total_value, wallet_balance, available_balance, state_updated_at
+		SELECT account_id, user_id, name, description, environment, status, slippage_bps, default_fee_rate, created_at,
+		       snapshot_json, total_value, wallet_balance, available_balance, state_updated_at
 		FROM accounts` + where + fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d OFFSET $%d", len(listArgs)-1, len(listArgs))
 	rows, err := r.db.QueryContext(ctx, query, listArgs...)
 	if err != nil {
@@ -328,13 +334,12 @@ func scanAccount(s interface {
 	Scan(...any) error
 }) (domain.Account, error) {
 	var a domain.Account
-	var mode int
-	var futuresRaw, spotRaw []byte
+	var env, status int16
+	var snapshotRaw []byte
 	var stateUpdatedAt sql.NullTime
 	if err := s.Scan(
-		&a.AccountID, &a.UserID, &a.Name, &a.Description, &mode, &a.APIKey, &a.APISecret,
-		&a.MarginMode, &a.PositionMode, &a.SlippageBps, &a.DefaultFeeRate, &a.CreatedAt,
-		&futuresRaw, &spotRaw,
+		&a.AccountID, &a.UserID, &a.Name, &a.Description, &env, &status, &a.SlippageBps, &a.DefaultFeeRate, &a.CreatedAt,
+		&snapshotRaw,
 		&a.TotalValue, &a.WalletBalance, &a.AvailableBalance, &stateUpdatedAt,
 	); err != nil {
 		if err == sql.ErrNoRows {
@@ -342,24 +347,20 @@ func scanAccount(s interface {
 		}
 		return domain.Account{}, err
 	}
-	a.Mode = domain.AccountMode(mode)
+	a.Environment = domain.Environment(env)
+	a.Status = domain.AccountStatus(status)
+	a.Mode = modeFromEnvironment(a.Environment)
 	if stateUpdatedAt.Valid {
 		t := stateUpdatedAt.Time
 		a.StateUpdatedAt = &t
 	}
-	if len(futuresRaw) > 0 {
-		var fw domain.FuturesWallet
-		if err := json.Unmarshal(futuresRaw, &fw); err != nil {
-			return domain.Account{}, fmt.Errorf("unmarshal futures_json: %w", err)
+	if len(snapshotRaw) > 0 {
+		var snapshot accountSnapshotJSON
+		if err := json.Unmarshal(snapshotRaw, &snapshot); err != nil {
+			return domain.Account{}, fmt.Errorf("unmarshal snapshot_json: %w", err)
 		}
-		a.FuturesJSON = &fw
-	}
-	if len(spotRaw) > 0 {
-		var sw domain.SpotWallet
-		if err := json.Unmarshal(spotRaw, &sw); err != nil {
-			return domain.Account{}, fmt.Errorf("unmarshal spot_json: %w", err)
-		}
-		a.SpotJSON = &sw
+		a.FuturesJSON = &snapshot.Futures
+		a.SpotJSON = &snapshot.Spot
 	}
 	return a, nil
 }
@@ -374,29 +375,440 @@ func isUniqueViolation(err error) bool {
 		strings.Contains(msg, "violates unique")
 }
 
+type accountSnapshotJSON struct {
+	Futures domain.FuturesWallet `json:"futures"`
+	Spot    domain.SpotWallet    `json:"spot"`
+}
+
+type reconciliationAccountDiffJSON struct {
+	ExchangeSnapshot domain.OnlineAccountInfo `json:"exchange_snapshot"`
+	LocalSnapshot    domain.OnlineAccountInfo `json:"local_snapshot"`
+	FieldDiffs       []domain.FieldDiff       `json:"field_diffs"`
+	AdvisoryDiffs    []domain.FieldDiff       `json:"advisory_diffs"`
+}
+
+func normalizeAccountEnvironment(a domain.Account) domain.Environment {
+	if a.Environment != 0 {
+		return a.Environment
+	}
+	switch a.Mode {
+	case domain.AccountModeBinanceTestnet:
+		return domain.EnvironmentDemo
+	case domain.AccountModeBinanceLive:
+		return domain.EnvironmentLive
+	default:
+		return domain.EnvironmentBacktest
+	}
+}
+
+func modeFromEnvironment(env domain.Environment) domain.AccountMode {
+	switch env {
+	case domain.EnvironmentDemo:
+		return domain.AccountModeBinanceTestnet
+	case domain.EnvironmentLive:
+		return domain.AccountModeBinanceLive
+	default:
+		return domain.AccountModeBacktest
+	}
+}
+
+func sessionEnvironmentFromMode(mode int) domain.Environment {
+	switch domain.AccountMode(mode) {
+	case domain.AccountModeBinanceTestnet:
+		return domain.EnvironmentDemo
+	case domain.AccountModeBinanceLive:
+		return domain.EnvironmentLive
+	default:
+		return domain.EnvironmentBacktest
+	}
+}
+
+// --- Venue management ---
+
+func (r *TimescaleRepository) CreateVenue(ctx context.Context, venue domain.Venue) (domain.Venue, error) {
+	if err := venue.ValidateMarketModes(); err != nil {
+		return domain.Venue{}, err
+	}
+	status := venue.Status
+	if status == 0 {
+		status = domain.VenueStatusActive
+	}
+	keyVersion := strings.TrimSpace(venue.CredentialKeyVersion)
+	if keyVersion == "" {
+		keyVersion = "v1"
+	}
+	row := r.db.QueryRowContext(ctx, `
+		INSERT INTO venues (
+			user_id, account_id, exchange, market, environment, status,
+			display_name, description, api_key, credential_info, credential_key_version,
+			credential_fingerprint, margin_mode, position_mode
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		RETURNING venue_id, user_id, account_id, exchange, market, environment, status,
+		          display_name, description, api_key, credential_info, credential_key_version,
+		          credential_fingerprint, margin_mode, position_mode, created_at, updated_at,
+		          last_used_at, archived_at, archived_reason`,
+		venue.UserID, venue.AccountID, int16(venue.Exchange), int16(venue.Market), int16(venue.Environment), int16(status),
+		venue.DisplayName, venue.Description, venue.APIKey, venue.CredentialInfo, keyVersion,
+		venue.CredentialFingerprint, int16(venue.MarginMode), int16(venue.PositionMode))
+	return scanVenue(row)
+}
+
+func (r *TimescaleRepository) GetVenue(ctx context.Context, venueID, userID int64) (domain.Venue, error) {
+	query := venueSelectSQL + ` WHERE venue_id = $1`
+	args := []any{venueID}
+	if userID > 0 {
+		args = append(args, userID)
+		query += " AND user_id = $2"
+	}
+	return scanVenue(r.db.QueryRowContext(ctx, query, args...))
+}
+
+func (r *TimescaleRepository) ListVenues(ctx context.Context, userID, accountID int64, includeUnbound bool, includeInactive bool, limit, offset int) ([]domain.Venue, PageMeta, error) {
+	limit, offset = normalizePage(limit, offset)
+	where := " WHERE user_id = $1"
+	args := []any{userID}
+	if accountID > 0 {
+		args = append(args, accountID)
+		if includeUnbound {
+			where += fmt.Sprintf(" AND (account_id = $%d OR account_id IS NULL)", len(args))
+		} else {
+			where += fmt.Sprintf(" AND account_id = $%d", len(args))
+		}
+	} else if !includeUnbound {
+		where += " AND account_id IS NOT NULL"
+	}
+	if !includeInactive {
+		where += fmt.Sprintf(" AND status = %d", domain.VenueStatusActive)
+	}
+
+	var total int64
+	if err := r.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM venues"+where, args...).Scan(&total); err != nil {
+		return nil, PageMeta{}, err
+	}
+	listArgs := append([]any{}, args...)
+	listArgs = append(listArgs, limit+1, offset)
+	rows, err := r.db.QueryContext(ctx, venueSelectSQL+where+fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d OFFSET $%d", len(listArgs)-1, len(listArgs)), listArgs...)
+	if err != nil {
+		return nil, PageMeta{}, err
+	}
+	defer rows.Close()
+	venues := make([]domain.Venue, 0, limit)
+	for rows.Next() {
+		venue, err := scanVenue(rows)
+		if err != nil {
+			return nil, PageMeta{}, err
+		}
+		venues = append(venues, venue)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, PageMeta{}, err
+	}
+	hasMore := len(venues) > limit
+	if hasMore {
+		venues = venues[:limit]
+	}
+	return venues, PageMeta{Total: total, HasMore: hasMore}, nil
+}
+
+func (r *TimescaleRepository) BindVenue(ctx context.Context, userID, accountID, venueID int64, reason string) (domain.Venue, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return domain.Venue{}, err
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	accountEnv, err := lockAccountEnvironment(ctx, tx, userID, accountID)
+	if err != nil {
+		return domain.Venue{}, err
+	}
+	if err := ensureNoActiveAccountSessions(ctx, tx, userID, accountID); err != nil {
+		return domain.Venue{}, err
+	}
+	venue, err := scanVenue(tx.QueryRowContext(ctx, venueSelectSQL+` WHERE venue_id = $1 AND user_id = $2 FOR UPDATE`, venueID, userID))
+	if err != nil {
+		return domain.Venue{}, err
+	}
+	if venue.Environment != accountEnv || venue.Status != domain.VenueStatusActive {
+		return domain.Venue{}, ErrConflict
+	}
+	if venue.AccountID != nil && *venue.AccountID != accountID {
+		return domain.Venue{}, ErrConflict
+	}
+	updated, err := scanVenue(tx.QueryRowContext(ctx, `
+		UPDATE venues
+		SET account_id = $1, updated_at = NOW()
+		WHERE venue_id = $2 AND user_id = $3
+		RETURNING venue_id, user_id, account_id, exchange, market, environment, status,
+		          display_name, description, api_key, credential_info, credential_key_version,
+		          credential_fingerprint, margin_mode, position_mode, created_at, updated_at,
+		          last_used_at, archived_at, archived_reason`, accountID, venueID, userID))
+	if err != nil {
+		if isUniqueViolation(err) {
+			return domain.Venue{}, ErrConflict
+		}
+		return domain.Venue{}, err
+	}
+	if err := insertVenueEvent(ctx, tx, venueID, &accountID, userID, 1, reason); err != nil {
+		return domain.Venue{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return domain.Venue{}, err
+	}
+	return updated, nil
+}
+
+func (r *TimescaleRepository) ReleaseVenue(ctx context.Context, userID, venueID int64, reason string) (domain.Venue, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return domain.Venue{}, err
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	venue, err := scanVenue(tx.QueryRowContext(ctx, venueSelectSQL+` WHERE venue_id = $1 AND user_id = $2 FOR UPDATE`, venueID, userID))
+	if err != nil {
+		return domain.Venue{}, err
+	}
+	if venue.AccountID != nil {
+		if err := ensureNoActiveAccountSessions(ctx, tx, userID, *venue.AccountID); err != nil {
+			return domain.Venue{}, err
+		}
+	}
+	oldAccountID := venue.AccountID
+	updated, err := scanVenue(tx.QueryRowContext(ctx, `
+		UPDATE venues
+		SET account_id = NULL, updated_at = NOW()
+		WHERE venue_id = $1 AND user_id = $2
+		RETURNING venue_id, user_id, account_id, exchange, market, environment, status,
+		          display_name, description, api_key, credential_info, credential_key_version,
+		          credential_fingerprint, margin_mode, position_mode, created_at, updated_at,
+		          last_used_at, archived_at, archived_reason`, venueID, userID))
+	if err != nil {
+		return domain.Venue{}, err
+	}
+	if err := insertVenueEvent(ctx, tx, venueID, oldAccountID, userID, 2, reason); err != nil {
+		return domain.Venue{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return domain.Venue{}, err
+	}
+	return updated, nil
+}
+
+func (r *TimescaleRepository) ArchiveVenue(ctx context.Context, userID, venueID int64, reason string) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	venue, err := scanVenue(tx.QueryRowContext(ctx, venueSelectSQL+` WHERE venue_id = $1 AND user_id = $2 FOR UPDATE`, venueID, userID))
+	if err != nil {
+		return err
+	}
+	if venue.AccountID != nil {
+		if err := ensureNoActiveAccountSessions(ctx, tx, userID, *venue.AccountID); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE venues
+		SET account_id = NULL, status = $1, archived_at = NOW(), archived_reason = $2, updated_at = NOW()
+		WHERE venue_id = $3 AND user_id = $4`,
+		int16(domain.VenueStatusArchived), reason, venueID, userID); err != nil {
+		return err
+	}
+	if err := insertVenueEvent(ctx, tx, venueID, venue.AccountID, userID, 3, reason); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (r *TimescaleRepository) ListActiveAccountVenues(ctx context.Context, userID, accountID int64) ([]domain.Venue, error) {
+	rows, err := r.db.QueryContext(ctx, venueSelectSQL+` WHERE user_id = $1 AND account_id = $2 AND status = $3 ORDER BY exchange, market`,
+		userID, accountID, int16(domain.VenueStatusActive))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var venues []domain.Venue
+	for rows.Next() {
+		venue, err := scanVenue(rows)
+		if err != nil {
+			return nil, err
+		}
+		venues = append(venues, venue)
+	}
+	return venues, rows.Err()
+}
+
+func (r *TimescaleRepository) CountActiveSessionsForAccount(ctx context.Context, userID, accountID int64) (int64, error) {
+	var count int64
+	err := r.db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM strategy_sessions
+		WHERE user_id = $1 AND account_id = $2 AND status IN (3, 4, 5)`, userID, accountID).Scan(&count)
+	return count, err
+}
+
+func (r *TimescaleRepository) SaveSessionVenues(ctx context.Context, sessionID string, venues []domain.Venue) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck
+	for _, venue := range venues {
+		var accountID int64
+		if venue.AccountID != nil {
+			accountID = *venue.AccountID
+		}
+		if accountID == 0 {
+			return ErrNotFound
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO session_venues (
+				session_id, venue_id, account_id, user_id, exchange, market, environment,
+				display_name, api_key, credential_fingerprint, margin_mode, position_mode, venue_status
+			)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+			ON CONFLICT (session_id, venue_id) DO UPDATE SET
+				display_name = EXCLUDED.display_name,
+				api_key = EXCLUDED.api_key,
+				credential_fingerprint = EXCLUDED.credential_fingerprint,
+				margin_mode = EXCLUDED.margin_mode,
+				position_mode = EXCLUDED.position_mode,
+				venue_status = EXCLUDED.venue_status,
+				captured_at = NOW()`,
+			sessionID, venue.VenueID, accountID, venue.UserID, int16(venue.Exchange), int16(venue.Market), int16(venue.Environment),
+			venue.DisplayName, venue.APIKey, venue.CredentialFingerprint, int16(venue.MarginMode), int16(venue.PositionMode), int16(venue.Status)); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (r *TimescaleRepository) ResolveVenueRouteMeta(ctx context.Context, accountID int64, exchange domain.Exchange, market domain.Market) (domain.VenueRouteMeta, error) {
+	row := r.db.QueryRowContext(ctx, `
+		SELECT a.account_id, v.venue_id, a.user_id, a.environment, v.exchange, v.market,
+		       v.margin_mode, v.position_mode, v.api_key, v.credential_info, a.default_fee_rate, a.slippage_bps
+		FROM accounts a
+		JOIN venues v ON v.account_id = a.account_id
+		WHERE a.account_id = $1
+		  AND a.status = $2
+		  AND v.status = $3
+		  AND v.exchange = $4
+		  AND v.market = $5
+		LIMIT 1`, accountID, int16(domain.AccountStatusActive), int16(domain.VenueStatusActive), int16(exchange), int16(market))
+	var meta domain.VenueRouteMeta
+	var env, ex, mk, marginMode, positionMode int16
+	if err := row.Scan(&meta.AccountID, &meta.VenueID, &meta.UserID, &env, &ex, &mk, &marginMode, &positionMode, &meta.APIKey, &meta.CredentialInfo, &meta.DefaultFeeRate, &meta.SlippageBps); err != nil {
+		if err == sql.ErrNoRows {
+			return domain.VenueRouteMeta{}, ErrNotFound
+		}
+		return domain.VenueRouteMeta{}, err
+	}
+	meta.Environment = domain.Environment(env)
+	meta.Exchange = domain.Exchange(ex)
+	meta.Market = domain.Market(mk)
+	meta.MarginMode = domain.MarginMode(marginMode)
+	meta.PositionMode = domain.PositionMode(positionMode)
+	return meta, nil
+}
+
+const venueSelectSQL = `
+	SELECT venue_id, user_id, account_id, exchange, market, environment, status,
+	       display_name, description, api_key, credential_info, credential_key_version,
+	       credential_fingerprint, margin_mode, position_mode, created_at, updated_at,
+	       last_used_at, archived_at, archived_reason
+	FROM venues`
+
+func lockAccountEnvironment(ctx context.Context, tx *sql.Tx, userID, accountID int64) (domain.Environment, error) {
+	var env int16
+	if err := tx.QueryRowContext(ctx, `
+		SELECT environment
+		FROM accounts
+		WHERE account_id = $1 AND user_id = $2 AND status = $3
+		FOR UPDATE`, accountID, userID, int16(domain.AccountStatusActive)).Scan(&env); err != nil {
+		if err == sql.ErrNoRows {
+			return 0, ErrNotFound
+		}
+		return 0, err
+	}
+	return domain.Environment(env), nil
+}
+
+func ensureNoActiveAccountSessions(ctx context.Context, tx *sql.Tx, userID, accountID int64) error {
+	var count int64
+	if err := tx.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM strategy_sessions
+		WHERE user_id = $1 AND account_id = $2 AND status IN (3, 4, 5)`, userID, accountID).Scan(&count); err != nil {
+		return err
+	}
+	if count > 0 {
+		return ErrConflict
+	}
+	return nil
+}
+
+func insertVenueEvent(ctx context.Context, tx *sql.Tx, venueID int64, accountID *int64, userID int64, eventType int16, reason string) error {
+	_, err := tx.ExecContext(ctx, `
+		INSERT INTO venue_events (venue_id, account_id, user_id, event_type, reason, detail_json)
+		VALUES ($1, $2, $3, $4, $5, '{}'::jsonb)`,
+		venueID, accountID, userID, eventType, reason)
+	return err
+}
+
+func scanVenue(s interface{ Scan(...any) error }) (domain.Venue, error) {
+	var venue domain.Venue
+	var accountID sql.NullInt64
+	var exchange, market, env, status, marginMode, positionMode int16
+	var lastUsedAt, archivedAt sql.NullTime
+	if err := s.Scan(
+		&venue.VenueID, &venue.UserID, &accountID, &exchange, &market, &env, &status,
+		&venue.DisplayName, &venue.Description, &venue.APIKey, &venue.CredentialInfo, &venue.CredentialKeyVersion,
+		&venue.CredentialFingerprint, &marginMode, &positionMode, &venue.CreatedAt, &venue.UpdatedAt,
+		&lastUsedAt, &archivedAt, &venue.ArchivedReason,
+	); err != nil {
+		if err == sql.ErrNoRows {
+			return domain.Venue{}, ErrNotFound
+		}
+		return domain.Venue{}, err
+	}
+	if accountID.Valid {
+		v := accountID.Int64
+		venue.AccountID = &v
+	}
+	venue.Exchange = domain.Exchange(exchange)
+	venue.Market = domain.Market(market)
+	venue.Environment = domain.Environment(env)
+	venue.Status = domain.VenueStatus(status)
+	venue.MarginMode = domain.MarginMode(marginMode)
+	venue.PositionMode = domain.PositionMode(positionMode)
+	venue.LastUsedAt = nullTimePtr(lastUsedAt)
+	venue.ArchivedAt = nullTimePtr(archivedAt)
+	return venue, nil
+}
+
 // --- Current state management ---
 
 // UpdateAccountState writes the current wallet state into the accounts table (O(1) PK update).
 func (r *TimescaleRepository) UpdateAccountState(ctx context.Context, info domain.OnlineAccountInfo) error {
-	futuresJSON, err := json.Marshal(info.Futures)
+	snapshotJSON, err := json.Marshal(accountSnapshotJSON{Futures: info.Futures, Spot: info.Spot})
 	if err != nil {
-		return fmt.Errorf("marshal futures: %w", err)
-	}
-	spotJSON, err := json.Marshal(info.Spot)
-	if err != nil {
-		return fmt.Errorf("marshal spot: %w", err)
+		return fmt.Errorf("marshal snapshot: %w", err)
 	}
 	now := time.Now().UTC()
 	_, err = r.sqlExec.ExecContext(ctx, `
 		UPDATE accounts
-		SET futures_json      = $1,
-		    spot_json         = $2,
-		    total_value       = $3,
-		    wallet_balance    = $4,
-		    available_balance = $5,
-		    state_updated_at  = $6
-		WHERE account_id = $7`,
-		futuresJSON, spotJSON,
+		SET snapshot_json     = $1,
+		    total_value       = $2,
+		    wallet_balance    = $3,
+		    available_balance = $4,
+		    state_updated_at  = $5,
+		    updated_at        = $5
+		WHERE account_id = $6`,
+		snapshotJSON,
 		info.TotalValue, info.WalletBalance, info.AvailableBalance,
 		now, info.AccountID)
 	return err
@@ -405,18 +817,18 @@ func (r *TimescaleRepository) UpdateAccountState(ctx context.Context, info domai
 // GetAccountState reads the current wallet state from the accounts table (O(1) PK lookup).
 func (r *TimescaleRepository) GetAccountState(ctx context.Context, accountID int64) (domain.OnlineAccountInfo, error) {
 	row := r.db.QueryRowContext(ctx, `
-		SELECT account_id, mode, futures_json, spot_json,
+		SELECT account_id, environment, snapshot_json,
 		       total_value, wallet_balance, available_balance, state_updated_at
 		FROM accounts WHERE account_id = $1`,
 		accountID)
 
 	var info domain.OnlineAccountInfo
-	var mode int
-	var futuresRaw, spotRaw []byte
+	var env int16
+	var snapshotRaw []byte
 	var stateUpdatedAt sql.NullTime
 	if err := row.Scan(
-		&info.AccountID, &mode,
-		&futuresRaw, &spotRaw,
+		&info.AccountID, &env,
+		&snapshotRaw,
 		&info.TotalValue, &info.WalletBalance, &info.AvailableBalance,
 		&stateUpdatedAt,
 	); err != nil {
@@ -425,19 +837,17 @@ func (r *TimescaleRepository) GetAccountState(ctx context.Context, accountID int
 		}
 		return domain.OnlineAccountInfo{}, err
 	}
-	info.Mode = domain.AccountMode(mode)
+	info.Mode = modeFromEnvironment(domain.Environment(env))
 	if stateUpdatedAt.Valid {
 		info.UpdatedAt = stateUpdatedAt.Time
 	}
-	if len(futuresRaw) > 0 {
-		if err := json.Unmarshal(futuresRaw, &info.Futures); err != nil {
-			return domain.OnlineAccountInfo{}, fmt.Errorf("unmarshal futures: %w", err)
+	if len(snapshotRaw) > 0 {
+		var snapshot accountSnapshotJSON
+		if err := json.Unmarshal(snapshotRaw, &snapshot); err != nil {
+			return domain.OnlineAccountInfo{}, fmt.Errorf("unmarshal snapshot: %w", err)
 		}
-	}
-	if len(spotRaw) > 0 {
-		if err := json.Unmarshal(spotRaw, &info.Spot); err != nil {
-			return domain.OnlineAccountInfo{}, fmt.Errorf("unmarshal spot: %w", err)
-		}
+		info.Futures = snapshot.Futures
+		info.Spot = snapshot.Spot
 	}
 	return info, nil
 }
@@ -610,29 +1020,89 @@ func normalizeSessionType(mode int, sessionType string) string {
 	return "backtest"
 }
 
+func sessionStatusCode(status string) int16 {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "queued", "created", "pending":
+		return 1
+	case "preflight":
+		return 2
+	case "running", "":
+		return 3
+	case "stopping":
+		return 4
+	case "recoverable":
+		return 5
+	case "completed", "finished":
+		return 6
+	case "stopped":
+		return 7
+	case "failed", "stop_failed":
+		return 8
+	default:
+		return 8
+	}
+}
+
+func sessionStatusText(status int16) string {
+	switch status {
+	case 1:
+		return "pending"
+	case 2:
+		return "preflight"
+	case 3:
+		return "running"
+	case 4:
+		return "stopping"
+	case 5:
+		return "recoverable"
+	case 6:
+		return "finished"
+	case 7:
+		return "stopped"
+	case 8:
+		return "failed"
+	default:
+		return "failed"
+	}
+}
+
 // --- Strategy session management ---
 
 const sessionSelectColumns = `
-	session_id, account_id, user_id, strategy_id, mode, status, interval,
+	session_id, account_id, user_id, strategy_id, environment, status, interval,
 	start_time_ms, end_time_ms, bars_processed, error,
 	runtime_id, runtime_source, runtime_name, session_type, runtime_version, session_name,
 	started_at, completed_at, created_at`
 
 func (r *TimescaleRepository) SaveSession(ctx context.Context, s domain.StrategySession) error {
+	env := s.Environment
+	if env == 0 {
+		env = sessionEnvironmentFromMode(s.Mode)
+	}
+	statusCode := sessionStatusCode(s.Status)
+	var strategyID any
+	if s.StrategyID != 0 {
+		strategyID = s.StrategyID
+	}
+	var startedAt any
+	if !s.StartedAt.IsZero() {
+		startedAt = s.StartedAt.UTC()
+	}
 	res, err := r.sqlExec.ExecContext(ctx, `
 		INSERT INTO strategy_sessions (
-			session_id, account_id, user_id, strategy_id, mode, status, interval,
+			session_id, account_id, user_id, strategy_id, environment, status, interval,
 			start_time_ms, end_time_ms, bars_processed, error,
 			runtime_id, runtime_source, runtime_name, session_type, runtime_version, session_name, started_at
 		)
 		SELECT $1, a.account_id, a.user_id, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
 		FROM accounts a
-		WHERE a.account_id = $17`,
-		s.SessionID, s.StrategyID, s.Mode, s.Status, s.Interval,
+		WHERE a.account_id = $17
+		  AND a.environment = $3`,
+		s.SessionID, strategyID, int16(env), statusCode, s.Interval,
 		s.StartTimeMs, s.EndTimeMs, s.BarsProcessed, s.Error,
 		s.RuntimeID, s.RuntimeSource, s.RuntimeName,
 		normalizeSessionType(s.Mode, s.SessionType), normalizeRuntimeVersion(s.RuntimeVersion), s.SessionName,
-		s.StartedAt, s.AccountID)
+		startedAt, s.AccountID)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return ErrConflict
@@ -647,13 +1117,14 @@ func (r *TimescaleRepository) SaveSession(ctx context.Context, s domain.Strategy
 }
 
 func (r *TimescaleRepository) UpdateSession(ctx context.Context, sessionID string, status string, barsProcessed int, errMsg string, runtimeID string) error {
+	statusCode := sessionStatusCode(status)
 	query := `
 			UPDATE strategy_sessions
 			SET status = $1, bars_processed = $2, error = $3,
-			    completed_at = CASE WHEN $1 IN ('completed','finished','stopped','failed','stop_failed','recoverable') THEN NOW() ELSE completed_at END
+			    completed_at = CASE WHEN $1 NOT IN (3, 4) THEN NOW() ELSE completed_at END
 			WHERE session_id = $4
-			  AND status IN ('running', 'stopping')`
-	args := []any{status, barsProcessed, errMsg, sessionID}
+			  AND status IN (3, 4)`
+	args := []any{statusCode, barsProcessed, errMsg, sessionID}
 	if runtimeID != "" {
 		args = append(args, runtimeID)
 		query += " AND runtime_id = $5"
@@ -732,11 +1203,11 @@ func (r *TimescaleRepository) ListSessionsPage(ctx context.Context, filter Sessi
 		where += fmt.Sprintf(" AND strategy_id = $%d", len(args))
 	}
 	if filter.ModeSet {
-		args = append(args, filter.Mode)
-		where += fmt.Sprintf(" AND mode = $%d", len(args))
+		args = append(args, int16(sessionEnvironmentFromMode(filter.Mode)))
+		where += fmt.Sprintf(" AND environment = $%d", len(args))
 	}
 	if strings.TrimSpace(filter.Status) != "" {
-		args = append(args, strings.TrimSpace(filter.Status))
+		args = append(args, sessionStatusCode(strings.TrimSpace(filter.Status)))
 		where += fmt.Sprintf(" AND status = $%d", len(args))
 	}
 	if strings.TrimSpace(filter.SessionIDContains) != "" {
@@ -786,7 +1257,7 @@ func (r *TimescaleRepository) ListSessionsPage(ctx context.Context, filter Sessi
 }
 
 func (r *TimescaleRepository) ListRunningSessions(ctx context.Context, runtimeID string) ([]domain.StrategySession, error) {
-	query := `SELECT ` + sessionSelectColumns + ` FROM strategy_sessions WHERE status IN ('running', 'stopping')`
+	query := `SELECT ` + sessionSelectColumns + ` FROM strategy_sessions WHERE status IN (3, 4)`
 	args := []any{}
 	if runtimeID != "" {
 		args = append(args, runtimeID)
@@ -815,11 +1286,11 @@ func (r *TimescaleRepository) MarkRuntimeSessionsRecoverable(ctx context.Context
 	}
 	res, err := r.sqlExec.ExecContext(ctx, `
 		UPDATE strategy_sessions
-		SET status = 'recoverable',
+		SET status = 5,
 		    error = $2,
 		    completed_at = COALESCE(completed_at, NOW())
 		WHERE runtime_id = $1
-		  AND status IN ('running', 'stopping')`,
+		  AND status IN (3, 4)`,
 		runtimeID, errMsg)
 	if err != nil {
 		return 0, err
@@ -857,7 +1328,8 @@ func (r *TimescaleRepository) ListSessionSnapshots(
 
 	listQuery := `
 		SELECT time, account_id, snapshot_reason, total_value, wallet_balance, available_balance,
-		       COALESCE(futures_json::text, '{}'), COALESCE(spot_json::text, '{}'),
+		       COALESCE(snapshot_json->'futures', '{}'::jsonb)::text,
+		       COALESCE(snapshot_json->'spot', '{}'::jsonb)::text,
 		       COALESCE(session_id, ''), COALESCE(strategy_id, 0)
 		FROM account_snapshots ` + whereClause + ` ORDER BY time DESC`
 	listQuery += fmt.Sprintf(" LIMIT $%d OFFSET $%d", len(listArgs)+1, len(listArgs)+2)
@@ -899,19 +1371,26 @@ func (r *TimescaleRepository) ListSessionSnapshots(
 
 func scanSession(s interface{ Scan(...any) error }) (domain.StrategySession, error) {
 	var sess domain.StrategySession
-	var startMs, endMs sql.NullInt64
-	var completedAt sql.NullTime
+	var strategyID, startMs, endMs sql.NullInt64
+	var completedAt, startedAt sql.NullTime
 	var runtimeID, runtimeSource, runtimeName, sessionType, runtimeVersion, sessionName sql.NullString
+	var env, statusCode int16
 	if err := s.Scan(
-		&sess.SessionID, &sess.AccountID, &sess.UserID, &sess.StrategyID, &sess.Mode, &sess.Status, &sess.Interval,
+		&sess.SessionID, &sess.AccountID, &sess.UserID, &strategyID, &env, &statusCode, &sess.Interval,
 		&startMs, &endMs, &sess.BarsProcessed, &sess.Error,
 		&runtimeID, &runtimeSource, &runtimeName, &sessionType, &runtimeVersion, &sessionName,
-		&sess.StartedAt, &completedAt, &sess.CreatedAt,
+		&startedAt, &completedAt, &sess.CreatedAt,
 	); err != nil {
 		if err == sql.ErrNoRows {
 			return domain.StrategySession{}, ErrNotFound
 		}
 		return domain.StrategySession{}, err
+	}
+	sess.Environment = domain.Environment(env)
+	sess.Mode = int(modeFromEnvironment(sess.Environment))
+	sess.Status = sessionStatusText(statusCode)
+	if strategyID.Valid {
+		sess.StrategyID = strategyID.Int64
 	}
 	if startMs.Valid {
 		v := startMs.Int64
@@ -923,6 +1402,9 @@ func scanSession(s interface{ Scan(...any) error }) (domain.StrategySession, err
 	}
 	if completedAt.Valid {
 		sess.CompletedAt = &completedAt.Time
+	}
+	if startedAt.Valid {
+		sess.StartedAt = startedAt.Time
 	}
 	if runtimeID.Valid {
 		sess.RuntimeID = runtimeID.String
@@ -1065,13 +1547,9 @@ func (r *TimescaleRepository) SaveSnapshot(ctx context.Context, accountID int64,
 		return fmt.Errorf("get account state for snapshot: %w", err)
 	}
 
-	futuresJSON, err := json.Marshal(info.Futures)
+	snapshotJSON, err := json.Marshal(accountSnapshotJSON{Futures: info.Futures, Spot: info.Spot})
 	if err != nil {
-		return fmt.Errorf("marshal futures: %w", err)
-	}
-	spotJSON, err := json.Marshal(info.Spot)
-	if err != nil {
-		return fmt.Errorf("marshal spot: %w", err)
+		return fmt.Errorf("marshal snapshot: %w", err)
 	}
 
 	var sid *int64
@@ -1086,14 +1564,13 @@ func (r *TimescaleRepository) SaveSnapshot(ctx context.Context, accountID int64,
 	recordedAt := time.Now().UTC()
 	res, err := r.sqlExec.ExecContext(ctx, `
 		INSERT INTO account_snapshots
-			(time, account_id, user_id, mode, futures_json, spot_json, total_value, wallet_balance, available_balance, snapshot_reason, strategy_id, session_id)
-		SELECT $1, a.account_id, a.user_id, $2, $3, $4, $5, $6, $7, $8, $9, $10
+			(time, account_id, user_id, environment, total_value, wallet_balance, available_balance, snapshot_reason, strategy_id, session_id, snapshot_json)
+		SELECT $1, a.account_id, a.user_id, a.environment, $2, $3, $4, $5, $6, $7, $8
 		FROM accounts a
-		WHERE a.account_id = $11`,
-		recordedAt, int(info.Mode),
-		futuresJSON, spotJSON,
+		WHERE a.account_id = $9`,
+		recordedAt,
 		info.TotalValue, info.WalletBalance, info.AvailableBalance,
-		int16(reason), sid, sessID, info.AccountID)
+		int16(reason), sid, sessID, snapshotJSON, info.AccountID)
 	if err != nil {
 		return err
 	}
@@ -1112,14 +1589,6 @@ func (r *TimescaleRepository) SaveSnapshot(ctx context.Context, accountID int64,
 // caller (reconciliation goroutine) already has both snapshots in memory and
 // is writing the audit record; there is no live state to re-read.
 func (r *TimescaleRepository) SaveReconciliationRun(ctx context.Context, run domain.ReconciliationRun) error {
-	exchangeJSON, err := json.Marshal(run.ExchangeSnapshot)
-	if err != nil {
-		return fmt.Errorf("marshal exchange snapshot: %w", err)
-	}
-	localJSON, err := json.Marshal(run.LocalSnapshot)
-	if err != nil {
-		return fmt.Errorf("marshal local snapshot: %w", err)
-	}
 	// Always serialize as a JSON array (not null) so downstream consumers
 	// can unconditionally iterate.
 	if run.FieldDiffs == nil {
@@ -1128,13 +1597,15 @@ func (r *TimescaleRepository) SaveReconciliationRun(ctx context.Context, run dom
 	if run.AdvisoryDiffs == nil {
 		run.AdvisoryDiffs = []domain.FieldDiff{}
 	}
-	fieldDiffsJSON, err := json.Marshal(run.FieldDiffs)
+
+	accountDiffJSON, err := json.Marshal(reconciliationAccountDiffJSON{
+		ExchangeSnapshot: run.ExchangeSnapshot,
+		LocalSnapshot:    run.LocalSnapshot,
+		FieldDiffs:       run.FieldDiffs,
+		AdvisoryDiffs:    run.AdvisoryDiffs,
+	})
 	if err != nil {
-		return fmt.Errorf("marshal field_diffs: %w", err)
-	}
-	advisoryDiffsJSON, err := json.Marshal(run.AdvisoryDiffs)
-	if err != nil {
-		return fmt.Errorf("marshal advisory_diffs: %w", err)
+		return fmt.Errorf("marshal account_diff_json: %w", err)
 	}
 
 	var sid *int64
@@ -1145,18 +1616,26 @@ func (r *TimescaleRepository) SaveReconciliationRun(ctx context.Context, run dom
 	if run.SessionID != "" {
 		sessID = &run.SessionID
 	}
+	runID := strings.TrimSpace(run.RunID)
+	if runID == "" {
+		runID = uuid.NewString()
+	}
+	runTime := run.Time
+	if runTime.IsZero() {
+		runTime = time.Now().UTC()
+	}
+	env := sessionEnvironmentFromMode(int(run.Mode))
 
 	_, err = r.sqlExec.ExecContext(ctx, `
 		INSERT INTO reconciliation_runs
-			(time, account_id, user_id, session_id, strategy_id, mode, snapshot_reason, run_type,
-			 exchange_snapshot, local_snapshot, field_diffs, advisory_diffs, hard_pass, soft_pass)
+			(time, run_id, account_id, user_id, session_id, strategy_id, environment, snapshot_reason, run_type,
+			 hard_pass, soft_pass, account_diff_json, venue_diffs_json)
 		VALUES
-			($1, $2, $3, $4, $5, $6, $7, $8,
-			 $9, $10, $11, $12, $13, $14)`,
-		run.Time.UTC(), run.AccountID, run.UserID, sessID, sid,
-		int(run.Mode), int16(run.SnapshotReason), string(run.RunType),
-		exchangeJSON, localJSON, fieldDiffsJSON, advisoryDiffsJSON,
-		run.HardPass, run.SoftPass)
+			($1, $2, $3, $4, $5, $6, $7, $8, $9,
+			 $10, $11, $12, '[]'::jsonb)`,
+		runTime.UTC(), runID, run.AccountID, run.UserID, sessID, sid,
+		int16(env), int16(run.SnapshotReason), string(run.RunType),
+		run.HardPass, run.SoftPass, accountDiffJSON)
 	return err
 }
 
@@ -1189,13 +1668,10 @@ func (r *TimescaleRepository) ListReconciliationRuns(
 			user_id,
 			COALESCE(session_id, ''),
 			COALESCE(strategy_id, 0),
-			mode,
+			environment,
 			snapshot_reason,
 			run_type,
-			exchange_snapshot,
-			local_snapshot,
-			field_diffs,
-			advisory_diffs,
+			account_diff_json,
 			hard_pass,
 			soft_pass
 		FROM reconciliation_runs
@@ -1212,12 +1688,9 @@ func (r *TimescaleRepository) ListReconciliationRuns(
 	out := make([]domain.ReconciliationRun, 0)
 	for rows.Next() {
 		var run domain.ReconciliationRun
-		var mode int
+		var env int16
 		var reason int16
-		var exchangeJSON []byte
-		var localJSON []byte
-		var fieldDiffsJSON []byte
-		var advisoryDiffsJSON []byte
+		var accountDiffJSON []byte
 		var runType string
 		if err := rows.Scan(
 			&run.Time,
@@ -1226,33 +1699,26 @@ func (r *TimescaleRepository) ListReconciliationRuns(
 			&run.UserID,
 			&run.SessionID,
 			&run.StrategyID,
-			&mode,
+			&env,
 			&reason,
 			&runType,
-			&exchangeJSON,
-			&localJSON,
-			&fieldDiffsJSON,
-			&advisoryDiffsJSON,
+			&accountDiffJSON,
 			&run.HardPass,
 			&run.SoftPass,
 		); err != nil {
 			return nil, 0, false, fmt.Errorf("scan reconciliation run: %w", err)
 		}
-		run.Mode = domain.AccountMode(mode)
+		run.Mode = modeFromEnvironment(domain.Environment(env))
 		run.SnapshotReason = domain.SnapshotReason(reason)
 		run.RunType = domain.ReconciliationRunType(runType)
-		if err := json.Unmarshal(exchangeJSON, &run.ExchangeSnapshot); err != nil {
-			return nil, 0, false, fmt.Errorf("decode exchange_snapshot for run %s: %w", run.RunID, err)
+		var accountDiff reconciliationAccountDiffJSON
+		if err := json.Unmarshal(accountDiffJSON, &accountDiff); err != nil {
+			return nil, 0, false, fmt.Errorf("decode account_diff_json for run %s: %w", run.RunID, err)
 		}
-		if err := json.Unmarshal(localJSON, &run.LocalSnapshot); err != nil {
-			return nil, 0, false, fmt.Errorf("decode local_snapshot for run %s: %w", run.RunID, err)
-		}
-		if err := json.Unmarshal(fieldDiffsJSON, &run.FieldDiffs); err != nil {
-			return nil, 0, false, fmt.Errorf("decode field_diffs for run %s: %w", run.RunID, err)
-		}
-		if err := json.Unmarshal(advisoryDiffsJSON, &run.AdvisoryDiffs); err != nil {
-			return nil, 0, false, fmt.Errorf("decode advisory_diffs for run %s: %w", run.RunID, err)
-		}
+		run.ExchangeSnapshot = accountDiff.ExchangeSnapshot
+		run.LocalSnapshot = accountDiff.LocalSnapshot
+		run.FieldDiffs = accountDiff.FieldDiffs
+		run.AdvisoryDiffs = accountDiff.AdvisoryDiffs
 		out = append(out, run)
 	}
 	if err := rows.Err(); err != nil {

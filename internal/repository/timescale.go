@@ -657,6 +657,34 @@ func (r *TimescaleRepository) SaveSessionVenues(ctx context.Context, sessionID s
 		return err
 	}
 	defer tx.Rollback() //nolint:errcheck
+	if err := saveSessionVenuesTx(ctx, tx, sessionID, venues); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func listActiveAccountVenuesTx(ctx context.Context, tx *sql.Tx, accountID int64) ([]domain.Venue, error) {
+	rows, err := tx.QueryContext(ctx, venueSelectSQL+` WHERE account_id = $1 AND status = $2 ORDER BY exchange, market`,
+		accountID, int16(domain.VenueStatusActive))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	venues := make([]domain.Venue, 0)
+	for rows.Next() {
+		venue, err := scanVenue(rows)
+		if err != nil {
+			return nil, err
+		}
+		venues = append(venues, venue)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return venues, nil
+}
+
+func saveSessionVenuesTx(ctx context.Context, tx *sql.Tx, sessionID string, venues []domain.Venue) error {
 	for _, venue := range venues {
 		var accountID int64
 		if venue.AccountID != nil {
@@ -684,7 +712,7 @@ func (r *TimescaleRepository) SaveSessionVenues(ctx context.Context, sessionID s
 			return err
 		}
 	}
-	return tx.Commit()
+	return nil
 }
 
 func (r *TimescaleRepository) ResolveVenueRouteMeta(ctx context.Context, accountID int64, exchange domain.Exchange, market domain.Market) (domain.VenueRouteMeta, error) {
@@ -1075,6 +1103,12 @@ const sessionSelectColumns = `
 	started_at, completed_at, created_at`
 
 func (r *TimescaleRepository) SaveSession(ctx context.Context, s domain.StrategySession) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck
+
 	env := s.Environment
 	if env == 0 {
 		env = sessionEnvironmentFromMode(s.Mode)
@@ -1088,7 +1122,7 @@ func (r *TimescaleRepository) SaveSession(ctx context.Context, s domain.Strategy
 	if !s.StartedAt.IsZero() {
 		startedAt = s.StartedAt.UTC()
 	}
-	res, err := r.sqlExec.ExecContext(ctx, `
+	res, err := tx.ExecContext(ctx, `
 		INSERT INTO strategy_sessions (
 			session_id, account_id, user_id, strategy_id, environment, status, interval,
 			start_time_ms, end_time_ms, bars_processed, error,
@@ -1113,7 +1147,14 @@ func (r *TimescaleRepository) SaveSession(ctx context.Context, s domain.Strategy
 	if n == 0 {
 		return ErrNotFound
 	}
-	return nil
+	venues, err := listActiveAccountVenuesTx(ctx, tx, s.AccountID)
+	if err != nil {
+		return err
+	}
+	if err := saveSessionVenuesTx(ctx, tx, s.SessionID, venues); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (r *TimescaleRepository) UpdateSession(ctx context.Context, sessionID string, status string, barsProcessed int, errMsg string, runtimeID string) error {

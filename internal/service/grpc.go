@@ -1749,11 +1749,18 @@ func (s *AccountGRPCService) SaveSession(ctx context.Context, req *accountv1.Sav
 	if strings.TrimSpace(req.GetRuntimeId()) == "" {
 		return nil, status.Error(codes.InvalidArgument, "runtime_id is required")
 	}
+	account, err := s.repo.GetAccount(ctx, req.GetAccountId(), req.GetUserId())
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	env := environmentFromAccount(account)
 	sess := domain.StrategySession{
 		SessionID:      req.GetSessionId(),
 		AccountID:      req.GetAccountId(),
+		UserID:         account.UserID,
 		StrategyID:     req.GetStrategyId(),
-		Mode:           int(req.GetMode()),
+		Environment:    env,
+		Mode:           int(accountModeFromEnvironment(env)),
 		Status:         "running",
 		Interval:       req.GetInterval(),
 		RuntimeID:      req.GetRuntimeId(),

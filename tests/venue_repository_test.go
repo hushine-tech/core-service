@@ -2,6 +2,7 @@ package tests
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"os"
 	"testing"
@@ -175,5 +176,90 @@ func TestVenueRepositoryResolveRouteMeta(t *testing.T) {
 	}
 	if meta.MarginMode != domain.MarginModeCross || meta.PositionMode != domain.PositionModeOneWay {
 		t.Fatalf("route modes = %d/%d, want cross/one_way", meta.MarginMode, meta.PositionMode)
+	}
+}
+
+func TestVenueRepositorySaveSessionSnapshotsActiveVenues(t *testing.T) {
+	repo, ctx := venueTestRepo(t)
+	user := createVenueTestUser(t, ctx, repo)
+	accountID := createVenueTestAccount(t, ctx, repo, user.ID, domain.EnvironmentDemo)
+	venue := createVenueFixture(t, ctx, repo, user.ID, domain.EnvironmentDemo)
+	if _, err := repo.BindVenue(ctx, user.ID, accountID, venue.VenueID, "snapshot bind"); err != nil {
+		t.Fatalf("bind venue: %v", err)
+	}
+
+	sessionID := fmt.Sprintf("venue-session-%d", time.Now().UnixNano())
+	if err := repo.SaveSession(ctx, domain.StrategySession{
+		SessionID:      sessionID,
+		AccountID:      accountID,
+		UserID:         user.ID,
+		Environment:    domain.EnvironmentDemo,
+		Status:         "running",
+		RuntimeID:      "rt-snapshot",
+		RuntimeVersion: "1.0.0",
+		StartedAt:      time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("save session: %v", err)
+	}
+
+	db, err := sql.Open("postgres", os.Getenv("TIMESCALEDB_DSN"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close() //nolint:errcheck
+	var gotVenueID int64
+	var gotAccountID int64
+	var gotExchange int16
+	var gotMarket int16
+	if err := db.QueryRowContext(ctx, `
+		SELECT venue_id, account_id, exchange, market
+		FROM session_venues
+		WHERE session_id = $1`, sessionID).Scan(&gotVenueID, &gotAccountID, &gotExchange, &gotMarket); err != nil {
+		t.Fatalf("query session_venues: %v", err)
+	}
+	if gotVenueID != venue.VenueID || gotAccountID != accountID || domain.Exchange(gotExchange) != domain.ExchangeBinance || domain.Market(gotMarket) != domain.MarketPerpetualFutures {
+		t.Fatalf("session venue = venue:%d account:%d exchange:%d market:%d", gotVenueID, gotAccountID, gotExchange, gotMarket)
+	}
+}
+
+func TestVenueRepositoryFailedSessionSaveDoesNotSnapshotVenues(t *testing.T) {
+	repo, ctx := venueTestRepo(t)
+	user := createVenueTestUser(t, ctx, repo)
+	accountID := createVenueTestAccount(t, ctx, repo, user.ID, domain.EnvironmentDemo)
+	venue := createVenueFixture(t, ctx, repo, user.ID, domain.EnvironmentDemo)
+	if _, err := repo.BindVenue(ctx, user.ID, accountID, venue.VenueID, "snapshot rollback bind"); err != nil {
+		t.Fatalf("bind venue: %v", err)
+	}
+
+	sessionID := fmt.Sprintf("venue-session-fail-%d", time.Now().UnixNano())
+	err := repo.SaveSession(ctx, domain.StrategySession{
+		SessionID:      sessionID,
+		AccountID:      accountID,
+		UserID:         user.ID,
+		Environment:    domain.EnvironmentLive,
+		Status:         "running",
+		RuntimeID:      "rt-snapshot-fail",
+		RuntimeVersion: "1.0.0",
+		StartedAt:      time.Now().UTC(),
+	})
+	if err != repository.ErrNotFound {
+		t.Fatalf("save session err = %v, want ErrNotFound", err)
+	}
+
+	db, err := sql.Open("postgres", os.Getenv("TIMESCALEDB_DSN"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close() //nolint:errcheck
+	var sessionCount int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM strategy_sessions WHERE session_id = $1`, sessionID).Scan(&sessionCount); err != nil {
+		t.Fatalf("query strategy_sessions: %v", err)
+	}
+	var venueCount int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM session_venues WHERE session_id = $1`, sessionID).Scan(&venueCount); err != nil {
+		t.Fatalf("query session_venues: %v", err)
+	}
+	if sessionCount != 0 || venueCount != 0 {
+		t.Fatalf("partial rows after failed save: sessions=%d venues=%d", sessionCount, venueCount)
 	}
 }

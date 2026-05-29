@@ -1161,10 +1161,10 @@ func (r *TimescaleRepository) UpdateSession(ctx context.Context, sessionID strin
 	statusCode := sessionStatusCode(status)
 	query := `
 			UPDATE strategy_sessions
-			SET status = $1, bars_processed = $2, error = $3,
-			    completed_at = CASE WHEN $1 NOT IN (3, 4) THEN NOW() ELSE completed_at END
+			SET status = $1::smallint, bars_processed = $2, error = $3,
+			    completed_at = CASE WHEN $1::smallint NOT IN (3::smallint, 4::smallint) THEN NOW() ELSE completed_at END
 			WHERE session_id = $4
-			  AND status IN (3, 4)`
+			  AND status IN (3::smallint, 4::smallint)`
 	args := []any{statusCode, barsProcessed, errMsg, sessionID}
 	if runtimeID != "" {
 		args = append(args, runtimeID)

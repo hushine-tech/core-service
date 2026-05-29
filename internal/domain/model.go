@@ -1,6 +1,170 @@
 package domain
 
-import "time"
+import (
+	"errors"
+	"time"
+)
+
+// Environment is the account-level runtime environment.
+type Environment int16
+
+const (
+	EnvironmentBacktest Environment = 0
+	EnvironmentDemo     Environment = 1
+	EnvironmentLive     Environment = 2
+)
+
+func (e Environment) String() string {
+	switch e {
+	case EnvironmentBacktest:
+		return "backtest"
+	case EnvironmentDemo:
+		return "demo"
+	case EnvironmentLive:
+		return "live"
+	default:
+		return "unknown"
+	}
+}
+
+type Exchange int16
+
+const (
+	ExchangeBinance Exchange = 1
+	ExchangeOKX     Exchange = 2
+)
+
+func (e Exchange) String() string {
+	switch e {
+	case ExchangeBinance:
+		return "binance"
+	case ExchangeOKX:
+		return "okx"
+	default:
+		return "unknown"
+	}
+}
+
+type Market int16
+
+const (
+	MarketSpot             Market = 1
+	MarketPerpetualFutures Market = 2
+	MarketDeliveryFutures  Market = 3
+)
+
+func (m Market) String() string {
+	switch m {
+	case MarketSpot:
+		return "spot"
+	case MarketPerpetualFutures:
+		return "perpetual_futures"
+	case MarketDeliveryFutures:
+		return "delivery_futures"
+	default:
+		return "unknown"
+	}
+}
+
+type AccountStatus int16
+
+const (
+	AccountStatusActive   AccountStatus = 1
+	AccountStatusArchived AccountStatus = 2
+)
+
+type VenueStatus int16
+
+const (
+	VenueStatusActive   VenueStatus = 1
+	VenueStatusDisabled VenueStatus = 2
+	VenueStatusRevoked  VenueStatus = 3
+	VenueStatusArchived VenueStatus = 4
+)
+
+type MarginMode int16
+
+const (
+	MarginModeNone     MarginMode = 0
+	MarginModeCross    MarginMode = 1
+	MarginModeIsolated MarginMode = 2
+)
+
+type PositionMode int16
+
+const (
+	PositionModeNone   PositionMode = 0
+	PositionModeOneWay PositionMode = 1
+	PositionModeHedge  PositionMode = 2
+)
+
+var ErrInvalidVenueModes = errors.New("invalid venue margin/position modes for market")
+
+type Venue struct {
+	VenueID               int64
+	UserID                int64
+	AccountID             *int64
+	Exchange              Exchange
+	Market                Market
+	Environment           Environment
+	Status                VenueStatus
+	DisplayName           string
+	Description           string
+	APIKey                string
+	CredentialInfo        string
+	CredentialKeyVersion  string
+	CredentialFingerprint string
+	MarginMode            MarginMode
+	PositionMode          PositionMode
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+	LastUsedAt            *time.Time
+	ArchivedAt            *time.Time
+	ArchivedReason        string
+}
+
+func (v Venue) ValidateMarketModes() error {
+	switch v.Market {
+	case MarketSpot:
+		if v.MarginMode != MarginModeNone || v.PositionMode != PositionModeNone {
+			return ErrInvalidVenueModes
+		}
+	case MarketPerpetualFutures:
+		if (v.MarginMode != MarginModeCross && v.MarginMode != MarginModeIsolated) ||
+			(v.PositionMode != PositionModeOneWay && v.PositionMode != PositionModeHedge) {
+			return ErrInvalidVenueModes
+		}
+	}
+	return nil
+}
+
+type VenueEvent struct {
+	EventID    int64
+	VenueID    int64
+	AccountID  *int64
+	UserID     int64
+	EventType  int16
+	Reason     string
+	DetailJSON string
+	CreatedAt  time.Time
+}
+
+type SessionVenue struct {
+	SessionID             string
+	VenueID               int64
+	AccountID             int64
+	UserID                int64
+	Exchange              Exchange
+	Market                Market
+	Environment           Environment
+	DisplayName           string
+	APIKey                string
+	CredentialFingerprint string
+	MarginMode            MarginMode
+	PositionMode          PositionMode
+	VenueStatus           VenueStatus
+	CapturedAt            time.Time
+}
 
 // AccountMode defines the type and data source of an account.
 // 0 = backtest (virtual), 1 = Binance live, 2 = Binance testnet, 3 = other (future)

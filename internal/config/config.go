@@ -16,6 +16,7 @@ type Config struct {
 	Database      DatabaseConfig     `yaml:"database"`
 	OrderDatabase DatabaseConfig     `yaml:"order_database"`
 	Exchange      ExchangeConfig     `yaml:"exchange"`
+	Credential    CredentialConfig   `yaml:"credential"`
 	Notification  NotificationConfig `yaml:"notification"`
 	Log           elog.Config        `yaml:"log"`
 }
@@ -57,6 +58,11 @@ type NotificationTelegramConfig struct {
 
 type NotificationDeliveryConfig struct {
 	SendTimeoutSeconds int `yaml:"send_timeout_seconds"`
+}
+
+type CredentialConfig struct {
+	EncryptionKey string `yaml:"encryption_key"`
+	KeyVersion    string `yaml:"key_version"`
 }
 
 // ExchangeConfig only controls process-wide exchange wiring.
@@ -181,6 +187,9 @@ func Default() *Config {
 			MockBinance:    false,
 			SymbolCacheTTL: "6h",
 			Reconciliation: DefaultReconciliationConfig(),
+		},
+		Credential: CredentialConfig{
+			KeyVersion: "v1",
 		},
 		Notification: NotificationConfig{
 			Enabled: false,
@@ -309,6 +318,13 @@ func (c *Config) ApplyEnvOverrides() {
 	}
 	// Binance credentials are intentionally NOT taken from env. Per-account
 	// api_key / api_secret live on the accounts table.
+
+	if v := os.Getenv("CORE_CREDENTIAL_ENCRYPTION_KEY"); v != "" {
+		c.Credential.EncryptionKey = v
+	}
+	if v := os.Getenv("CORE_CREDENTIAL_KEY_VERSION"); v != "" {
+		c.Credential.KeyVersion = v
+	}
 
 	if v := os.Getenv("NOTIFICATION_ENABLED"); v != "" {
 		c.Notification.Enabled = parseBool(v)

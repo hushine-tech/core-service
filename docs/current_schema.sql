@@ -205,3 +205,10 @@ CREATE INDEX IF NOT EXISTS idx_reconciliation_runs_hard_fail
 --   market_data_requests
 --   market_data_leases
 --   market_data_history_requests
+
+-- Portfolio/Venue Phase 1 schema note:
+-- accounts.environment replaces accounts.mode.
+-- venues stores exchange/market credential resources.
+-- session_venues snapshots account-bound venues at session start.
+-- order_intents stores order route facts.
+-- order_attempts, orders, and order_fills keep execution facts and join to order_intents.

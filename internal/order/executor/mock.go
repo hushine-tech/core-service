@@ -4,10 +4,12 @@ import (
 	"context"
 	"math"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/hushine-tech/core-service/internal/order/accountmeta"
+	"github.com/hushine-tech/core-service/internal/order/lifecycle"
 )
 
 // MockExecutor simulates order fills for backtest mode.
@@ -17,6 +19,11 @@ type MockExecutor struct{}
 func NewMockExecutor() *MockExecutor { return &MockExecutor{} }
 
 func (e *MockExecutor) Execute(_ context.Context, req OrderRequest, meta accountmeta.Meta) (OrderResult, error) {
+	orderType := strings.ToUpper(strings.TrimSpace(firstNonEmpty(req.OrderType, "MARKET")))
+	if orderType == "LIMIT" {
+		return e.executeLimit(req, meta), nil
+	}
+
 	basePrice := req.MarkPrice
 	if req.Price != nil {
 		basePrice = *req.Price
@@ -40,7 +47,7 @@ func (e *MockExecutor) Execute(_ context.Context, req OrderRequest, meta account
 		ClientOrderID:   req.ClientOrderID,
 		Symbol:          req.Symbol,
 		Side:            req.Side,
-		OrderType:       firstNonEmpty(req.OrderType, "MARKET"),
+		OrderType:       orderType,
 		TimeInForce:     req.TimeInForce,
 		Status:          "FILLED",
 		OrigQty:         math.Abs(req.Qty),
@@ -54,6 +61,75 @@ func (e *MockExecutor) Execute(_ context.Context, req OrderRequest, meta account
 			Fee:       fee,
 		}},
 	}, nil
+}
+
+func (e *MockExecutor) executeLimit(req OrderRequest, meta accountmeta.Meta) OrderResult {
+	exchangeOrderID := uuid.New().String()
+	limitPrice := 0.0
+	if req.Price != nil {
+		limitPrice = *req.Price
+	}
+	if req.MarkPrice <= 0 || limitPrice <= 0 {
+		return openLimitResult(req, exchangeOrderID, limitPrice)
+	}
+	now := time.Now().UTC()
+	result := lifecycle.MatchBacktestLimitGTC(lifecycle.BacktestLimitOrder{
+		AccountID:       req.AccountID,
+		VenueID:         meta.VenueID,
+		ExchangeOrderID: exchangeOrderID,
+		ClientOrderID:   req.ClientOrderID,
+		Symbol:          req.Symbol,
+		Side:            req.Side,
+		Qty:             req.Qty,
+		LimitPrice:      limitPrice,
+		FeeRate:         meta.DefaultFeeRate,
+	}, lifecycle.BacktestBar{
+		Symbol: req.Symbol,
+		Time:   now,
+		Open:   req.MarkPrice,
+		High:   req.MarkPrice,
+		Low:    req.MarkPrice,
+		Close:  req.MarkPrice,
+	})
+
+	out := OrderResult{
+		ExchangeOrderID: exchangeOrderID,
+		ClientOrderID:   req.ClientOrderID,
+		Symbol:          req.Symbol,
+		Side:            req.Side,
+		OrderType:       "LIMIT",
+		TimeInForce:     firstNonEmpty(req.TimeInForce, "GTC"),
+		Status:          result.State.Status,
+		OrigQty:         result.State.OrigQty,
+		ExecutedQty:     result.State.ExecutedQty,
+		RemainingQty:    result.State.RemainingQty,
+		AvgPrice:        result.State.AvgPrice,
+		Price:           limitPrice,
+	}
+	if result.Event != nil {
+		out.Fills = []FillResult{{
+			Qty:       result.Event.FillDelta.Qty,
+			FillPrice: result.Event.FillDelta.FillPrice,
+			Fee:       result.Event.FillDelta.Fee,
+		}}
+	}
+	return out
+}
+
+func openLimitResult(req OrderRequest, exchangeOrderID string, limitPrice float64) OrderResult {
+	return OrderResult{
+		ExchangeOrderID: exchangeOrderID,
+		ClientOrderID:   req.ClientOrderID,
+		Symbol:          req.Symbol,
+		Side:            req.Side,
+		OrderType:       "LIMIT",
+		TimeInForce:     firstNonEmpty(req.TimeInForce, "GTC"),
+		Status:          "NEW",
+		OrigQty:         math.Abs(req.Qty),
+		ExecutedQty:     0,
+		RemainingQty:    math.Abs(req.Qty),
+		Price:           limitPrice,
+	}
 }
 
 func firstNonEmpty(values ...string) string {

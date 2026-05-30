@@ -641,22 +641,8 @@ func (s *AccountGRPCService) CreateAccount(ctx context.Context, req *accountv1.C
 	account.AccountID = newID
 
 	if env == domain.EnvironmentBacktest {
-		accountID := newID
-		if _, err := s.repo.CreateVenue(ctx, domain.Venue{
-			UserID:       req.GetUserId(),
-			AccountID:    &accountID,
-			Exchange:     domain.ExchangeBinance,
-			Market:       domain.MarketPerpetualFutures,
-			Environment:  domain.EnvironmentBacktest,
-			Status:       domain.VenueStatusActive,
-			DisplayName:  "Simulated Binance Perpetual Futures",
-			Description:  "default simulated venue",
-			MarginMode:   domain.MarginModeCross,
-			PositionMode: domain.PositionModeOneWay,
-			CreatedAt:    time.Now().UTC(),
-			UpdatedAt:    time.Now().UTC(),
-		}); err != nil {
-			return nil, status.Errorf(codes.Internal, "create default venue: %v", err)
+		if err := s.createDefaultBacktestVenues(ctx, req.GetUserId(), newID); err != nil {
+			return nil, status.Errorf(codes.Internal, "create default venues: %v", err)
 		}
 	}
 
@@ -702,6 +688,46 @@ func (s *AccountGRPCService) CreateAccount(ctx context.Context, req *accountv1.C
 		Description: account.Description,
 		Status:      int32(account.Status),
 	}, nil
+}
+
+func (s *AccountGRPCService) createDefaultBacktestVenues(ctx context.Context, userID, accountID int64) error {
+	now := time.Now().UTC()
+	defaults := []domain.Venue{
+		{
+			UserID:       userID,
+			AccountID:    &accountID,
+			Exchange:     domain.ExchangeBinance,
+			Market:       domain.MarketPerpetualFutures,
+			Environment:  domain.EnvironmentBacktest,
+			Status:       domain.VenueStatusActive,
+			DisplayName:  "Simulated Binance Perpetual Futures",
+			Description:  "default simulated venue",
+			MarginMode:   domain.MarginModeCross,
+			PositionMode: domain.PositionModeOneWay,
+			CreatedAt:    now,
+			UpdatedAt:    now,
+		},
+		{
+			UserID:       userID,
+			AccountID:    &accountID,
+			Exchange:     domain.ExchangeBinance,
+			Market:       domain.MarketSpot,
+			Environment:  domain.EnvironmentBacktest,
+			Status:       domain.VenueStatusActive,
+			DisplayName:  "Simulated Binance Spot",
+			Description:  "default simulated venue",
+			MarginMode:   domain.MarginModeNone,
+			PositionMode: domain.PositionModeNone,
+			CreatedAt:    now,
+			UpdatedAt:    now,
+		},
+	}
+	for _, venue := range defaults {
+		if _, err := s.repo.CreateVenue(ctx, venue); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // ListAccounts returns all accounts without credentials.

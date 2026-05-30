@@ -44,6 +44,7 @@ func TestBacktestAccountsGetDefaultSimulatedVenueBackfill(t *testing.T) {
 		"from accounts",
 		"environment = 0",
 		"default simulated venue",
+		"simulated binance spot",
 		"not exists",
 	} {
 		if !strings.Contains(sql, required) {

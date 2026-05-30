@@ -491,7 +491,7 @@ func TestCreateAccountStoresDescription(t *testing.T) {
 	}
 }
 
-func TestCreateBacktestAccountCreatesSimulatedVenue(t *testing.T) {
+func TestCreateBacktestAccountCreatesSimulatedVenues(t *testing.T) {
 	repo := &stubRepo{}
 	svc := NewAccountGRPCService(repo, nil, nil, nil)
 
@@ -511,21 +511,30 @@ func TestCreateBacktestAccountCreatesSimulatedVenue(t *testing.T) {
 	if got := repo.createdAccount.Environment; got != domain.EnvironmentBacktest {
 		t.Fatalf("account environment = %v", got)
 	}
-	if len(repo.createdVenues) != 1 {
-		t.Fatalf("created venues len = %d, want 1", len(repo.createdVenues))
+	if len(repo.createdVenues) != 2 {
+		t.Fatalf("created venues len = %d, want 2", len(repo.createdVenues))
 	}
-	venue := repo.createdVenues[0]
-	if venue.AccountID == nil || *venue.AccountID != resp.GetAccountId() {
-		t.Fatalf("venue account_id = %v, want %d", venue.AccountID, resp.GetAccountId())
+	byMarket := map[domain.Market]domain.Venue{}
+	for _, venue := range repo.createdVenues {
+		byMarket[venue.Market] = venue
+		if venue.AccountID == nil || *venue.AccountID != resp.GetAccountId() {
+			t.Fatalf("venue account_id = %v, want %d", venue.AccountID, resp.GetAccountId())
+		}
+		if venue.Exchange != domain.ExchangeBinance {
+			t.Fatalf("venue exchange = %v", venue.Exchange)
+		}
+		if venue.Environment != domain.EnvironmentBacktest || venue.Status != domain.VenueStatusActive {
+			t.Fatalf("venue env/status = %v/%v", venue.Environment, venue.Status)
+		}
+		if venue.CredentialInfo != "" || venue.APIKey != "" {
+			t.Fatalf("backtest venue stored credentials: api_key=%q credential_info=%q", venue.APIKey, venue.CredentialInfo)
+		}
 	}
-	if venue.Exchange != domain.ExchangeBinance || venue.Market != domain.MarketPerpetualFutures {
-		t.Fatalf("venue route = %v/%v", venue.Exchange, venue.Market)
+	if _, ok := byMarket[domain.MarketPerpetualFutures]; !ok {
+		t.Fatal("missing simulated perpetual futures venue")
 	}
-	if venue.Environment != domain.EnvironmentBacktest || venue.Status != domain.VenueStatusActive {
-		t.Fatalf("venue env/status = %v/%v", venue.Environment, venue.Status)
-	}
-	if venue.CredentialInfo != "" || venue.APIKey != "" {
-		t.Fatalf("backtest venue stored credentials: api_key=%q credential_info=%q", venue.APIKey, venue.CredentialInfo)
+	if _, ok := byMarket[domain.MarketSpot]; !ok {
+		t.Fatal("missing simulated spot venue")
 	}
 	if repo.state.Futures.InitialBalance != 1000 || repo.state.WalletBalance != 1000 {
 		t.Fatalf("initial state futures=%v wallet=%v", repo.state.Futures.InitialBalance, repo.state.WalletBalance)

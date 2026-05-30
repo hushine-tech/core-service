@@ -19,12 +19,13 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	OrderService_PlaceOrder_FullMethodName          = "/order.v1.OrderService/PlaceOrder"
-	OrderService_QueryOrderIntents_FullMethodName   = "/order.v1.OrderService/QueryOrderIntents"
-	OrderService_QueryOrderAttempts_FullMethodName  = "/order.v1.OrderService/QueryOrderAttempts"
-	OrderService_QueryOrders_FullMethodName         = "/order.v1.OrderService/QueryOrders"
-	OrderService_QueryOrderFills_FullMethodName     = "/order.v1.OrderService/QueryOrderFills"
-	OrderService_ResolveOrderAttempt_FullMethodName = "/order.v1.OrderService/ResolveOrderAttempt"
+	OrderService_PlaceOrder_FullMethodName               = "/order.v1.OrderService/PlaceOrder"
+	OrderService_QueryOrderIntents_FullMethodName        = "/order.v1.OrderService/QueryOrderIntents"
+	OrderService_QueryOrderAttempts_FullMethodName       = "/order.v1.OrderService/QueryOrderAttempts"
+	OrderService_QueryOrders_FullMethodName              = "/order.v1.OrderService/QueryOrders"
+	OrderService_QueryOrderFills_FullMethodName          = "/order.v1.OrderService/QueryOrderFills"
+	OrderService_ResolveOrderAttempt_FullMethodName      = "/order.v1.OrderService/ResolveOrderAttempt"
+	OrderService_ListOrderLifecycleEvents_FullMethodName = "/order.v1.OrderService/ListOrderLifecycleEvents"
 )
 
 // OrderServiceClient is the client API for OrderService service.
@@ -45,6 +46,8 @@ type OrderServiceClient interface {
 	QueryOrderFills(ctx context.Context, in *QueryOrderFillsRequest, opts ...grpc.CallOption) (*QueryOrderFillsResponse, error)
 	// Resolve an unknown / recovering attempt by intent or attempt id.
 	ResolveOrderAttempt(ctx context.Context, in *ResolveOrderAttemptRequest, opts ...grpc.CallOption) (*ResolveOrderAttemptResponse, error)
+	// Cursor-readable normalized order lifecycle events.
+	ListOrderLifecycleEvents(ctx context.Context, in *ListOrderLifecycleEventsRequest, opts ...grpc.CallOption) (*ListOrderLifecycleEventsResponse, error)
 }
 
 type orderServiceClient struct {
@@ -115,6 +118,16 @@ func (c *orderServiceClient) ResolveOrderAttempt(ctx context.Context, in *Resolv
 	return out, nil
 }
 
+func (c *orderServiceClient) ListOrderLifecycleEvents(ctx context.Context, in *ListOrderLifecycleEventsRequest, opts ...grpc.CallOption) (*ListOrderLifecycleEventsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListOrderLifecycleEventsResponse)
+	err := c.cc.Invoke(ctx, OrderService_ListOrderLifecycleEvents_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // OrderServiceServer is the server API for OrderService service.
 // All implementations must embed UnimplementedOrderServiceServer
 // for forward compatibility.
@@ -133,6 +146,8 @@ type OrderServiceServer interface {
 	QueryOrderFills(context.Context, *QueryOrderFillsRequest) (*QueryOrderFillsResponse, error)
 	// Resolve an unknown / recovering attempt by intent or attempt id.
 	ResolveOrderAttempt(context.Context, *ResolveOrderAttemptRequest) (*ResolveOrderAttemptResponse, error)
+	// Cursor-readable normalized order lifecycle events.
+	ListOrderLifecycleEvents(context.Context, *ListOrderLifecycleEventsRequest) (*ListOrderLifecycleEventsResponse, error)
 	mustEmbedUnimplementedOrderServiceServer()
 }
 
@@ -160,6 +175,9 @@ func (UnimplementedOrderServiceServer) QueryOrderFills(context.Context, *QueryOr
 }
 func (UnimplementedOrderServiceServer) ResolveOrderAttempt(context.Context, *ResolveOrderAttemptRequest) (*ResolveOrderAttemptResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ResolveOrderAttempt not implemented")
+}
+func (UnimplementedOrderServiceServer) ListOrderLifecycleEvents(context.Context, *ListOrderLifecycleEventsRequest) (*ListOrderLifecycleEventsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListOrderLifecycleEvents not implemented")
 }
 func (UnimplementedOrderServiceServer) mustEmbedUnimplementedOrderServiceServer() {}
 func (UnimplementedOrderServiceServer) testEmbeddedByValue()                      {}
@@ -290,6 +308,24 @@ func _OrderService_ResolveOrderAttempt_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _OrderService_ListOrderLifecycleEvents_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListOrderLifecycleEventsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OrderServiceServer).ListOrderLifecycleEvents(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OrderService_ListOrderLifecycleEvents_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OrderServiceServer).ListOrderLifecycleEvents(ctx, req.(*ListOrderLifecycleEventsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // OrderService_ServiceDesc is the grpc.ServiceDesc for OrderService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -320,6 +356,10 @@ var OrderService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ResolveOrderAttempt",
 			Handler:    _OrderService_ResolveOrderAttempt_Handler,
+		},
+		{
+			MethodName: "ListOrderLifecycleEvents",
+			Handler:    _OrderService_ListOrderLifecycleEvents_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

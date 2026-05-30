@@ -309,6 +309,23 @@ func (s *OrderGRPCService) QueryOrderFills(ctx context.Context, req *orderv1.Que
 	return &orderv1.QueryOrderFillsResponse{Fills: out, Total: total}, nil
 }
 
+func (s *OrderGRPCService) ListOrderLifecycleEvents(ctx context.Context, req *orderv1.ListOrderLifecycleEventsRequest) (*orderv1.ListOrderLifecycleEventsResponse, error) {
+	sessionID := strings.TrimSpace(req.GetSessionId())
+	if sessionID == "" {
+		return nil, status.Error(codes.InvalidArgument, "session_id is required")
+	}
+	limit, _ := normalizePage(req.GetLimit(), 0)
+	items, err := s.repo.ListLifecycleEvents(ctx, sessionID, req.GetAfterEventId(), limit)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "list order lifecycle events: %v", err)
+	}
+	out := make([]*orderv1.OrderLifecycleEventEntry, 0, len(items))
+	for _, item := range items {
+		out = append(out, toProtoLifecycleEvent(item))
+	}
+	return &orderv1.ListOrderLifecycleEventsResponse{Events: out}, nil
+}
+
 func (s *OrderGRPCService) ResolveOrderAttempt(ctx context.Context, req *orderv1.ResolveOrderAttemptRequest) (*orderv1.ResolveOrderAttemptResponse, error) {
 	accountID := req.GetAccountId()
 	if accountID == 0 {
@@ -827,6 +844,53 @@ func toProtoFill(item repository.OrderFill) *orderv1.OrderFillEntry {
 		Exchange:        item.Exchange,
 		PositionSide:    item.PositionSide,
 	}
+}
+
+func toProtoLifecycleEvent(item lifecycle.Event) *orderv1.OrderLifecycleEventEntry {
+	return &orderv1.OrderLifecycleEventEntry{
+		EventId:         item.EventID,
+		SessionId:       item.SessionID,
+		AccountId:       item.AccountID,
+		VenueId:         item.VenueID,
+		IntentId:        item.IntentID,
+		AttemptId:       item.AttemptID,
+		OrderId:         item.OrderID,
+		ExchangeOrderId: item.ExchangeOrderID,
+		ExchangeTradeId: item.ExchangeTradeID,
+		EventType:       item.EventType,
+		OrderStatus:     item.OrderStatus,
+		FillDelta: &orderv1.FillDeltaEntry{
+			ExchangeTradeId: item.FillDelta.ExchangeTradeID,
+			ExchangeOrderId: item.FillDelta.ExchangeOrderID,
+			Symbol:          item.FillDelta.Symbol,
+			Qty:             item.FillDelta.Qty,
+			FillPrice:       item.FillDelta.FillPrice,
+			Fee:             item.FillDelta.Fee,
+			FeeAsset:        item.FillDelta.FeeAsset,
+			FeeMissing:      item.FillDelta.FeeMissing,
+			TradeTime:       timestampOrNil(item.FillDelta.TradeTime),
+		},
+		OrderState: &orderv1.OrderStateEntry{
+			ExchangeOrderId: item.OrderState.ExchangeOrderID,
+			ClientOrderId:   item.OrderState.ClientOrderID,
+			Symbol:          item.OrderState.Symbol,
+			Status:          item.OrderState.Status,
+			OrigQty:         item.OrderState.OrigQty,
+			ExecutedQty:     item.OrderState.ExecutedQty,
+			RemainingQty:    item.OrderState.RemainingQty,
+			AvgPrice:        item.OrderState.AvgPrice,
+			UpdatedAt:       timestampOrNil(item.OrderState.UpdatedAt),
+		},
+		OccurredAt: timestampOrNil(item.OccurredAt),
+		CreatedAt:  timestampOrNil(item.CreatedAt),
+	}
+}
+
+func timestampOrNil(value time.Time) *timestamppb.Timestamp {
+	if value.IsZero() {
+		return nil
+	}
+	return timestamppb.New(value)
 }
 
 func fallbackPositive(primary, fallback float64) float64 {

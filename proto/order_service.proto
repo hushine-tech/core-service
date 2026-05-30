@@ -25,6 +25,9 @@ service OrderService {
 
   // Resolve an unknown / recovering attempt by intent or attempt id.
   rpc ResolveOrderAttempt(ResolveOrderAttemptRequest) returns (ResolveOrderAttemptResponse);
+
+  // Cursor-readable normalized order lifecycle events.
+  rpc ListOrderLifecycleEvents(ListOrderLifecycleEventsRequest) returns (ListOrderLifecycleEventsResponse);
 }
 
 message PlaceOrderRequest {
@@ -223,4 +226,56 @@ message OrderFillEntry {
   int64 venue_id = 19;
   int32 exchange = 20;
   int32 position_side = 21;
+}
+
+message ListOrderLifecycleEventsRequest {
+  string session_id = 1;
+  int64 after_event_id = 2;
+  int32 limit = 3;
+}
+
+message ListOrderLifecycleEventsResponse {
+  repeated OrderLifecycleEventEntry events = 1;
+}
+
+message OrderLifecycleEventEntry {
+  int64 event_id = 1;
+  string session_id = 2;
+  int64 account_id = 3;
+  int64 venue_id = 4;
+  string intent_id = 5;
+  string attempt_id = 6;
+  string order_id = 7;
+  string exchange_order_id = 8;
+  string exchange_trade_id = 9;
+  string event_type = 10;
+  string order_status = 11;
+  FillDeltaEntry fill_delta = 12;
+  OrderStateEntry order_state = 13;
+  google.protobuf.Timestamp occurred_at = 14;
+  google.protobuf.Timestamp created_at = 15;
+}
+
+message FillDeltaEntry {
+  string exchange_trade_id = 1;
+  string exchange_order_id = 2;
+  string symbol = 3;
+  double qty = 4;
+  double fill_price = 5;
+  double fee = 6;
+  string fee_asset = 7;
+  bool fee_missing = 8;
+  google.protobuf.Timestamp trade_time = 9;
+}
+
+message OrderStateEntry {
+  string exchange_order_id = 1;
+  string client_order_id = 2;
+  string symbol = 3;
+  string status = 4;
+  double orig_qty = 5;
+  double executed_qty = 6;
+  double remaining_qty = 7;
+  double avg_price = 8;
+  google.protobuf.Timestamp updated_at = 9;
 }

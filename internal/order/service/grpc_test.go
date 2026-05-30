@@ -6,6 +6,9 @@ import (
 	"testing"
 
 	"github.com/hushine-tech/core-service/gen/orderv1"
+	"github.com/hushine-tech/core-service/internal/domain"
+	exchangeadapter "github.com/hushine-tech/core-service/internal/exchange/adapter"
+	exchangebinance "github.com/hushine-tech/core-service/internal/exchange/binance"
 	"github.com/hushine-tech/core-service/internal/order/accountmeta"
 	"github.com/hushine-tech/core-service/internal/order/executor"
 	"github.com/hushine-tech/core-service/internal/order/lifecycle"
@@ -328,6 +331,47 @@ func TestLimitOrderDefaultsGTC(t *testing.T) {
 	}
 	if len(repo.intents) != 1 || repo.intents[0].OrderType != orderTypeLimit {
 		t.Fatalf("persisted intent order_type = %+v, want LIMIT", repo.intents)
+	}
+}
+
+func TestPlaceOrderBacktestLimitRemainsOpenWhenAdapterMarkDoesNotTouch(t *testing.T) {
+	meta := testOrderMeta(environmentBacktest)
+	registry := exchangeadapter.NewRegistry()
+	route := exchangeadapter.Route{
+		Exchange:    domain.ExchangeBinance,
+		Environment: domain.EnvironmentBacktest,
+		Market:      domain.MarketPerpetualFutures,
+	}
+	registry.Register(route, exchangebinance.NewBacktestFactory(route))
+	repo := &stubRepo{}
+	svc := NewOrderGRPCService(&stubMetaGetter{meta: meta}, executor.NewAdapterRouter(registry), repo)
+
+	price := 19.885
+	req := testPlaceOrderRequest()
+	req.Price = &price
+	req.OrderType = "LIMIT"
+	req.TimeInForce = "GTC"
+	req.MarkPrice = 1988.5
+	req.Qty = 0.004
+	req.StrategyId = 29
+	req.SessionId = "sess-limit-open"
+
+	resp, err := svc.PlaceOrder(context.Background(), req)
+	if err != nil {
+		t.Fatalf("PlaceOrder: %v", err)
+	}
+	if resp.GetAttemptStatus() != attemptStatusAccepted {
+		t.Fatalf("attempt status = %s, want %s", resp.GetAttemptStatus(), attemptStatusAccepted)
+	}
+	order := resp.GetOrder()
+	if order == nil {
+		t.Fatal("response order is nil")
+	}
+	if order.GetStatus() != "NEW" || order.GetExecutedQty() != 0 || order.GetRemainingQty() != 0.004 {
+		t.Fatalf("order = %+v, want open limit order", order)
+	}
+	if len(resp.GetFillDeltas()) != 0 || len(repo.fills) != 0 || len(repo.events) != 0 {
+		t.Fatalf("unexpected fills/events: resp=%d repo_fills=%d events=%d", len(resp.GetFillDeltas()), len(repo.fills), len(repo.events))
 	}
 }
 

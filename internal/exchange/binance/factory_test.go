@@ -56,6 +56,47 @@ func TestBinanceBacktestFactoryUsesSimulatedExecutor(t *testing.T) {
 	}
 }
 
+func TestBinanceBacktestLimitOrderRemainsOpenWhenMarkDoesNotTouch(t *testing.T) {
+	factory := NewBacktestFactory(adapter.Route{
+		Exchange:    domain.ExchangeBinance,
+		Environment: domain.EnvironmentBacktest,
+		Market:      domain.MarketPerpetualFutures,
+	})
+	exec, err := factory.OrderExecutor()
+	if err != nil {
+		t.Fatalf("OrderExecutor() error = %v", err)
+	}
+
+	price := 19.885
+	result, err := exec.PlaceOrder(context.Background(), adapter.OrderRequest{
+		AccountID:     38,
+		VenueID:       1,
+		Exchange:      domain.ExchangeBinance,
+		Environment:   domain.EnvironmentBacktest,
+		Market:        domain.MarketPerpetualFutures,
+		Symbol:        "ETHUSDT",
+		Side:          "BUY",
+		OrderType:     "LIMIT",
+		TimeInForce:   "GTC",
+		Qty:           0.004,
+		Price:         &price,
+		MarkPrice:     1988.5,
+		ClientOrderID: "client-limit-open",
+	})
+	if err != nil {
+		t.Fatalf("PlaceOrder() error = %v", err)
+	}
+	if result.Status != "NEW" {
+		t.Fatalf("status = %q, want NEW (result=%+v)", result.Status, result)
+	}
+	if result.ExecutedQty != 0 || result.RemainingQty != 0.004 || len(result.Fills) != 0 {
+		t.Fatalf("result = %+v, want open order without fills", result)
+	}
+	if result.Price != price {
+		t.Fatalf("price = %v, want %v", result.Price, price)
+	}
+}
+
 func TestBinanceCredentialValidatorRejectsMissingSecret(t *testing.T) {
 	validator, err := NewFactory(adapter.Route{
 		Exchange:    domain.ExchangeBinance,

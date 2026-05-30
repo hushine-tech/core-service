@@ -11,6 +11,7 @@ import (
 	"github.com/hushine-tech/core-service/internal/exchange/adapter"
 	"github.com/hushine-tech/core-service/internal/order/accountmeta"
 	orderexecutor "github.com/hushine-tech/core-service/internal/order/executor"
+	"github.com/hushine-tech/core-service/internal/order/lifecycle"
 )
 
 type orderExecutor struct {
@@ -30,6 +31,11 @@ func (e orderExecutor) PlaceOrder(ctx context.Context, req adapter.OrderRequest)
 type simulatedOrderExecutor struct{}
 
 func (simulatedOrderExecutor) PlaceOrder(_ context.Context, req adapter.OrderRequest) (adapter.OrderResult, error) {
+	orderType := firstNonEmpty(req.OrderType, "MARKET")
+	if strings.EqualFold(orderType, "LIMIT") {
+		return placeSimulatedLimitOrder(req, orderType)
+	}
+
 	price := req.MarkPrice
 	if req.Price != nil {
 		price = *req.Price
@@ -44,7 +50,7 @@ func (simulatedOrderExecutor) PlaceOrder(_ context.Context, req adapter.OrderReq
 		Symbol:          strings.ToUpper(strings.TrimSpace(req.Symbol)),
 		Side:            strings.ToUpper(strings.TrimSpace(req.Side)),
 		PositionSide:    req.PositionSide,
-		OrderType:       firstNonEmpty(req.OrderType, "MARKET"),
+		OrderType:       orderType,
 		TimeInForce:     req.TimeInForce,
 		Status:          "FILLED",
 		OrigQty:         qty,
@@ -62,6 +68,69 @@ func (simulatedOrderExecutor) PlaceOrder(_ context.Context, req adapter.OrderReq
 			},
 		},
 	}, nil
+}
+
+func placeSimulatedLimitOrder(req adapter.OrderRequest, orderType string) (adapter.OrderResult, error) {
+	limitPrice := 0.0
+	if req.Price != nil {
+		limitPrice = *req.Price
+	}
+	if limitPrice <= 0 {
+		return adapter.OrderResult{}, fmt.Errorf("simulated limit order requires positive limit price")
+	}
+
+	exchangeOrderID := fmt.Sprintf("sim-%d", time.Now().UnixNano())
+	timeInForce := firstNonEmpty(req.TimeInForce, "GTC")
+	now := time.Now().UTC()
+	match := lifecycle.MatchBacktestLimitGTC(lifecycle.BacktestLimitOrder{
+		AccountID:       req.AccountID,
+		VenueID:         req.VenueID,
+		Environment:     int32(req.Environment),
+		Exchange:        int32(req.Exchange),
+		Market:          int32(req.Market),
+		PositionSide:    positionSideCode(req.PositionSide),
+		ExchangeOrderID: exchangeOrderID,
+		ClientOrderID:   strings.TrimSpace(req.ClientOrderID),
+		Symbol:          strings.ToUpper(strings.TrimSpace(req.Symbol)),
+		Side:            strings.ToUpper(strings.TrimSpace(req.Side)),
+		Qty:             req.Qty,
+		LimitPrice:      limitPrice,
+	}, lifecycle.BacktestBar{
+		Symbol: strings.ToUpper(strings.TrimSpace(req.Symbol)),
+		Time:   now,
+		Open:   req.MarkPrice,
+		High:   req.MarkPrice,
+		Low:    req.MarkPrice,
+		Close:  req.MarkPrice,
+	})
+
+	out := adapter.OrderResult{
+		ExchangeOrderID: exchangeOrderID,
+		ClientOrderID:   strings.TrimSpace(req.ClientOrderID),
+		Symbol:          match.State.Symbol,
+		Side:            strings.ToUpper(strings.TrimSpace(req.Side)),
+		PositionSide:    req.PositionSide,
+		OrderType:       orderType,
+		TimeInForce:     timeInForce,
+		Status:          match.State.Status,
+		OrigQty:         match.State.OrigQty,
+		ExecutedQty:     match.State.ExecutedQty,
+		RemainingQty:    match.State.RemainingQty,
+		AvgPrice:        match.State.AvgPrice,
+		Price:           limitPrice,
+	}
+	if match.Event != nil {
+		out.Fills = []adapter.FillDelta{{
+			ExchangeTradeID: fmt.Sprintf("sim-trade-%d", time.Now().UnixNano()),
+			ExchangeOrderID: exchangeOrderID,
+			Symbol:          out.Symbol,
+			Qty:             match.Event.FillDelta.Qty,
+			FillPrice:       match.Event.FillDelta.FillPrice,
+			Fee:             match.Event.FillDelta.Fee,
+			TradeTime:       now,
+		}}
+	}
+	return out, nil
 }
 
 func toLegacyOrderRequest(req adapter.OrderRequest) orderexecutor.OrderRequest {

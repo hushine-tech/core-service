@@ -30,6 +30,7 @@ service AccountService {
   rpc CreateVenue(CreateVenueRequest) returns (CreateVenueResponse);
   rpc ListVenues(ListVenuesRequest) returns (ListVenuesResponse);
   rpc GetVenue(GetVenueRequest) returns (GetVenueResponse);
+  rpc GetVenueOnlineInfo(GetVenueOnlineInfoRequest) returns (GetVenueOnlineInfoResponse);
   rpc BindVenue(BindVenueRequest) returns (BindVenueResponse);
   rpc ReleaseVenue(ReleaseVenueRequest) returns (ReleaseVenueResponse);
   rpc ArchiveVenue(ArchiveVenueRequest) returns (ArchiveVenueResponse);
@@ -301,6 +302,16 @@ message GetVenueRequest {
 
 message GetVenueResponse {
   VenueEntry venue = 1;
+}
+
+message GetVenueOnlineInfoRequest {
+  int64 user_id = 1;
+  int64 venue_id = 2;
+}
+
+message GetVenueOnlineInfoResponse {
+  VenueEntry venue = 1;
+  AccountWalletState wallet = 2;
 }
 
 message BindVenueRequest {

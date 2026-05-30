@@ -28,6 +28,7 @@ const (
 	AccountService_CreateVenue_FullMethodName                     = "/account.v1.AccountService/CreateVenue"
 	AccountService_ListVenues_FullMethodName                      = "/account.v1.AccountService/ListVenues"
 	AccountService_GetVenue_FullMethodName                        = "/account.v1.AccountService/GetVenue"
+	AccountService_GetVenueOnlineInfo_FullMethodName              = "/account.v1.AccountService/GetVenueOnlineInfo"
 	AccountService_BindVenue_FullMethodName                       = "/account.v1.AccountService/BindVenue"
 	AccountService_ReleaseVenue_FullMethodName                    = "/account.v1.AccountService/ReleaseVenue"
 	AccountService_ArchiveVenue_FullMethodName                    = "/account.v1.AccountService/ArchiveVenue"
@@ -87,6 +88,7 @@ type AccountServiceClient interface {
 	CreateVenue(ctx context.Context, in *CreateVenueRequest, opts ...grpc.CallOption) (*CreateVenueResponse, error)
 	ListVenues(ctx context.Context, in *ListVenuesRequest, opts ...grpc.CallOption) (*ListVenuesResponse, error)
 	GetVenue(ctx context.Context, in *GetVenueRequest, opts ...grpc.CallOption) (*GetVenueResponse, error)
+	GetVenueOnlineInfo(ctx context.Context, in *GetVenueOnlineInfoRequest, opts ...grpc.CallOption) (*GetVenueOnlineInfoResponse, error)
 	BindVenue(ctx context.Context, in *BindVenueRequest, opts ...grpc.CallOption) (*BindVenueResponse, error)
 	ReleaseVenue(ctx context.Context, in *ReleaseVenueRequest, opts ...grpc.CallOption) (*ReleaseVenueResponse, error)
 	ArchiveVenue(ctx context.Context, in *ArchiveVenueRequest, opts ...grpc.CallOption) (*ArchiveVenueResponse, error)
@@ -249,6 +251,16 @@ func (c *accountServiceClient) GetVenue(ctx context.Context, in *GetVenueRequest
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetVenueResponse)
 	err := c.cc.Invoke(ctx, AccountService_GetVenue_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *accountServiceClient) GetVenueOnlineInfo(ctx context.Context, in *GetVenueOnlineInfoRequest, opts ...grpc.CallOption) (*GetVenueOnlineInfoResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetVenueOnlineInfoResponse)
+	err := c.cc.Invoke(ctx, AccountService_GetVenueOnlineInfo_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -618,6 +630,7 @@ type AccountServiceServer interface {
 	CreateVenue(context.Context, *CreateVenueRequest) (*CreateVenueResponse, error)
 	ListVenues(context.Context, *ListVenuesRequest) (*ListVenuesResponse, error)
 	GetVenue(context.Context, *GetVenueRequest) (*GetVenueResponse, error)
+	GetVenueOnlineInfo(context.Context, *GetVenueOnlineInfoRequest) (*GetVenueOnlineInfoResponse, error)
 	BindVenue(context.Context, *BindVenueRequest) (*BindVenueResponse, error)
 	ReleaseVenue(context.Context, *ReleaseVenueRequest) (*ReleaseVenueResponse, error)
 	ArchiveVenue(context.Context, *ArchiveVenueRequest) (*ArchiveVenueResponse, error)
@@ -722,6 +735,9 @@ func (UnimplementedAccountServiceServer) ListVenues(context.Context, *ListVenues
 }
 func (UnimplementedAccountServiceServer) GetVenue(context.Context, *GetVenueRequest) (*GetVenueResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetVenue not implemented")
+}
+func (UnimplementedAccountServiceServer) GetVenueOnlineInfo(context.Context, *GetVenueOnlineInfoRequest) (*GetVenueOnlineInfoResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetVenueOnlineInfo not implemented")
 }
 func (UnimplementedAccountServiceServer) BindVenue(context.Context, *BindVenueRequest) (*BindVenueResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method BindVenue not implemented")
@@ -1004,6 +1020,24 @@ func _AccountService_GetVenue_Handler(srv interface{}, ctx context.Context, dec 
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(AccountServiceServer).GetVenue(ctx, req.(*GetVenueRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AccountService_GetVenueOnlineInfo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetVenueOnlineInfoRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AccountServiceServer).GetVenueOnlineInfo(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AccountService_GetVenueOnlineInfo_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AccountServiceServer).GetVenueOnlineInfo(ctx, req.(*GetVenueOnlineInfoRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1662,6 +1696,10 @@ var AccountService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetVenue",
 			Handler:    _AccountService_GetVenue_Handler,
+		},
+		{
+			MethodName: "GetVenueOnlineInfo",
+			Handler:    _AccountService_GetVenueOnlineInfo_Handler,
 		},
 		{
 			MethodName: "BindVenue",

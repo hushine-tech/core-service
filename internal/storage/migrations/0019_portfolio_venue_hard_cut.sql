@@ -30,6 +30,18 @@ CREATE TABLE accounts (
     CONSTRAINT uq_accounts_user_name UNIQUE (user_id, name)
 );
 
+CREATE TABLE account_strategies (
+    account_id   BIGINT      NOT NULL REFERENCES accounts(account_id) ON DELETE CASCADE,
+    strategy_id  BIGINT      NOT NULL REFERENCES strategies(strategy_id),
+    active       BOOLEAN     NOT NULL DEFAULT false,
+    mounted_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (account_id, strategy_id)
+);
+
+CREATE UNIQUE INDEX uidx_account_strategies_active
+    ON account_strategies (account_id)
+    WHERE active = true;
+
 CREATE TABLE venues (
     venue_id BIGSERIAL PRIMARY KEY,
     user_id BIGINT NOT NULL,

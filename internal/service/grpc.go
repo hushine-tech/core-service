@@ -849,6 +849,64 @@ func (s *AccountGRPCService) GetVenue(ctx context.Context, req *accountv1.GetVen
 	return &accountv1.GetVenueResponse{Venue: toProtoVenue(venue)}, nil
 }
 
+func (s *AccountGRPCService) GetVenueOnlineInfo(ctx context.Context, req *accountv1.GetVenueOnlineInfoRequest) (*accountv1.GetVenueOnlineInfoResponse, error) {
+	if err := requireUserID(req.GetUserId()); err != nil {
+		return nil, err
+	}
+	if req.GetVenueId() == 0 {
+		return nil, status.Error(codes.InvalidArgument, "venue_id is required")
+	}
+	venue, err := s.repo.GetVenue(ctx, req.GetVenueId(), req.GetUserId())
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	if venue.Status != domain.VenueStatusActive {
+		return nil, status.Error(codes.FailedPrecondition, "venue is not active")
+	}
+	if venue.Environment == domain.EnvironmentBacktest {
+		return nil, status.Error(codes.FailedPrecondition, "backtest venue has no exchange wallet")
+	}
+	if venue.Exchange != domain.ExchangeBinance || venue.Market != domain.MarketPerpetualFutures {
+		return nil, status.Errorf(codes.FailedPrecondition, "venue wallet fetch unsupported for exchange=%d market=%d", venue.Exchange, venue.Market)
+	}
+	if s.creds == nil {
+		return nil, status.Error(codes.FailedPrecondition, "credential manager is not configured")
+	}
+	if strings.TrimSpace(venue.CredentialInfo) == "" {
+		return nil, status.Error(codes.FailedPrecondition, "venue credential is missing")
+	}
+	credentialJSON, err := s.creds.Decrypt(venue.CredentialInfo)
+	if err != nil {
+		return nil, status.Errorf(codes.FailedPrecondition, "decrypt venue credential: %v", err)
+	}
+	apiSecret, err := apiSecretFromCredentialJSON(credentialJSON)
+	if err != nil {
+		return nil, err
+	}
+	accountID := int64(0)
+	if venue.AccountID != nil {
+		accountID = *venue.AccountID
+	}
+	info, err := s.router.GetOnlineInfo(ctx, domain.Account{
+		AccountID:      accountID,
+		UserID:         venue.UserID,
+		Environment:    venue.Environment,
+		Mode:           accountModeFromEnvironment(venue.Environment),
+		APIKey:         venue.APIKey,
+		APISecret:      apiSecret,
+		MarginMode:     marginModeText(venue.MarginMode),
+		PositionMode:   positionModeText(venue.PositionMode),
+		DefaultFeeRate: 0.0004,
+	})
+	if err != nil {
+		return nil, status.Errorf(codes.Unavailable, "get venue online info: %v", err)
+	}
+	return &accountv1.GetVenueOnlineInfoResponse{
+		Venue:  toProtoVenue(venue),
+		Wallet: toProtoAccountWalletState(info),
+	}, nil
+}
+
 func (s *AccountGRPCService) BindVenue(ctx context.Context, req *accountv1.BindVenueRequest) (*accountv1.BindVenueResponse, error) {
 	if err := requireUserID(req.GetUserId()); err != nil {
 		return nil, err

@@ -533,8 +533,11 @@ func (r *TimescaleRepository) BindVenue(ctx context.Context, userID, accountID, 
 		return domain.Venue{}, ErrConflict
 	}
 	if venue.AccountID != nil && *venue.AccountID != accountID {
-		return domain.Venue{}, ErrConflict
+		if err := ensureNoActiveAccountSessions(ctx, tx, userID, *venue.AccountID); err != nil {
+			return domain.Venue{}, err
+		}
 	}
+	oldAccountID := venue.AccountID
 	updated, err := scanVenue(tx.QueryRowContext(ctx, `
 		UPDATE venues
 		SET account_id = $1, updated_at = NOW()
@@ -548,6 +551,11 @@ func (r *TimescaleRepository) BindVenue(ctx context.Context, userID, accountID, 
 			return domain.Venue{}, ErrConflict
 		}
 		return domain.Venue{}, err
+	}
+	if oldAccountID != nil && *oldAccountID != accountID {
+		if err := insertVenueEvent(ctx, tx, venueID, oldAccountID, userID, 2, reason); err != nil {
+			return domain.Venue{}, err
+		}
 	}
 	if err := insertVenueEvent(ctx, tx, venueID, &accountID, userID, 1, reason); err != nil {
 		return domain.Venue{}, err

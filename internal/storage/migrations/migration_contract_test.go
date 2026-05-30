@@ -15,4 +15,10 @@ func TestPortfolioVenueHardCutDropsStaleStrategyMounts(t *testing.T) {
 	if !strings.Contains(sql, "drop table if exists account_strategies") {
 		t.Fatal("hard-cut account migration must drop account_strategies so stale mounts cannot attach to recreated account IDs")
 	}
+	if !strings.Contains(sql, "create table account_strategies") {
+		t.Fatal("hard-cut migration must recreate account_strategies after dropping stale mounts")
+	}
+	if !strings.Contains(sql, "uidx_account_strategies_active") {
+		t.Fatal("hard-cut migration must recreate the active-strategy uniqueness guard")
+	}
 }

@@ -181,11 +181,6 @@ type VenueRouteMeta struct {
 	SlippageBps    float64
 }
 
-type RequiredVenue struct {
-	Exchange Exchange
-	Market   Market
-}
-
 type PreflightIssue struct {
 	Code     string
 	Message  string

@@ -352,9 +352,15 @@ message ArchiveVenueRequest {
 
 message ArchiveVenueResponse {}
 
-message RequiredVenue {
+message RequiredRoute {
   int32 exchange = 1;
   int32 market = 2;
+}
+
+message RequiredSymbol {
+  int32 exchange = 1;
+  int32 market = 2;
+  string symbol = 3;
 }
 
 message PreflightIssue {
@@ -362,12 +368,14 @@ message PreflightIssue {
   string message = 2;
   int32 exchange = 3;
   int32 market = 4;
+  string symbol = 5;
 }
 
 message PreflightStrategySessionRequest {
   int64 user_id = 1;
   int64 account_id = 2;
-  repeated RequiredVenue required_venues = 3;
+  repeated RequiredRoute required_routes = 3;
+  repeated RequiredSymbol required_symbols = 4;
 }
 
 message PreflightStrategySessionResponse {

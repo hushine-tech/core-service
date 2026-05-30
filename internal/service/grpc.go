@@ -1004,8 +1004,8 @@ func (s *AccountGRPCService) PreflightStrategySession(ctx context.Context, req *
 		issues = append(issues, &accountv1.PreflightIssue{Code: "ACTIVE_SESSION_EXISTS", Message: "account already has an active session"})
 	}
 
-	resolved := make([]*accountv1.VenueEntry, 0, len(req.GetRequiredVenues()))
-	for _, required := range req.GetRequiredVenues() {
+	resolved := make([]*accountv1.VenueEntry, 0, len(req.GetRequiredRoutes()))
+	for _, required := range req.GetRequiredRoutes() {
 		exchangeValue, err := validateExchange(required.GetExchange())
 		if err != nil {
 			return nil, err
@@ -1058,11 +1058,77 @@ func (s *AccountGRPCService) PreflightStrategySession(ctx context.Context, req *
 			PositionMode: int32(meta.PositionMode),
 		})
 	}
+	for _, sym := range req.GetRequiredSymbols() {
+		exchangeValue, err := validateExchange(sym.GetExchange())
+		if err != nil {
+			return nil, err
+		}
+		market, err := validateMarket(sym.GetMarket())
+		if err != nil {
+			return nil, err
+		}
+		symbol := strings.ToUpper(strings.TrimSpace(sym.GetSymbol()))
+		if symbol == "" {
+			issues = append(issues, &accountv1.PreflightIssue{
+				Code:     "symbol_rules_missing",
+				Message:  "symbol is required for symbol rules preflight",
+				Exchange: int32(exchangeValue),
+				Market:   int32(market),
+			})
+			continue
+		}
+		if s.registry == nil {
+			issues = append(issues, &accountv1.PreflightIssue{
+				Code:     "symbol_rules_missing",
+				Message:  "symbol rules registry is not configured",
+				Exchange: int32(exchangeValue),
+				Market:   int32(market),
+				Symbol:   symbol,
+			})
+			continue
+		}
+		route := adapter.Route{
+			Exchange:    exchangeValue,
+			Environment: environmentFromAccount(account),
+			Market:      market,
+		}
+		reader, err := s.registry.SymbolRulesReader(route)
+		if err != nil || reader == nil {
+			issues = append(issues, &accountv1.PreflightIssue{
+				Code:     "symbol_rules_missing",
+				Message:  "symbol rules reader is unavailable",
+				Exchange: int32(exchangeValue),
+				Market:   int32(market),
+				Symbol:   symbol,
+			})
+			continue
+		}
+		rules, err := reader.ReadSymbolRules(ctx, adapter.SymbolRulesRequest{Symbols: []string{symbol}})
+		if err != nil || !symbolRulesContain(rules, symbol) {
+			issues = append(issues, &accountv1.PreflightIssue{
+				Code:     "symbol_rules_missing",
+				Message:  "symbol rules are missing for requested symbol",
+				Exchange: int32(exchangeValue),
+				Market:   int32(market),
+				Symbol:   symbol,
+			})
+			continue
+		}
+	}
 	return &accountv1.PreflightStrategySessionResponse{
 		Ok:             len(issues) == 0,
 		Issues:         issues,
 		ResolvedVenues: resolved,
 	}, nil
+}
+
+func symbolRulesContain(rules adapter.SymbolRules, symbol string) bool {
+	for _, rule := range rules.Symbols {
+		if strings.EqualFold(strings.TrimSpace(rule.Symbol), symbol) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *AccountGRPCService) GetVenueRouteMeta(ctx context.Context, req *accountv1.GetVenueRouteMetaRequest) (*accountv1.GetVenueRouteMetaResponse, error) {

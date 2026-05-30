@@ -10,6 +10,7 @@ import (
 	"github.com/hushine-tech/core-service/gen/accountv1"
 	"github.com/hushine-tech/core-service/internal/credential"
 	"github.com/hushine-tech/core-service/internal/domain"
+	"github.com/hushine-tech/core-service/internal/exchange/adapter"
 	"github.com/hushine-tech/core-service/internal/repository"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -243,6 +244,45 @@ func (s *stubRepo) GetAccountState(_ context.Context, _ int64) (domain.OnlineAcc
 }
 func (s *stubRepo) SaveSnapshot(_ context.Context, _ int64, _ domain.SnapshotReason, _ int64, _ string) error {
 	return nil
+}
+
+type preflightFactory struct {
+	symbolRulesReader adapter.SymbolRulesReader
+	symbolRulesErr    error
+}
+
+type preflightSymbolRulesReader struct {
+	rules adapter.SymbolRules
+	err   error
+}
+
+func (r preflightSymbolRulesReader) ReadSymbolRules(_ context.Context, _ adapter.SymbolRulesRequest) (adapter.SymbolRules, error) {
+	if r.err != nil {
+		return adapter.SymbolRules{}, r.err
+	}
+	return r.rules, nil
+}
+
+func (f preflightFactory) CredentialValidator() (adapter.CredentialValidator, error) {
+	return nil, errors.New("not implemented")
+}
+func (f preflightFactory) AccountSnapshotReader() (adapter.AccountSnapshotReader, error) {
+	return nil, errors.New("not implemented")
+}
+func (f preflightFactory) SymbolRulesReader() (adapter.SymbolRulesReader, error) {
+	if f.symbolRulesErr != nil {
+		return nil, f.symbolRulesErr
+	}
+	return f.symbolRulesReader, nil
+}
+func (f preflightFactory) OrderExecutor() (adapter.OrderExecutor, error) {
+	return nil, errors.New("not implemented")
+}
+func (f preflightFactory) OrderStateReader() (adapter.OrderStateReader, error) {
+	return nil, errors.New("not implemented")
+}
+func (f preflightFactory) OrderCanceller() (adapter.OrderCanceller, error) {
+	return nil, errors.New("not implemented")
 }
 
 // Strategy management stubs (no-op; overridden in strategy-specific tests via strategyStubRepo).
@@ -623,7 +663,7 @@ func TestPreflightStrategySessionReportsMissingVenue(t *testing.T) {
 	resp, err := svc.PreflightStrategySession(context.Background(), &accountv1.PreflightStrategySessionRequest{
 		UserId:    serviceTestUserID,
 		AccountId: 11,
-		RequiredVenues: []*accountv1.RequiredVenue{{
+		RequiredRoutes: []*accountv1.RequiredRoute{{
 			Exchange: int32(domain.ExchangeBinance),
 			Market:   int32(domain.MarketPerpetualFutures),
 		}},
@@ -637,6 +677,268 @@ func TestPreflightStrategySessionReportsMissingVenue(t *testing.T) {
 	if len(resp.GetIssues()) != 1 || resp.GetIssues()[0].GetCode() != "VENUE_MISSING" {
 		t.Fatalf("issues = %+v", resp.GetIssues())
 	}
+}
+
+func TestPreflightStrategySessionSymbolPreflightSucceedsWhenRulesContainSymbol(t *testing.T) {
+	accountID := int64(11)
+	repo := &stubRepo{
+		account: domain.Account{
+			AccountID:   accountID,
+			UserID:      serviceTestUserID,
+			Environment: domain.EnvironmentDemo,
+			Status:      domain.AccountStatusActive,
+		},
+		venues: []domain.Venue{{
+			VenueID:        22,
+			UserID:         serviceTestUserID,
+			AccountID:      &accountID,
+			Environment:    domain.EnvironmentDemo,
+			Exchange:       domain.ExchangeBinance,
+			Market:         domain.MarketPerpetualFutures,
+			Status:         domain.VenueStatusActive,
+			MarginMode:     domain.MarginModeCross,
+			PositionMode:   domain.PositionModeOneWay,
+			CredentialInfo: `{"api_secret":"secret"}`,
+		}},
+	}
+	registry := adapter.NewRegistry()
+	registry.Register(adapter.Route{
+		Exchange:    domain.ExchangeBinance,
+		Environment: domain.EnvironmentDemo,
+		Market:      domain.MarketPerpetualFutures,
+	}, preflightFactory{symbolRulesReader: preflightSymbolRulesReader{rules: adapter.SymbolRules{
+		Symbols: []adapter.SymbolRule{{Symbol: "ETHUSDT"}},
+	}}})
+	svc := NewAccountGRPCService(repo, nil, nil, nil, WithExchangeRegistry(registry))
+
+	resp, err := svc.PreflightStrategySession(context.Background(), &accountv1.PreflightStrategySessionRequest{
+		UserId:    serviceTestUserID,
+		AccountId: accountID,
+		RequiredRoutes: []*accountv1.RequiredRoute{{
+			Exchange: int32(domain.ExchangeBinance),
+			Market:   int32(domain.MarketPerpetualFutures),
+		}},
+		RequiredSymbols: []*accountv1.RequiredSymbol{{
+			Exchange: int32(domain.ExchangeBinance),
+			Market:   int32(domain.MarketPerpetualFutures),
+			Symbol:   "ethusdt",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("PreflightStrategySession: %v", err)
+	}
+	if !resp.GetOk() {
+		t.Fatalf("preflight ok = false, issues = %+v", resp.GetIssues())
+	}
+	for _, issue := range resp.GetIssues() {
+		if issue.GetCode() == "symbol_rules_missing" {
+			t.Fatalf("unexpected symbol_rules_missing issue: %+v", issue)
+		}
+	}
+}
+
+func TestPreflightStrategySessionReportsMissingSymbolRulesWithNilRegistry(t *testing.T) {
+	accountID := int64(11)
+	repo := &stubRepo{account: domain.Account{
+		AccountID:   accountID,
+		UserID:      serviceTestUserID,
+		Environment: domain.EnvironmentDemo,
+		Status:      domain.AccountStatusActive,
+	}}
+	svc := NewAccountGRPCService(repo, nil, nil, nil)
+
+	resp, err := svc.PreflightStrategySession(context.Background(), &accountv1.PreflightStrategySessionRequest{
+		UserId:    serviceTestUserID,
+		AccountId: accountID,
+		RequiredSymbols: []*accountv1.RequiredSymbol{{
+			Exchange: int32(domain.ExchangeBinance),
+			Market:   int32(domain.MarketPerpetualFutures),
+			Symbol:   "ethusdt",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("PreflightStrategySession: %v", err)
+	}
+	issue := findPreflightIssue(resp.GetIssues(), "symbol_rules_missing")
+	if issue == nil {
+		t.Fatalf("symbol_rules_missing issue not found: %+v", resp.GetIssues())
+	}
+	if issue.GetSymbol() != "ETHUSDT" {
+		t.Fatalf("symbol issue symbol = %q, want ETHUSDT", issue.GetSymbol())
+	}
+}
+
+func TestPreflightStrategySessionReportsMissingSymbolRulesForEmptySymbol(t *testing.T) {
+	accountID := int64(11)
+	repo := &stubRepo{account: domain.Account{
+		AccountID:   accountID,
+		UserID:      serviceTestUserID,
+		Environment: domain.EnvironmentDemo,
+		Status:      domain.AccountStatusActive,
+	}}
+	svc := NewAccountGRPCService(repo, nil, nil, nil)
+
+	resp, err := svc.PreflightStrategySession(context.Background(), &accountv1.PreflightStrategySessionRequest{
+		UserId:    serviceTestUserID,
+		AccountId: accountID,
+		RequiredSymbols: []*accountv1.RequiredSymbol{{
+			Exchange: int32(domain.ExchangeBinance),
+			Market:   int32(domain.MarketPerpetualFutures),
+			Symbol:   "  ",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("PreflightStrategySession: %v", err)
+	}
+	issue := findPreflightIssue(resp.GetIssues(), "symbol_rules_missing")
+	if issue == nil {
+		t.Fatalf("symbol_rules_missing issue not found: %+v", resp.GetIssues())
+	}
+	if issue.GetMessage() == "" {
+		t.Fatalf("symbol_rules_missing message is empty: %+v", issue)
+	}
+}
+
+func TestPreflightStrategySessionReportsMissingSymbolRulesForUnsupportedRoute(t *testing.T) {
+	accountID := int64(11)
+	repo := &stubRepo{account: domain.Account{
+		AccountID:   accountID,
+		UserID:      serviceTestUserID,
+		Environment: domain.EnvironmentDemo,
+		Status:      domain.AccountStatusActive,
+	}}
+	svc := NewAccountGRPCService(repo, nil, nil, nil, WithExchangeRegistry(adapter.NewRegistry()))
+
+	resp, err := svc.PreflightStrategySession(context.Background(), &accountv1.PreflightStrategySessionRequest{
+		UserId:    serviceTestUserID,
+		AccountId: accountID,
+		RequiredSymbols: []*accountv1.RequiredSymbol{{
+			Exchange: int32(domain.ExchangeBinance),
+			Market:   int32(domain.MarketPerpetualFutures),
+			Symbol:   "ETHUSDT",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("PreflightStrategySession: %v", err)
+	}
+	if findPreflightIssue(resp.GetIssues(), "symbol_rules_missing") == nil {
+		t.Fatalf("symbol_rules_missing issue not found: %+v", resp.GetIssues())
+	}
+}
+
+func TestPreflightStrategySessionReportsMissingSymbolRulesWhenReaderOmitsSymbol(t *testing.T) {
+	accountID := int64(11)
+	repo := &stubRepo{account: domain.Account{
+		AccountID:   accountID,
+		UserID:      serviceTestUserID,
+		Environment: domain.EnvironmentDemo,
+		Status:      domain.AccountStatusActive,
+	}}
+	registry := adapter.NewRegistry()
+	registry.Register(adapter.Route{
+		Exchange:    domain.ExchangeBinance,
+		Environment: domain.EnvironmentDemo,
+		Market:      domain.MarketPerpetualFutures,
+	}, preflightFactory{symbolRulesReader: preflightSymbolRulesReader{rules: adapter.SymbolRules{
+		Symbols: []adapter.SymbolRule{{Symbol: "BTCUSDT"}},
+	}}})
+	svc := NewAccountGRPCService(repo, nil, nil, nil, WithExchangeRegistry(registry))
+
+	resp, err := svc.PreflightStrategySession(context.Background(), &accountv1.PreflightStrategySessionRequest{
+		UserId:    serviceTestUserID,
+		AccountId: accountID,
+		RequiredSymbols: []*accountv1.RequiredSymbol{{
+			Exchange: int32(domain.ExchangeBinance),
+			Market:   int32(domain.MarketPerpetualFutures),
+			Symbol:   "ETHUSDT",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("PreflightStrategySession: %v", err)
+	}
+	issue := findPreflightIssue(resp.GetIssues(), "symbol_rules_missing")
+	if issue == nil {
+		t.Fatalf("symbol_rules_missing issue not found: %+v", resp.GetIssues())
+	}
+	if issue.GetSymbol() != "ETHUSDT" {
+		t.Fatalf("symbol issue symbol = %q, want ETHUSDT", issue.GetSymbol())
+	}
+}
+
+func TestPreflightStrategySessionReportsMissingSymbolRules(t *testing.T) {
+	accountID := int64(11)
+	repo := &stubRepo{
+		account: domain.Account{
+			AccountID:   accountID,
+			UserID:      serviceTestUserID,
+			Environment: domain.EnvironmentDemo,
+			Status:      domain.AccountStatusActive,
+		},
+		venues: []domain.Venue{{
+			VenueID:        22,
+			UserID:         serviceTestUserID,
+			AccountID:      &accountID,
+			Environment:    domain.EnvironmentDemo,
+			Exchange:       domain.ExchangeBinance,
+			Market:         domain.MarketPerpetualFutures,
+			Status:         domain.VenueStatusActive,
+			MarginMode:     domain.MarginModeCross,
+			PositionMode:   domain.PositionModeOneWay,
+			CredentialInfo: `{"api_secret":"secret"}`,
+		}},
+	}
+	registry := adapter.NewRegistry()
+	registry.Register(adapter.Route{
+		Exchange:    domain.ExchangeBinance,
+		Environment: domain.EnvironmentDemo,
+		Market:      domain.MarketPerpetualFutures,
+	}, preflightFactory{symbolRulesErr: errors.New("symbol rules unavailable")})
+	svc := NewAccountGRPCService(repo, nil, nil, nil, WithExchangeRegistry(registry))
+
+	resp, err := svc.PreflightStrategySession(context.Background(), &accountv1.PreflightStrategySessionRequest{
+		UserId:    serviceTestUserID,
+		AccountId: accountID,
+		RequiredRoutes: []*accountv1.RequiredRoute{{
+			Exchange: int32(domain.ExchangeBinance),
+			Market:   int32(domain.MarketPerpetualFutures),
+		}},
+		RequiredSymbols: []*accountv1.RequiredSymbol{{
+			Exchange: int32(domain.ExchangeBinance),
+			Market:   int32(domain.MarketPerpetualFutures),
+			Symbol:   "ethusdt",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("PreflightStrategySession: %v", err)
+	}
+	if resp.GetOk() {
+		t.Fatal("preflight ok = true, want false")
+	}
+	var got *accountv1.PreflightIssue
+	for _, issue := range resp.GetIssues() {
+		if issue.GetCode() == "symbol_rules_missing" {
+			got = issue
+			break
+		}
+	}
+	if got == nil {
+		t.Fatalf("symbol_rules_missing issue not found: %+v", resp.GetIssues())
+	}
+	if got.GetSymbol() != "ETHUSDT" {
+		t.Fatalf("symbol issue symbol = %q, want ETHUSDT", got.GetSymbol())
+	}
+	if got.GetExchange() != int32(domain.ExchangeBinance) || got.GetMarket() != int32(domain.MarketPerpetualFutures) {
+		t.Fatalf("symbol issue route = (%d, %d), want (%d, %d)", got.GetExchange(), got.GetMarket(), domain.ExchangeBinance, domain.MarketPerpetualFutures)
+	}
+}
+
+func findPreflightIssue(issues []*accountv1.PreflightIssue, code string) *accountv1.PreflightIssue {
+	for _, issue := range issues {
+		if issue.GetCode() == code {
+			return issue
+		}
+	}
+	return nil
 }
 
 func TestGetVenueRouteMetaDecryptsCredential(t *testing.T) {

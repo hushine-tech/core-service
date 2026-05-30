@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -13,6 +14,7 @@ import (
 
 	_ "github.com/lib/pq"
 
+	"github.com/hushine-tech/core-service/internal/order/lifecycle"
 	"github.com/hushine-tech/golang-lib/middleware/sqlmiddleware"
 	elog "github.com/hushine-tech/golang-lib/pkg/log"
 )
@@ -699,6 +701,123 @@ func (r *TimescaleRepository) QueryOrderFillsPaginated(ctx context.Context, user
 		out = append(out, item)
 	}
 	return out, total, rows.Err()
+}
+
+func (r *TimescaleRepository) SaveLifecycleEvent(ctx context.Context, event lifecycle.Event) (lifecycle.Event, error) {
+	event.EventType = strings.TrimSpace(event.EventType)
+	if event.EventType == "" {
+		return lifecycle.Event{}, fmt.Errorf("event_type is required")
+	}
+	if event.OccurredAt.IsZero() {
+		event.OccurredAt = time.Now().UTC()
+	}
+	fillJSON, err := json.Marshal(event.FillDelta)
+	if err != nil {
+		return lifecycle.Event{}, fmt.Errorf("marshal fill delta: %w", err)
+	}
+	stateJSON, err := json.Marshal(event.OrderState)
+	if err != nil {
+		return lifecycle.Event{}, fmt.Errorf("marshal order state: %w", err)
+	}
+
+	err = r.db.QueryRowContext(ctx, `
+		INSERT INTO order_lifecycle_events (
+			session_id, account_id, venue_id, intent_id, attempt_id, order_id,
+			exchange_order_id, exchange_trade_id, event_type, order_status,
+			fill_delta_json, order_state_json, occurred_at
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12::jsonb,$13)
+		ON CONFLICT (venue_id, exchange_order_id, exchange_trade_id)
+			WHERE exchange_order_id IS NOT NULL AND exchange_trade_id IS NOT NULL
+		DO UPDATE SET
+			order_status = EXCLUDED.order_status,
+			fill_delta_json = EXCLUDED.fill_delta_json,
+			order_state_json = EXCLUDED.order_state_json,
+			occurred_at = EXCLUDED.occurred_at
+		RETURNING event_id, created_at`,
+		nullableString(event.SessionID),
+		event.AccountID,
+		event.VenueID,
+		nullableString(event.IntentID),
+		nullableString(event.AttemptID),
+		nullableString(event.OrderID),
+		nullableString(event.ExchangeOrderID),
+		nullableString(event.ExchangeTradeID),
+		event.EventType,
+		event.OrderStatus,
+		string(fillJSON),
+		string(stateJSON),
+		event.OccurredAt,
+	).Scan(&event.EventID, &event.CreatedAt)
+	if err != nil {
+		return lifecycle.Event{}, fmt.Errorf("save lifecycle event: %w", err)
+	}
+	return event, nil
+}
+
+func (r *TimescaleRepository) ListLifecycleEvents(ctx context.Context, sessionID string, afterEventID int64, limit int) ([]lifecycle.Event, error) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return nil, fmt.Errorf("session_id is required")
+	}
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT event_id, COALESCE(session_id, ''), account_id, venue_id,
+		       COALESCE(intent_id, ''), COALESCE(attempt_id, ''), COALESCE(order_id, ''),
+		       COALESCE(exchange_order_id, ''), COALESCE(exchange_trade_id, ''),
+		       event_type, order_status, fill_delta_json, order_state_json, occurred_at, created_at
+		FROM order_lifecycle_events
+		WHERE session_id = $1 AND event_id > $2
+		ORDER BY event_id ASC
+		LIMIT $3`, sessionID, afterEventID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list lifecycle events: %w", err)
+	}
+	defer rows.Close()
+
+	out := []lifecycle.Event{}
+	for rows.Next() {
+		var event lifecycle.Event
+		var fillJSON, stateJSON []byte
+		if err := rows.Scan(
+			&event.EventID,
+			&event.SessionID,
+			&event.AccountID,
+			&event.VenueID,
+			&event.IntentID,
+			&event.AttemptID,
+			&event.OrderID,
+			&event.ExchangeOrderID,
+			&event.ExchangeTradeID,
+			&event.EventType,
+			&event.OrderStatus,
+			&fillJSON,
+			&stateJSON,
+			&event.OccurredAt,
+			&event.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		if len(fillJSON) > 0 {
+			if err := json.Unmarshal(fillJSON, &event.FillDelta); err != nil {
+				return nil, fmt.Errorf("unmarshal fill delta for event %d: %w", event.EventID, err)
+			}
+		}
+		if len(stateJSON) > 0 {
+			if err := json.Unmarshal(stateJSON, &event.OrderState); err != nil {
+				return nil, fmt.Errorf("unmarshal order state for event %d: %w", event.EventID, err)
+			}
+		}
+		out = append(out, event)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate lifecycle events: %w", err)
+	}
+	return out, nil
 }
 
 func nullableString(v string) any {

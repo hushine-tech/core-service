@@ -8,6 +8,7 @@ import (
 	"github.com/hushine-tech/core-service/gen/orderv1"
 	"github.com/hushine-tech/core-service/internal/order/accountmeta"
 	"github.com/hushine-tech/core-service/internal/order/executor"
+	"github.com/hushine-tech/core-service/internal/order/lifecycle"
 	"github.com/hushine-tech/core-service/internal/order/repository"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -51,6 +52,7 @@ type stubRepo struct {
 	attempts    []repository.OrderAttempt
 	orders      []repository.Order
 	fills       []repository.OrderFill
+	events      []lifecycle.Event
 	finalizeErr error
 }
 
@@ -180,6 +182,26 @@ func (s *stubRepo) ListOrderFillsByAttempt(_ context.Context, attemptID string) 
 	for _, item := range s.fills {
 		if item.AttemptID == attemptID {
 			out = append(out, item)
+		}
+	}
+	return out, nil
+}
+
+func (s *stubRepo) SaveLifecycleEvent(_ context.Context, event lifecycle.Event) (lifecycle.Event, error) {
+	event.EventID = int64(len(s.events) + 1)
+	s.events = append(s.events, event)
+	return event, nil
+}
+
+func (s *stubRepo) ListLifecycleEvents(_ context.Context, sessionID string, afterEventID int64, limit int) ([]lifecycle.Event, error) {
+	out := make([]lifecycle.Event, 0)
+	for _, event := range s.events {
+		if event.SessionID != sessionID || event.EventID <= afterEventID {
+			continue
+		}
+		out = append(out, event)
+		if limit > 0 && len(out) >= limit {
+			break
 		}
 	}
 	return out, nil

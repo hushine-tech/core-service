@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"time"
+
+	"github.com/hushine-tech/core-service/internal/order/lifecycle"
 )
 
 var ErrNotFound = errors.New("not found")
@@ -122,4 +124,6 @@ type Repository interface {
 	QueryOrderAttemptsPaginated(ctx context.Context, userID, accountID, strategyID int64, sessionID, intentID string, limit, offset int) ([]OrderAttempt, int64, error)
 	QueryOrdersPaginated(ctx context.Context, userID, accountID, strategyID int64, sessionID, intentID, attemptID string, limit, offset int) ([]Order, int64, error)
 	QueryOrderFillsPaginated(ctx context.Context, userID, accountID, strategyID int64, sessionID, intentID, attemptID, orderID string, limit, offset int) ([]OrderFill, int64, error)
+	SaveLifecycleEvent(ctx context.Context, event lifecycle.Event) (lifecycle.Event, error)
+	ListLifecycleEvents(ctx context.Context, sessionID string, afterEventID int64, limit int) ([]lifecycle.Event, error)
 }

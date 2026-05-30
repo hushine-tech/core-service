@@ -2,6 +2,7 @@ package migrations_test
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -20,5 +21,33 @@ func TestPortfolioVenueHardCutDropsStaleStrategyMounts(t *testing.T) {
 	}
 	if !strings.Contains(sql, "uidx_account_strategies_active") {
 		t.Fatal("hard-cut migration must recreate the active-strategy uniqueness guard")
+	}
+}
+
+func TestBacktestAccountsGetDefaultSimulatedVenueBackfill(t *testing.T) {
+	matches, err := filepath.Glob("*.sql")
+	if err != nil {
+		t.Fatalf("glob migrations: %v", err)
+	}
+	var combined strings.Builder
+	for _, path := range matches {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read migration %s: %v", path, err)
+		}
+		combined.Write(raw)
+		combined.WriteByte('\n')
+	}
+	sql := strings.ToLower(combined.String())
+	for _, required := range []string{
+		"insert into venues",
+		"from accounts",
+		"environment = 0",
+		"default simulated venue",
+		"not exists",
+	} {
+		if !strings.Contains(sql, required) {
+			t.Fatalf("migrations must backfill default simulated venues for existing backtest accounts; missing %q", required)
+		}
 	}
 }

@@ -164,6 +164,7 @@ const (
 	orderSideSell int16 = 2
 
 	orderTypeMarket int16 = 1
+	orderTypeLimit  int16 = 2
 
 	intentStatusRequested int16 = 1
 	intentStatusRejected  int16 = 2
@@ -701,6 +702,58 @@ func (r *TimescaleRepository) QueryOrderFillsPaginated(ctx context.Context, user
 		out = append(out, item)
 	}
 	return out, total, rows.Err()
+}
+
+func (r *TimescaleRepository) ListOpenOrders(ctx context.Context, limit int) ([]lifecycle.OpenOrder, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT COALESCE(i.session_id, ''), i.account_id, i.venue_id, i.intent_id,
+		       o.attempt_id, o.order_id, COALESCE(o.exchange_order_id, ''),
+		       COALESCE(NULLIF(o.client_order_id, ''), NULLIF(a.client_order_id, ''), ''),
+		       i.symbol
+		FROM orders o
+		JOIN order_intents i ON i.intent_id = o.intent_id
+		JOIN order_attempts a ON a.attempt_id = o.attempt_id
+		WHERE o.status IN ($1, $2)
+		  AND i.venue_id > 0
+		  AND (
+		      COALESCE(o.exchange_order_id, '') <> ''
+		      OR COALESCE(o.client_order_id, '') <> ''
+		      OR COALESCE(a.client_order_id, '') <> ''
+		  )
+		ORDER BY o.updated_at ASC, o.time ASC, o.order_id ASC
+		LIMIT $3`,
+		orderStatusNew, orderStatusPartiallyFilled, limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list open orders: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]lifecycle.OpenOrder, 0)
+	for rows.Next() {
+		var item lifecycle.OpenOrder
+		if err := rows.Scan(
+			&item.SessionID,
+			&item.AccountID,
+			&item.VenueID,
+			&item.IntentID,
+			&item.AttemptID,
+			&item.OrderID,
+			&item.ExchangeOrderID,
+			&item.ClientOrderID,
+			&item.Symbol,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
 }
 
 func (r *TimescaleRepository) SaveLifecycleEvent(ctx context.Context, event lifecycle.Event) (lifecycle.Event, error) {

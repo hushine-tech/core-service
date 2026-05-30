@@ -177,10 +177,7 @@ func main() {
 	}
 
 	// ── Order Service Wiring ──────────────────────────────────────────────────
-	mockExecutor := orderexecutor.NewMockExecutor()
-	liveExecutor := orderexecutor.NewBinanceLiveExecutor(logger.Instance())
-	testnetExecutor := orderexecutor.NewBinanceTestnetExecutor(logger.Instance())
-	orderRouter := orderexecutor.NewRouter(mockExecutor, liveExecutor, testnetExecutor)
+	orderRouter := orderexecutor.NewAdapterRouter(exchangeRegistry)
 
 	var orderPublisher ordernotify.Publisher = ordernotify.NoopPublisher{}
 	var orderPublisherCloser interface{ Close() error }

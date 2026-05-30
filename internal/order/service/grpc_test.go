@@ -36,10 +36,12 @@ type stubRouterExec struct {
 	resolveResult executor.OrderResult
 	resolveErr    error
 	executeCalls  int
+	lastReq       executor.OrderRequest
 }
 
-func (r *stubRouterExec) Execute(_ context.Context, _ executor.OrderRequest, _ accountmeta.Meta) (executor.OrderResult, error) {
+func (r *stubRouterExec) Execute(_ context.Context, req executor.OrderRequest, _ accountmeta.Meta) (executor.OrderResult, error) {
 	r.executeCalls++
+	r.lastReq = req
 	return r.result, r.err
 }
 
@@ -187,6 +189,10 @@ func (s *stubRepo) ListOrderFillsByAttempt(_ context.Context, attemptID string) 
 	return out, nil
 }
 
+func (s *stubRepo) ListOpenOrders(_ context.Context, _ int) ([]lifecycle.OpenOrder, error) {
+	return nil, nil
+}
+
 func (s *stubRepo) SaveLifecycleEvent(_ context.Context, event lifecycle.Event) (lifecycle.Event, error) {
 	event.EventID = int64(len(s.events) + 1)
 	s.events = append(s.events, event)
@@ -263,6 +269,79 @@ func TestPlaceOrder_validationErrors(t *testing.T) {
 		if s, _ := status.FromError(err); s.Code() != tc.code {
 			t.Errorf("want %v, got %v", tc.code, s.Code())
 		}
+	}
+}
+
+func TestMarketOrderRejectsPrice(t *testing.T) {
+	svc, _ := newTestSvc(testOrderMeta(environmentBacktest), nil, executor.OrderResult{}, nil)
+	req := testPlaceOrderRequest()
+	req.OrderType = "MARKET"
+	price := 2500.0
+	req.Price = &price
+
+	_, err := svc.PlaceOrder(context.Background(), req)
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("code = %v, want InvalidArgument (err=%v)", status.Code(err), err)
+	}
+}
+
+func TestLimitOrderRequiresPrice(t *testing.T) {
+	svc, _ := newTestSvc(testOrderMeta(environmentBacktest), nil, executor.OrderResult{}, nil)
+	req := testPlaceOrderRequest()
+	req.OrderType = "LIMIT"
+	req.Price = nil
+
+	_, err := svc.PlaceOrder(context.Background(), req)
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("code = %v, want InvalidArgument (err=%v)", status.Code(err), err)
+	}
+}
+
+func TestLimitOrderDefaultsGTC(t *testing.T) {
+	meta := testOrderMeta(environmentBacktest)
+	router := &stubRouterExec{result: executor.OrderResult{
+		ExchangeOrderID: "limit-order-1",
+		Symbol:          "ETHUSDT",
+		Side:            "BUY",
+		Status:          "NEW",
+		OrigQty:         1,
+		ExecutedQty:     0,
+		RemainingQty:    1,
+	}}
+	repo := &stubRepo{}
+	svc := NewOrderGRPCService(&stubMetaGetter{meta: meta}, router, repo)
+
+	req := testPlaceOrderRequest()
+	price := 2499.0
+	req.Price = &price
+	req.OrderType = "LIMIT"
+	req.TimeInForce = ""
+	resp, err := svc.PlaceOrder(context.Background(), req)
+	if err != nil {
+		t.Fatalf("PlaceOrder: %v", err)
+	}
+	if resp.GetAttemptStatus() != attemptStatusAccepted {
+		t.Fatalf("attempt status = %s, want %s", resp.GetAttemptStatus(), attemptStatusAccepted)
+	}
+	if router.lastReq.OrderType != "LIMIT" || router.lastReq.TimeInForce != "GTC" {
+		t.Fatalf("order contract = %s/%s, want LIMIT/GTC", router.lastReq.OrderType, router.lastReq.TimeInForce)
+	}
+	if len(repo.intents) != 1 || repo.intents[0].OrderType != orderTypeLimit {
+		t.Fatalf("persisted intent order_type = %+v, want LIMIT", repo.intents)
+	}
+}
+
+func TestUnsupportedTimeInForceFailsClosed(t *testing.T) {
+	svc, _ := newTestSvc(testOrderMeta(environmentBacktest), nil, executor.OrderResult{}, nil)
+	req := testPlaceOrderRequest()
+	price := 2500.0
+	req.Price = &price
+	req.OrderType = "LIMIT"
+	req.TimeInForce = "IOC"
+
+	_, err := svc.PlaceOrder(context.Background(), req)
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("code = %v, want FailedPrecondition (err=%v)", status.Code(err), err)
 	}
 }
 

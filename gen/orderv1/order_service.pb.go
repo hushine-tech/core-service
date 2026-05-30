@@ -36,6 +36,8 @@ type PlaceOrderRequest struct {
 	IntentId      string                 `protobuf:"bytes,10,opt,name=intent_id,json=intentId,proto3" json:"intent_id,omitempty"`              // 可选；空时由服务端生成
 	Exchange      int32                  `protobuf:"varint,11,opt,name=exchange,proto3" json:"exchange,omitempty"`                             // 1=binance, 2=okx
 	PositionSide  int32                  `protobuf:"varint,12,opt,name=position_side,json=positionSide,proto3" json:"position_side,omitempty"` // 0=none/BOTH, 1=long, 2=short
+	OrderType     string                 `protobuf:"bytes,13,opt,name=order_type,json=orderType,proto3" json:"order_type,omitempty"`           // MARKET / LIMIT; empty infers MARKET unless price is set
+	TimeInForce   string                 `protobuf:"bytes,14,opt,name=time_in_force,json=timeInForce,proto3" json:"time_in_force,omitempty"`   // LIMIT default: GTC
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -152,6 +154,20 @@ func (x *PlaceOrderRequest) GetPositionSide() int32 {
 		return x.PositionSide
 	}
 	return 0
+}
+
+func (x *PlaceOrderRequest) GetOrderType() string {
+	if x != nil {
+		return x.OrderType
+	}
+	return ""
+}
+
+func (x *PlaceOrderRequest) GetTimeInForce() string {
+	if x != nil {
+		return x.TimeInForce
+	}
+	return ""
 }
 
 type PlaceOrderResponse struct {
@@ -1786,7 +1802,7 @@ var File_order_service_proto protoreflect.FileDescriptor
 
 const file_order_service_proto_rawDesc = "" +
 	"\n" +
-	"\x13order_service.proto\x12\border.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xea\x02\n" +
+	"\x13order_service.proto\x12\border.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xad\x03\n" +
 	"\x11PlaceOrderRequest\x12\x1d\n" +
 	"\n" +
 	"account_id\x18\x01 \x01(\x03R\taccountId\x12\x16\n" +
@@ -1804,7 +1820,10 @@ const file_order_service_proto_rawDesc = "" +
 	"\tintent_id\x18\n" +
 	" \x01(\tR\bintentId\x12\x1a\n" +
 	"\bexchange\x18\v \x01(\x05R\bexchange\x12#\n" +
-	"\rposition_side\x18\f \x01(\x05R\fpositionSideB\b\n" +
+	"\rposition_side\x18\f \x01(\x05R\fpositionSide\x12\x1d\n" +
+	"\n" +
+	"order_type\x18\r \x01(\tR\torderType\x12\"\n" +
+	"\rtime_in_force\x18\x0e \x01(\tR\vtimeInForceB\b\n" +
 	"\x06_price\"\xb3\x02\n" +
 	"\x12PlaceOrderResponse\x12\x1b\n" +
 	"\tintent_id\x18\x01 \x01(\tR\bintentId\x12\x1d\n" +

@@ -40,6 +40,8 @@ func (e *MockExecutor) Execute(_ context.Context, req OrderRequest, meta account
 		ClientOrderID:   req.ClientOrderID,
 		Symbol:          req.Symbol,
 		Side:            req.Side,
+		OrderType:       firstNonEmpty(req.OrderType, "MARKET"),
+		TimeInForce:     req.TimeInForce,
 		Status:          "FILLED",
 		OrigQty:         math.Abs(req.Qty),
 		ExecutedQty:     math.Abs(req.Qty),
@@ -52,6 +54,15 @@ func (e *MockExecutor) Execute(_ context.Context, req OrderRequest, meta account
 			Fee:       fee,
 		}},
 	}, nil
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func (e *MockExecutor) Resolve(_ context.Context, _ RecoveryRequest, _ accountmeta.Meta) (OrderResult, error) {

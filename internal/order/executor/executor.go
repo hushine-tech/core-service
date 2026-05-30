@@ -15,6 +15,8 @@ type OrderRequest struct {
 	Symbol        string
 	Side          string // "BUY" / "SELL"
 	PositionSide  int32  // 0=BOTH/none, 1=LONG, 2=SHORT
+	OrderType     string // "MARKET" / "LIMIT"
+	TimeInForce   string // LIMIT default is GTC
 	Qty           float64
 	Price         *float64 // nil = market order
 	MarkPrice     float64  // current mark price (used by mock executor)
@@ -42,6 +44,8 @@ type OrderResult struct {
 	ClientOrderID   string
 	Symbol          string
 	Side            string
+	OrderType       string
+	TimeInForce     string
 	Status          string // "NEW" / "PARTIALLY_FILLED" / "FILLED" / "FAILED" / ...
 	OrigQty         float64
 	ExecutedQty     float64

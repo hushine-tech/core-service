@@ -40,6 +40,8 @@ message PlaceOrderRequest {
   string intent_id = 10;     // 可选；空时由服务端生成
   int32 exchange = 11;       // 1=binance, 2=okx
   int32 position_side = 12;  // 0=none/BOTH, 1=long, 2=short
+  string order_type = 13;    // MARKET / LIMIT; empty infers MARKET unless price is set
+  string time_in_force = 14; // LIMIT default: GTC
 }
 
 message PlaceOrderResponse {

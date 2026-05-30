@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
 	"testing"
 
 	"github.com/hushine-tech/core-service/internal/domain"
@@ -56,6 +57,41 @@ func TestBinanceBacktestFactoryUsesSimulatedExecutor(t *testing.T) {
 	}
 }
 
+func TestBinanceBacktestMarketOrderPreservesFeeAndSlippage(t *testing.T) {
+	factory := NewBacktestFactory(adapter.Route{
+		Exchange:    domain.ExchangeBinance,
+		Environment: domain.EnvironmentBacktest,
+		Market:      domain.MarketPerpetualFutures,
+	})
+	exec, err := factory.OrderExecutor()
+	if err != nil {
+		t.Fatalf("OrderExecutor() error = %v", err)
+	}
+
+	result, err := exec.PlaceOrder(context.Background(), adapter.OrderRequest{
+		Symbol:         "ETHUSDT",
+		Side:           "BUY",
+		OrderType:      "MARKET",
+		Qty:            0.5,
+		MarkPrice:      2000,
+		DefaultFeeRate: 0.001,
+		SlippageBps:    10,
+		ClientOrderID:  "client-market-cost",
+	})
+	if err != nil {
+		t.Fatalf("PlaceOrder() error = %v", err)
+	}
+	if result.AvgPrice != 2002 {
+		t.Fatalf("avg_price = %v, want slippage-adjusted 2002", result.AvgPrice)
+	}
+	if len(result.Fills) != 1 {
+		t.Fatalf("fills = %d, want 1", len(result.Fills))
+	}
+	if math.Abs(result.Fills[0].Fee-1.001) > 1e-12 {
+		t.Fatalf("fee = %v, want 1.001", result.Fills[0].Fee)
+	}
+}
+
 func TestBinanceBacktestLimitOrderRemainsOpenWhenMarkDoesNotTouch(t *testing.T) {
 	factory := NewBacktestFactory(adapter.Route{
 		Exchange:    domain.ExchangeBinance,
@@ -94,6 +130,43 @@ func TestBinanceBacktestLimitOrderRemainsOpenWhenMarkDoesNotTouch(t *testing.T) 
 	}
 	if result.Price != price {
 		t.Fatalf("price = %v, want %v", result.Price, price)
+	}
+}
+
+func TestBinanceBacktestLimitOrderPreservesFeeWhenFilled(t *testing.T) {
+	factory := NewBacktestFactory(adapter.Route{
+		Exchange:    domain.ExchangeBinance,
+		Environment: domain.EnvironmentBacktest,
+		Market:      domain.MarketPerpetualFutures,
+	})
+	exec, err := factory.OrderExecutor()
+	if err != nil {
+		t.Fatalf("OrderExecutor() error = %v", err)
+	}
+
+	price := 3000.0
+	result, err := exec.PlaceOrder(context.Background(), adapter.OrderRequest{
+		Symbol:         "ETHUSDT",
+		Side:           "BUY",
+		OrderType:      "LIMIT",
+		TimeInForce:    "GTC",
+		Qty:            0.2,
+		Price:          &price,
+		MarkPrice:      2999,
+		DefaultFeeRate: 0.001,
+		ClientOrderID:  "client-limit-cost",
+	})
+	if err != nil {
+		t.Fatalf("PlaceOrder() error = %v", err)
+	}
+	if result.Status != "FILLED" {
+		t.Fatalf("status = %q, want FILLED", result.Status)
+	}
+	if len(result.Fills) != 1 {
+		t.Fatalf("fills = %d, want 1", len(result.Fills))
+	}
+	if math.Abs(result.Fills[0].Fee-0.6) > 1e-12 {
+		t.Fatalf("fee = %v, want 0.6", result.Fills[0].Fee)
 	}
 }
 

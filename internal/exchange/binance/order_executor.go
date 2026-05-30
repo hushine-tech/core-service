@@ -44,11 +44,21 @@ func (simulatedOrderExecutor) PlaceOrder(_ context.Context, req adapter.OrderReq
 		return adapter.OrderResult{}, fmt.Errorf("simulated order requires positive mark or limit price")
 	}
 	qty := math.Abs(req.Qty)
+	slippageFactor := req.SlippageBps / 10000.0
+	side := strings.ToUpper(strings.TrimSpace(req.Side))
+	fillPrice := price
+	if side == "BUY" || side == "LONG" {
+		fillPrice = price * (1 + slippageFactor)
+	} else {
+		fillPrice = price * (1 - slippageFactor)
+	}
+	fillPrice = math.Round(fillPrice*1e8) / 1e8
+	fee := qty * fillPrice * req.DefaultFeeRate
 	return adapter.OrderResult{
 		ExchangeOrderID: fmt.Sprintf("sim-%d", time.Now().UnixNano()),
 		ClientOrderID:   strings.TrimSpace(req.ClientOrderID),
 		Symbol:          strings.ToUpper(strings.TrimSpace(req.Symbol)),
-		Side:            strings.ToUpper(strings.TrimSpace(req.Side)),
+		Side:            side,
 		PositionSide:    req.PositionSide,
 		OrderType:       orderType,
 		TimeInForce:     req.TimeInForce,
@@ -56,14 +66,15 @@ func (simulatedOrderExecutor) PlaceOrder(_ context.Context, req adapter.OrderReq
 		OrigQty:         qty,
 		ExecutedQty:     qty,
 		RemainingQty:    0,
-		AvgPrice:        price,
+		AvgPrice:        fillPrice,
 		Price:           price,
 		Fills: []adapter.FillDelta{
 			{
 				ExchangeTradeID: fmt.Sprintf("sim-trade-%d", time.Now().UnixNano()),
 				Symbol:          strings.ToUpper(strings.TrimSpace(req.Symbol)),
 				Qty:             qty,
-				FillPrice:       price,
+				FillPrice:       fillPrice,
+				Fee:             fee,
 				TradeTime:       time.Now().UTC(),
 			},
 		},
@@ -95,6 +106,7 @@ func placeSimulatedLimitOrder(req adapter.OrderRequest, orderType string) (adapt
 		Side:            strings.ToUpper(strings.TrimSpace(req.Side)),
 		Qty:             req.Qty,
 		LimitPrice:      limitPrice,
+		FeeRate:         req.DefaultFeeRate,
 	}, lifecycle.BacktestBar{
 		Symbol: strings.ToUpper(strings.TrimSpace(req.Symbol)),
 		Time:   now,

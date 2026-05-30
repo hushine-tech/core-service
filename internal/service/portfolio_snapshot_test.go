@@ -136,6 +136,56 @@ func TestGetPortfolioSnapshotReturnsVenueArray(t *testing.T) {
 	}
 }
 
+func TestBacktestPortfolioSnapshotIncludesBoundSimulatedVenue(t *testing.T) {
+	accountID := int64(15)
+	venueID := int64(88)
+	repo := &stubRepo{
+		account: domain.Account{
+			AccountID:   accountID,
+			UserID:      serviceTestUserID,
+			Environment: domain.EnvironmentBacktest,
+			Mode:        domain.AccountModeBacktest,
+		},
+		state: domain.OnlineAccountInfo{
+			AccountID:        accountID,
+			Mode:             domain.AccountModeBacktest,
+			TotalValue:       1000,
+			WalletBalance:    1000,
+			AvailableBalance: 900,
+			UpdatedAt:        time.Unix(100, 0).UTC(),
+		},
+		venues: []domain.Venue{{
+			VenueID:     venueID,
+			UserID:      serviceTestUserID,
+			AccountID:   &accountID,
+			Exchange:    domain.ExchangeBinance,
+			Environment: domain.EnvironmentBacktest,
+			Market:      domain.MarketPerpetualFutures,
+			Status:      domain.VenueStatusActive,
+		}},
+	}
+	svc := NewAccountGRPCService(repo, nil, nil, nil)
+
+	resp, err := svc.GetPortfolioSnapshot(context.Background(), &accountv1.GetPortfolioSnapshotRequest{
+		AccountId: accountID,
+		UserId:    serviceTestUserID,
+	})
+	if err != nil {
+		t.Fatalf("GetPortfolioSnapshot() error = %v", err)
+	}
+	venues := resp.GetSnapshot().GetVenues()
+	if len(venues) != 1 {
+		t.Fatalf("len(venues) = %d, want 1", len(venues))
+	}
+	venue := venues[0]
+	if venue.GetVenueId() != venueID || venue.GetExchange() != int32(domain.ExchangeBinance) || venue.GetMarket() != int32(domain.MarketPerpetualFutures) {
+		t.Fatalf("venue snapshot = %+v", venue)
+	}
+	if venue.GetWalletBalance() != 1000 || venue.GetAvailableBalance() != 900 {
+		t.Fatalf("venue balances = wallet %v available %v, want 1000/900", venue.GetWalletBalance(), venue.GetAvailableBalance())
+	}
+}
+
 func TestUpdatePortfolioSnapshotReadsVenueThroughRegistry(t *testing.T) {
 	accountID := int64(15)
 	venueID := int64(88)

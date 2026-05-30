@@ -1236,7 +1236,15 @@ func (s *AccountGRPCService) readPortfolioSnapshot(ctx context.Context, account 
 		if err != nil {
 			return adapter.PortfolioSnapshot{}, status.Errorf(codes.Unavailable, "read backtest portfolio snapshot: %v", err)
 		}
-		return portfolioSnapshotFromOnlineInfo(info, account), nil
+		snapshot := portfolioSnapshotFromOnlineInfo(info, account)
+		venues, err := s.repo.ListActiveAccountVenues(ctx, account.UserID, account.AccountID)
+		if err != nil {
+			return adapter.PortfolioSnapshot{}, mapRepoErr(err)
+		}
+		for _, venue := range venues {
+			snapshot.VenueSnapshots = append(snapshot.VenueSnapshots, portfolioSnapshotFromOnlineInfoForVenue(info, account, venue))
+		}
+		return snapshot, nil
 	}
 	if s.registry == nil {
 		return adapter.PortfolioSnapshot{}, status.Error(codes.FailedPrecondition, "exchange capability registry is not configured")
@@ -1371,6 +1379,16 @@ func portfolioSnapshotFromOnlineInfo(info domain.OnlineAccountInfo, account doma
 			LiquidationPrice: position.LiquidationPrice,
 		})
 	}
+	return snapshot
+}
+
+func portfolioSnapshotFromOnlineInfoForVenue(info domain.OnlineAccountInfo, account domain.Account, venue domain.Venue) adapter.PortfolioSnapshot {
+	snapshot := portfolioSnapshotFromOnlineInfo(info, account)
+	snapshot.VenueID = venue.VenueID
+	snapshot.Exchange = venue.Exchange
+	snapshot.Environment = venue.Environment
+	snapshot.Market = venue.Market
+	snapshot.VenueSnapshots = nil
 	return snapshot
 }
 

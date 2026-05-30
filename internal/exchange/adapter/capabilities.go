@@ -90,24 +90,26 @@ type SymbolRule struct {
 }
 
 type OrderRequest struct {
-	UserID        int64
-	AccountID     int64
-	VenueID       int64
-	Exchange      domain.Exchange
-	Environment   domain.Environment
-	Market        domain.Market
-	Symbol        string
-	Side          string
-	PositionSide  string
-	MarginMode    domain.MarginMode
-	PositionMode  domain.PositionMode
-	OrderType     string
-	TimeInForce   string
-	Qty           float64
-	Price         *float64
-	MarkPrice     float64
-	ClientOrderID string
-	Credential    ParsedCredential
+	UserID         int64
+	AccountID      int64
+	VenueID        int64
+	Exchange       domain.Exchange
+	Environment    domain.Environment
+	Market         domain.Market
+	Symbol         string
+	Side           string
+	PositionSide   string
+	MarginMode     domain.MarginMode
+	PositionMode   domain.PositionMode
+	OrderType      string
+	TimeInForce    string
+	Qty            float64
+	Price          *float64
+	MarkPrice      float64
+	DefaultFeeRate float64
+	SlippageBps    float64
+	ClientOrderID  string
+	Credential     ParsedCredential
 }
 
 type OrderResult struct {

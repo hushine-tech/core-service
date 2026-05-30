@@ -254,6 +254,11 @@ message OrderLifecycleEventEntry {
   OrderStateEntry order_state = 13;
   google.protobuf.Timestamp occurred_at = 14;
   google.protobuf.Timestamp created_at = 15;
+  int32 environment = 16;
+  int32 exchange = 17;
+  int32 market = 18;
+  int32 position_side = 19;
+  string side = 20;
 }
 
 message FillDeltaEntry {

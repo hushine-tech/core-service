@@ -1919,6 +1919,11 @@ type OrderLifecycleEventEntry struct {
 	OrderState      *OrderStateEntry       `protobuf:"bytes,13,opt,name=order_state,json=orderState,proto3" json:"order_state,omitempty"`
 	OccurredAt      *timestamppb.Timestamp `protobuf:"bytes,14,opt,name=occurred_at,json=occurredAt,proto3" json:"occurred_at,omitempty"`
 	CreatedAt       *timestamppb.Timestamp `protobuf:"bytes,15,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	Environment     int32                  `protobuf:"varint,16,opt,name=environment,proto3" json:"environment,omitempty"`
+	Exchange        int32                  `protobuf:"varint,17,opt,name=exchange,proto3" json:"exchange,omitempty"`
+	Market          int32                  `protobuf:"varint,18,opt,name=market,proto3" json:"market,omitempty"`
+	PositionSide    int32                  `protobuf:"varint,19,opt,name=position_side,json=positionSide,proto3" json:"position_side,omitempty"`
+	Side            string                 `protobuf:"bytes,20,opt,name=side,proto3" json:"side,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -2056,6 +2061,41 @@ func (x *OrderLifecycleEventEntry) GetCreatedAt() *timestamppb.Timestamp {
 		return x.CreatedAt
 	}
 	return nil
+}
+
+func (x *OrderLifecycleEventEntry) GetEnvironment() int32 {
+	if x != nil {
+		return x.Environment
+	}
+	return 0
+}
+
+func (x *OrderLifecycleEventEntry) GetExchange() int32 {
+	if x != nil {
+		return x.Exchange
+	}
+	return 0
+}
+
+func (x *OrderLifecycleEventEntry) GetMarket() int32 {
+	if x != nil {
+		return x.Market
+	}
+	return 0
+}
+
+func (x *OrderLifecycleEventEntry) GetPositionSide() int32 {
+	if x != nil {
+		return x.PositionSide
+	}
+	return 0
+}
+
+func (x *OrderLifecycleEventEntry) GetSide() string {
+	if x != nil {
+		return x.Side
+	}
+	return ""
 }
 
 type FillDeltaEntry struct {
@@ -2499,7 +2539,7 @@ const file_order_service_proto_rawDesc = "" +
 	"\x0eafter_event_id\x18\x02 \x01(\x03R\fafterEventId\x12\x14\n" +
 	"\x05limit\x18\x03 \x01(\x05R\x05limit\"^\n" +
 	" ListOrderLifecycleEventsResponse\x12:\n" +
-	"\x06events\x18\x01 \x03(\v2\".order.v1.OrderLifecycleEventEntryR\x06events\"\xec\x04\n" +
+	"\x06events\x18\x01 \x03(\v2\".order.v1.OrderLifecycleEventEntryR\x06events\"\xfb\x05\n" +
 	"\x18OrderLifecycleEventEntry\x12\x19\n" +
 	"\bevent_id\x18\x01 \x01(\x03R\aeventId\x12\x1d\n" +
 	"\n" +
@@ -2524,7 +2564,12 @@ const file_order_service_proto_rawDesc = "" +
 	"\voccurred_at\x18\x0e \x01(\v2\x1a.google.protobuf.TimestampR\n" +
 	"occurredAt\x129\n" +
 	"\n" +
-	"created_at\x18\x0f \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"\xbc\x02\n" +
+	"created_at\x18\x0f \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12 \n" +
+	"\venvironment\x18\x10 \x01(\x05R\venvironment\x12\x1a\n" +
+	"\bexchange\x18\x11 \x01(\x05R\bexchange\x12\x16\n" +
+	"\x06market\x18\x12 \x01(\x05R\x06market\x12#\n" +
+	"\rposition_side\x18\x13 \x01(\x05R\fpositionSide\x12\x12\n" +
+	"\x04side\x18\x14 \x01(\tR\x04side\"\xbc\x02\n" +
 	"\x0eFillDeltaEntry\x12*\n" +
 	"\x11exchange_trade_id\x18\x01 \x01(\tR\x0fexchangeTradeId\x12*\n" +
 	"\x11exchange_order_id\x18\x02 \x01(\tR\x0fexchangeOrderId\x12\x16\n" +

@@ -768,7 +768,18 @@ func TestListOrderLifecycleEventsAfterCursor(t *testing.T) {
 	svc, repo := newTestSvc(accountmeta.Meta{}, nil, executor.OrderResult{}, nil)
 	repo.events = append(repo.events,
 		lifecycle.Event{EventID: 1, SessionID: "sess-1", EventType: "fill", OrderStatus: "PARTIALLY_FILLED"},
-		lifecycle.Event{EventID: 2, SessionID: "sess-1", EventType: "fill", OrderStatus: "FILLED", FillDelta: lifecycle.FillDelta{Symbol: "ETHUSDT", Qty: 0.2, FillPrice: 3000}},
+		lifecycle.Event{
+			EventID:      2,
+			SessionID:    "sess-1",
+			Environment:  environmentDemo,
+			Exchange:     exchangeBinance,
+			Market:       marketPerpetualFutures,
+			PositionSide: positionSideBoth,
+			Side:         "BUY",
+			EventType:    "fill",
+			OrderStatus:  "FILLED",
+			FillDelta:    lifecycle.FillDelta{Symbol: "ETHUSDT", Qty: 0.2, FillPrice: 3000},
+		},
 		lifecycle.Event{EventID: 3, SessionID: "other", EventType: "fill"},
 	)
 
@@ -786,5 +797,9 @@ func TestListOrderLifecycleEventsAfterCursor(t *testing.T) {
 	event := resp.GetEvents()[0]
 	if event.GetEventId() != 2 || event.GetOrderStatus() != "FILLED" || event.GetFillDelta().GetSymbol() != "ETHUSDT" {
 		t.Fatalf("event = %+v, want cursor event 2", event)
+	}
+	if event.GetEnvironment() != environmentDemo || event.GetExchange() != exchangeBinance ||
+		event.GetMarket() != marketPerpetualFutures || event.GetPositionSide() != positionSideBoth || event.GetSide() != "BUY" {
+		t.Fatalf("event route facts = %+v, want binance futures BUY", event)
 	}
 }

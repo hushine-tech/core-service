@@ -9,6 +9,11 @@ type OpenOrder struct {
 	SessionID       string
 	AccountID       int64
 	VenueID         int64
+	Environment     int32
+	Exchange        int32
+	Market          int32
+	PositionSide    int32
+	Side            string
 	IntentID        string
 	AttemptID       string
 	OrderID         string
@@ -90,6 +95,11 @@ func (s *Scanner) ScanOnce(ctx context.Context, now time.Time) (int, error) {
 				SessionID:       order.SessionID,
 				AccountID:       order.AccountID,
 				VenueID:         order.VenueID,
+				Environment:     order.Environment,
+				Exchange:        order.Exchange,
+				Market:          order.Market,
+				PositionSide:    order.PositionSide,
+				Side:            order.Side,
 				IntentID:        order.IntentID,
 				AttemptID:       order.AttemptID,
 				OrderID:         order.OrderID,

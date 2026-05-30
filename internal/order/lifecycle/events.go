@@ -31,6 +31,11 @@ type Event struct {
 	SessionID       string
 	AccountID       int64
 	VenueID         int64
+	Environment     int32
+	Exchange        int32
+	Market          int32
+	PositionSide    int32
+	Side            string
 	IntentID        string
 	AttemptID       string
 	OrderID         string

@@ -30,6 +30,11 @@ func lifecycleTestEvent(sessionID string, seq int) lifecycle.Event {
 		SessionID:       sessionID,
 		AccountID:       100 + int64(seq),
 		VenueID:         200,
+		Environment:     2,
+		Exchange:        1,
+		Market:          2,
+		PositionSide:    0,
+		Side:            "BUY",
 		IntentID:        fmt.Sprintf("intent-%s-%d", sessionID, seq),
 		AttemptID:       fmt.Sprintf("attempt-%s-%d", sessionID, seq),
 		OrderID:         fmt.Sprintf("order-%s-%d", sessionID, seq),
@@ -83,6 +88,9 @@ func TestSaveLifecycleEventPersistsFillDelta(t *testing.T) {
 	got := events[0]
 	if got.FillDelta.ExchangeTradeID != saved.ExchangeTradeID || got.FillDelta.FillPrice == 0 || got.OrderState.Status != "FILLED" {
 		t.Fatalf("event payload not persisted: %+v", got)
+	}
+	if got.Environment != 2 || got.Exchange != 1 || got.Market != 2 || got.PositionSide != 0 || got.Side != "BUY" {
+		t.Fatalf("route facts not persisted: %+v", got)
 	}
 }
 

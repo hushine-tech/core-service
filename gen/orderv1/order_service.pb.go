@@ -36,6 +36,8 @@ type PlaceOrderRequest struct {
 	IntentId      string                 `protobuf:"bytes,10,opt,name=intent_id,json=intentId,proto3" json:"intent_id,omitempty"`              // 可选；空时由服务端生成
 	Exchange      int32                  `protobuf:"varint,11,opt,name=exchange,proto3" json:"exchange,omitempty"`                             // 1=binance, 2=okx
 	PositionSide  int32                  `protobuf:"varint,12,opt,name=position_side,json=positionSide,proto3" json:"position_side,omitempty"` // 0=none/BOTH, 1=long, 2=short
+	OrderType     string                 `protobuf:"bytes,13,opt,name=order_type,json=orderType,proto3" json:"order_type,omitempty"`           // MARKET / LIMIT; empty infers MARKET unless price is set
+	TimeInForce   string                 `protobuf:"bytes,14,opt,name=time_in_force,json=timeInForce,proto3" json:"time_in_force,omitempty"`   // LIMIT default: GTC
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -152,6 +154,20 @@ func (x *PlaceOrderRequest) GetPositionSide() int32 {
 		return x.PositionSide
 	}
 	return 0
+}
+
+func (x *PlaceOrderRequest) GetOrderType() string {
+	if x != nil {
+		return x.OrderType
+	}
+	return ""
+}
+
+func (x *PlaceOrderRequest) GetTimeInForce() string {
+	if x != nil {
+		return x.TimeInForce
+	}
+	return ""
 }
 
 type PlaceOrderResponse struct {
@@ -1782,11 +1798,527 @@ func (x *OrderFillEntry) GetPositionSide() int32 {
 	return 0
 }
 
+type ListOrderLifecycleEventsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SessionId     string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	AfterEventId  int64                  `protobuf:"varint,2,opt,name=after_event_id,json=afterEventId,proto3" json:"after_event_id,omitempty"`
+	Limit         int32                  `protobuf:"varint,3,opt,name=limit,proto3" json:"limit,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListOrderLifecycleEventsRequest) Reset() {
+	*x = ListOrderLifecycleEventsRequest{}
+	mi := &file_order_service_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListOrderLifecycleEventsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListOrderLifecycleEventsRequest) ProtoMessage() {}
+
+func (x *ListOrderLifecycleEventsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_order_service_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListOrderLifecycleEventsRequest.ProtoReflect.Descriptor instead.
+func (*ListOrderLifecycleEventsRequest) Descriptor() ([]byte, []int) {
+	return file_order_service_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *ListOrderLifecycleEventsRequest) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+func (x *ListOrderLifecycleEventsRequest) GetAfterEventId() int64 {
+	if x != nil {
+		return x.AfterEventId
+	}
+	return 0
+}
+
+func (x *ListOrderLifecycleEventsRequest) GetLimit() int32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+type ListOrderLifecycleEventsResponse struct {
+	state         protoimpl.MessageState      `protogen:"open.v1"`
+	Events        []*OrderLifecycleEventEntry `protobuf:"bytes,1,rep,name=events,proto3" json:"events,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListOrderLifecycleEventsResponse) Reset() {
+	*x = ListOrderLifecycleEventsResponse{}
+	mi := &file_order_service_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListOrderLifecycleEventsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListOrderLifecycleEventsResponse) ProtoMessage() {}
+
+func (x *ListOrderLifecycleEventsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_order_service_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListOrderLifecycleEventsResponse.ProtoReflect.Descriptor instead.
+func (*ListOrderLifecycleEventsResponse) Descriptor() ([]byte, []int) {
+	return file_order_service_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *ListOrderLifecycleEventsResponse) GetEvents() []*OrderLifecycleEventEntry {
+	if x != nil {
+		return x.Events
+	}
+	return nil
+}
+
+type OrderLifecycleEventEntry struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	EventId         int64                  `protobuf:"varint,1,opt,name=event_id,json=eventId,proto3" json:"event_id,omitempty"`
+	SessionId       string                 `protobuf:"bytes,2,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	AccountId       int64                  `protobuf:"varint,3,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
+	VenueId         int64                  `protobuf:"varint,4,opt,name=venue_id,json=venueId,proto3" json:"venue_id,omitempty"`
+	IntentId        string                 `protobuf:"bytes,5,opt,name=intent_id,json=intentId,proto3" json:"intent_id,omitempty"`
+	AttemptId       string                 `protobuf:"bytes,6,opt,name=attempt_id,json=attemptId,proto3" json:"attempt_id,omitempty"`
+	OrderId         string                 `protobuf:"bytes,7,opt,name=order_id,json=orderId,proto3" json:"order_id,omitempty"`
+	ExchangeOrderId string                 `protobuf:"bytes,8,opt,name=exchange_order_id,json=exchangeOrderId,proto3" json:"exchange_order_id,omitempty"`
+	ExchangeTradeId string                 `protobuf:"bytes,9,opt,name=exchange_trade_id,json=exchangeTradeId,proto3" json:"exchange_trade_id,omitempty"`
+	EventType       string                 `protobuf:"bytes,10,opt,name=event_type,json=eventType,proto3" json:"event_type,omitempty"`
+	OrderStatus     string                 `protobuf:"bytes,11,opt,name=order_status,json=orderStatus,proto3" json:"order_status,omitempty"`
+	FillDelta       *FillDeltaEntry        `protobuf:"bytes,12,opt,name=fill_delta,json=fillDelta,proto3" json:"fill_delta,omitempty"`
+	OrderState      *OrderStateEntry       `protobuf:"bytes,13,opt,name=order_state,json=orderState,proto3" json:"order_state,omitempty"`
+	OccurredAt      *timestamppb.Timestamp `protobuf:"bytes,14,opt,name=occurred_at,json=occurredAt,proto3" json:"occurred_at,omitempty"`
+	CreatedAt       *timestamppb.Timestamp `protobuf:"bytes,15,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	Environment     int32                  `protobuf:"varint,16,opt,name=environment,proto3" json:"environment,omitempty"`
+	Exchange        int32                  `protobuf:"varint,17,opt,name=exchange,proto3" json:"exchange,omitempty"`
+	Market          int32                  `protobuf:"varint,18,opt,name=market,proto3" json:"market,omitempty"`
+	PositionSide    int32                  `protobuf:"varint,19,opt,name=position_side,json=positionSide,proto3" json:"position_side,omitempty"`
+	Side            string                 `protobuf:"bytes,20,opt,name=side,proto3" json:"side,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *OrderLifecycleEventEntry) Reset() {
+	*x = OrderLifecycleEventEntry{}
+	mi := &file_order_service_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *OrderLifecycleEventEntry) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*OrderLifecycleEventEntry) ProtoMessage() {}
+
+func (x *OrderLifecycleEventEntry) ProtoReflect() protoreflect.Message {
+	mi := &file_order_service_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use OrderLifecycleEventEntry.ProtoReflect.Descriptor instead.
+func (*OrderLifecycleEventEntry) Descriptor() ([]byte, []int) {
+	return file_order_service_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *OrderLifecycleEventEntry) GetEventId() int64 {
+	if x != nil {
+		return x.EventId
+	}
+	return 0
+}
+
+func (x *OrderLifecycleEventEntry) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+func (x *OrderLifecycleEventEntry) GetAccountId() int64 {
+	if x != nil {
+		return x.AccountId
+	}
+	return 0
+}
+
+func (x *OrderLifecycleEventEntry) GetVenueId() int64 {
+	if x != nil {
+		return x.VenueId
+	}
+	return 0
+}
+
+func (x *OrderLifecycleEventEntry) GetIntentId() string {
+	if x != nil {
+		return x.IntentId
+	}
+	return ""
+}
+
+func (x *OrderLifecycleEventEntry) GetAttemptId() string {
+	if x != nil {
+		return x.AttemptId
+	}
+	return ""
+}
+
+func (x *OrderLifecycleEventEntry) GetOrderId() string {
+	if x != nil {
+		return x.OrderId
+	}
+	return ""
+}
+
+func (x *OrderLifecycleEventEntry) GetExchangeOrderId() string {
+	if x != nil {
+		return x.ExchangeOrderId
+	}
+	return ""
+}
+
+func (x *OrderLifecycleEventEntry) GetExchangeTradeId() string {
+	if x != nil {
+		return x.ExchangeTradeId
+	}
+	return ""
+}
+
+func (x *OrderLifecycleEventEntry) GetEventType() string {
+	if x != nil {
+		return x.EventType
+	}
+	return ""
+}
+
+func (x *OrderLifecycleEventEntry) GetOrderStatus() string {
+	if x != nil {
+		return x.OrderStatus
+	}
+	return ""
+}
+
+func (x *OrderLifecycleEventEntry) GetFillDelta() *FillDeltaEntry {
+	if x != nil {
+		return x.FillDelta
+	}
+	return nil
+}
+
+func (x *OrderLifecycleEventEntry) GetOrderState() *OrderStateEntry {
+	if x != nil {
+		return x.OrderState
+	}
+	return nil
+}
+
+func (x *OrderLifecycleEventEntry) GetOccurredAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.OccurredAt
+	}
+	return nil
+}
+
+func (x *OrderLifecycleEventEntry) GetCreatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return nil
+}
+
+func (x *OrderLifecycleEventEntry) GetEnvironment() int32 {
+	if x != nil {
+		return x.Environment
+	}
+	return 0
+}
+
+func (x *OrderLifecycleEventEntry) GetExchange() int32 {
+	if x != nil {
+		return x.Exchange
+	}
+	return 0
+}
+
+func (x *OrderLifecycleEventEntry) GetMarket() int32 {
+	if x != nil {
+		return x.Market
+	}
+	return 0
+}
+
+func (x *OrderLifecycleEventEntry) GetPositionSide() int32 {
+	if x != nil {
+		return x.PositionSide
+	}
+	return 0
+}
+
+func (x *OrderLifecycleEventEntry) GetSide() string {
+	if x != nil {
+		return x.Side
+	}
+	return ""
+}
+
+type FillDeltaEntry struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	ExchangeTradeId string                 `protobuf:"bytes,1,opt,name=exchange_trade_id,json=exchangeTradeId,proto3" json:"exchange_trade_id,omitempty"`
+	ExchangeOrderId string                 `protobuf:"bytes,2,opt,name=exchange_order_id,json=exchangeOrderId,proto3" json:"exchange_order_id,omitempty"`
+	Symbol          string                 `protobuf:"bytes,3,opt,name=symbol,proto3" json:"symbol,omitempty"`
+	Qty             float64                `protobuf:"fixed64,4,opt,name=qty,proto3" json:"qty,omitempty"`
+	FillPrice       float64                `protobuf:"fixed64,5,opt,name=fill_price,json=fillPrice,proto3" json:"fill_price,omitempty"`
+	Fee             float64                `protobuf:"fixed64,6,opt,name=fee,proto3" json:"fee,omitempty"`
+	FeeAsset        string                 `protobuf:"bytes,7,opt,name=fee_asset,json=feeAsset,proto3" json:"fee_asset,omitempty"`
+	FeeMissing      bool                   `protobuf:"varint,8,opt,name=fee_missing,json=feeMissing,proto3" json:"fee_missing,omitempty"`
+	TradeTime       *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=trade_time,json=tradeTime,proto3" json:"trade_time,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *FillDeltaEntry) Reset() {
+	*x = FillDeltaEntry{}
+	mi := &file_order_service_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FillDeltaEntry) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FillDeltaEntry) ProtoMessage() {}
+
+func (x *FillDeltaEntry) ProtoReflect() protoreflect.Message {
+	mi := &file_order_service_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FillDeltaEntry.ProtoReflect.Descriptor instead.
+func (*FillDeltaEntry) Descriptor() ([]byte, []int) {
+	return file_order_service_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *FillDeltaEntry) GetExchangeTradeId() string {
+	if x != nil {
+		return x.ExchangeTradeId
+	}
+	return ""
+}
+
+func (x *FillDeltaEntry) GetExchangeOrderId() string {
+	if x != nil {
+		return x.ExchangeOrderId
+	}
+	return ""
+}
+
+func (x *FillDeltaEntry) GetSymbol() string {
+	if x != nil {
+		return x.Symbol
+	}
+	return ""
+}
+
+func (x *FillDeltaEntry) GetQty() float64 {
+	if x != nil {
+		return x.Qty
+	}
+	return 0
+}
+
+func (x *FillDeltaEntry) GetFillPrice() float64 {
+	if x != nil {
+		return x.FillPrice
+	}
+	return 0
+}
+
+func (x *FillDeltaEntry) GetFee() float64 {
+	if x != nil {
+		return x.Fee
+	}
+	return 0
+}
+
+func (x *FillDeltaEntry) GetFeeAsset() string {
+	if x != nil {
+		return x.FeeAsset
+	}
+	return ""
+}
+
+func (x *FillDeltaEntry) GetFeeMissing() bool {
+	if x != nil {
+		return x.FeeMissing
+	}
+	return false
+}
+
+func (x *FillDeltaEntry) GetTradeTime() *timestamppb.Timestamp {
+	if x != nil {
+		return x.TradeTime
+	}
+	return nil
+}
+
+type OrderStateEntry struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	ExchangeOrderId string                 `protobuf:"bytes,1,opt,name=exchange_order_id,json=exchangeOrderId,proto3" json:"exchange_order_id,omitempty"`
+	ClientOrderId   string                 `protobuf:"bytes,2,opt,name=client_order_id,json=clientOrderId,proto3" json:"client_order_id,omitempty"`
+	Symbol          string                 `protobuf:"bytes,3,opt,name=symbol,proto3" json:"symbol,omitempty"`
+	Status          string                 `protobuf:"bytes,4,opt,name=status,proto3" json:"status,omitempty"`
+	OrigQty         float64                `protobuf:"fixed64,5,opt,name=orig_qty,json=origQty,proto3" json:"orig_qty,omitempty"`
+	ExecutedQty     float64                `protobuf:"fixed64,6,opt,name=executed_qty,json=executedQty,proto3" json:"executed_qty,omitempty"`
+	RemainingQty    float64                `protobuf:"fixed64,7,opt,name=remaining_qty,json=remainingQty,proto3" json:"remaining_qty,omitempty"`
+	AvgPrice        float64                `protobuf:"fixed64,8,opt,name=avg_price,json=avgPrice,proto3" json:"avg_price,omitempty"`
+	UpdatedAt       *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *OrderStateEntry) Reset() {
+	*x = OrderStateEntry{}
+	mi := &file_order_service_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *OrderStateEntry) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*OrderStateEntry) ProtoMessage() {}
+
+func (x *OrderStateEntry) ProtoReflect() protoreflect.Message {
+	mi := &file_order_service_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use OrderStateEntry.ProtoReflect.Descriptor instead.
+func (*OrderStateEntry) Descriptor() ([]byte, []int) {
+	return file_order_service_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *OrderStateEntry) GetExchangeOrderId() string {
+	if x != nil {
+		return x.ExchangeOrderId
+	}
+	return ""
+}
+
+func (x *OrderStateEntry) GetClientOrderId() string {
+	if x != nil {
+		return x.ClientOrderId
+	}
+	return ""
+}
+
+func (x *OrderStateEntry) GetSymbol() string {
+	if x != nil {
+		return x.Symbol
+	}
+	return ""
+}
+
+func (x *OrderStateEntry) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *OrderStateEntry) GetOrigQty() float64 {
+	if x != nil {
+		return x.OrigQty
+	}
+	return 0
+}
+
+func (x *OrderStateEntry) GetExecutedQty() float64 {
+	if x != nil {
+		return x.ExecutedQty
+	}
+	return 0
+}
+
+func (x *OrderStateEntry) GetRemainingQty() float64 {
+	if x != nil {
+		return x.RemainingQty
+	}
+	return 0
+}
+
+func (x *OrderStateEntry) GetAvgPrice() float64 {
+	if x != nil {
+		return x.AvgPrice
+	}
+	return 0
+}
+
+func (x *OrderStateEntry) GetUpdatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.UpdatedAt
+	}
+	return nil
+}
+
 var File_order_service_proto protoreflect.FileDescriptor
 
 const file_order_service_proto_rawDesc = "" +
 	"\n" +
-	"\x13order_service.proto\x12\border.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xea\x02\n" +
+	"\x13order_service.proto\x12\border.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xad\x03\n" +
 	"\x11PlaceOrderRequest\x12\x1d\n" +
 	"\n" +
 	"account_id\x18\x01 \x01(\x03R\taccountId\x12\x16\n" +
@@ -1804,7 +2336,10 @@ const file_order_service_proto_rawDesc = "" +
 	"\tintent_id\x18\n" +
 	" \x01(\tR\bintentId\x12\x1a\n" +
 	"\bexchange\x18\v \x01(\x05R\bexchange\x12#\n" +
-	"\rposition_side\x18\f \x01(\x05R\fpositionSideB\b\n" +
+	"\rposition_side\x18\f \x01(\x05R\fpositionSide\x12\x1d\n" +
+	"\n" +
+	"order_type\x18\r \x01(\tR\torderType\x12\"\n" +
+	"\rtime_in_force\x18\x0e \x01(\tR\vtimeInForceB\b\n" +
 	"\x06_price\"\xb3\x02\n" +
 	"\x12PlaceOrderResponse\x12\x1b\n" +
 	"\tintent_id\x18\x01 \x01(\tR\bintentId\x12\x1d\n" +
@@ -1997,7 +2532,68 @@ const file_order_service_proto_rawDesc = "" +
 	"session_id\x18\x12 \x01(\tR\tsessionId\x12\x19\n" +
 	"\bvenue_id\x18\x13 \x01(\x03R\avenueId\x12\x1a\n" +
 	"\bexchange\x18\x14 \x01(\x05R\bexchange\x12#\n" +
-	"\rposition_side\x18\x15 \x01(\x05R\fpositionSide2\x9e\x04\n" +
+	"\rposition_side\x18\x15 \x01(\x05R\fpositionSide\"|\n" +
+	"\x1fListOrderLifecycleEventsRequest\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\tR\tsessionId\x12$\n" +
+	"\x0eafter_event_id\x18\x02 \x01(\x03R\fafterEventId\x12\x14\n" +
+	"\x05limit\x18\x03 \x01(\x05R\x05limit\"^\n" +
+	" ListOrderLifecycleEventsResponse\x12:\n" +
+	"\x06events\x18\x01 \x03(\v2\".order.v1.OrderLifecycleEventEntryR\x06events\"\xfb\x05\n" +
+	"\x18OrderLifecycleEventEntry\x12\x19\n" +
+	"\bevent_id\x18\x01 \x01(\x03R\aeventId\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x02 \x01(\tR\tsessionId\x12\x1d\n" +
+	"\n" +
+	"account_id\x18\x03 \x01(\x03R\taccountId\x12\x19\n" +
+	"\bvenue_id\x18\x04 \x01(\x03R\avenueId\x12\x1b\n" +
+	"\tintent_id\x18\x05 \x01(\tR\bintentId\x12\x1d\n" +
+	"\n" +
+	"attempt_id\x18\x06 \x01(\tR\tattemptId\x12\x19\n" +
+	"\border_id\x18\a \x01(\tR\aorderId\x12*\n" +
+	"\x11exchange_order_id\x18\b \x01(\tR\x0fexchangeOrderId\x12*\n" +
+	"\x11exchange_trade_id\x18\t \x01(\tR\x0fexchangeTradeId\x12\x1d\n" +
+	"\n" +
+	"event_type\x18\n" +
+	" \x01(\tR\teventType\x12!\n" +
+	"\forder_status\x18\v \x01(\tR\vorderStatus\x127\n" +
+	"\n" +
+	"fill_delta\x18\f \x01(\v2\x18.order.v1.FillDeltaEntryR\tfillDelta\x12:\n" +
+	"\vorder_state\x18\r \x01(\v2\x19.order.v1.OrderStateEntryR\n" +
+	"orderState\x12;\n" +
+	"\voccurred_at\x18\x0e \x01(\v2\x1a.google.protobuf.TimestampR\n" +
+	"occurredAt\x129\n" +
+	"\n" +
+	"created_at\x18\x0f \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12 \n" +
+	"\venvironment\x18\x10 \x01(\x05R\venvironment\x12\x1a\n" +
+	"\bexchange\x18\x11 \x01(\x05R\bexchange\x12\x16\n" +
+	"\x06market\x18\x12 \x01(\x05R\x06market\x12#\n" +
+	"\rposition_side\x18\x13 \x01(\x05R\fpositionSide\x12\x12\n" +
+	"\x04side\x18\x14 \x01(\tR\x04side\"\xbc\x02\n" +
+	"\x0eFillDeltaEntry\x12*\n" +
+	"\x11exchange_trade_id\x18\x01 \x01(\tR\x0fexchangeTradeId\x12*\n" +
+	"\x11exchange_order_id\x18\x02 \x01(\tR\x0fexchangeOrderId\x12\x16\n" +
+	"\x06symbol\x18\x03 \x01(\tR\x06symbol\x12\x10\n" +
+	"\x03qty\x18\x04 \x01(\x01R\x03qty\x12\x1d\n" +
+	"\n" +
+	"fill_price\x18\x05 \x01(\x01R\tfillPrice\x12\x10\n" +
+	"\x03fee\x18\x06 \x01(\x01R\x03fee\x12\x1b\n" +
+	"\tfee_asset\x18\a \x01(\tR\bfeeAsset\x12\x1f\n" +
+	"\vfee_missing\x18\b \x01(\bR\n" +
+	"feeMissing\x129\n" +
+	"\n" +
+	"trade_time\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\ttradeTime\"\xd0\x02\n" +
+	"\x0fOrderStateEntry\x12*\n" +
+	"\x11exchange_order_id\x18\x01 \x01(\tR\x0fexchangeOrderId\x12&\n" +
+	"\x0fclient_order_id\x18\x02 \x01(\tR\rclientOrderId\x12\x16\n" +
+	"\x06symbol\x18\x03 \x01(\tR\x06symbol\x12\x16\n" +
+	"\x06status\x18\x04 \x01(\tR\x06status\x12\x19\n" +
+	"\borig_qty\x18\x05 \x01(\x01R\aorigQty\x12!\n" +
+	"\fexecuted_qty\x18\x06 \x01(\x01R\vexecutedQty\x12#\n" +
+	"\rremaining_qty\x18\a \x01(\x01R\fremainingQty\x12\x1b\n" +
+	"\tavg_price\x18\b \x01(\x01R\bavgPrice\x129\n" +
+	"\n" +
+	"updated_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt2\x91\x05\n" +
 	"\fOrderService\x12G\n" +
 	"\n" +
 	"PlaceOrder\x12\x1b.order.v1.PlaceOrderRequest\x1a\x1c.order.v1.PlaceOrderResponse\x12\\\n" +
@@ -2005,7 +2601,8 @@ const file_order_service_proto_rawDesc = "" +
 	"\x12QueryOrderAttempts\x12#.order.v1.QueryOrderAttemptsRequest\x1a$.order.v1.QueryOrderAttemptsResponse\x12J\n" +
 	"\vQueryOrders\x12\x1c.order.v1.QueryOrdersRequest\x1a\x1d.order.v1.QueryOrdersResponse\x12V\n" +
 	"\x0fQueryOrderFills\x12 .order.v1.QueryOrderFillsRequest\x1a!.order.v1.QueryOrderFillsResponse\x12b\n" +
-	"\x13ResolveOrderAttempt\x12$.order.v1.ResolveOrderAttemptRequest\x1a%.order.v1.ResolveOrderAttemptResponseB:Z8github.com/hushine-tech/core-service/gen/orderv1;orderv1b\x06proto3"
+	"\x13ResolveOrderAttempt\x12$.order.v1.ResolveOrderAttemptRequest\x1a%.order.v1.ResolveOrderAttemptResponse\x12q\n" +
+	"\x18ListOrderLifecycleEvents\x12).order.v1.ListOrderLifecycleEventsRequest\x1a*.order.v1.ListOrderLifecycleEventsResponseB:Z8github.com/hushine-tech/core-service/gen/orderv1;orderv1b\x06proto3"
 
 var (
 	file_order_service_proto_rawDescOnce sync.Once
@@ -2019,25 +2616,30 @@ func file_order_service_proto_rawDescGZIP() []byte {
 	return file_order_service_proto_rawDescData
 }
 
-var file_order_service_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
+var file_order_service_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
 var file_order_service_proto_goTypes = []any{
-	(*PlaceOrderRequest)(nil),           // 0: order.v1.PlaceOrderRequest
-	(*PlaceOrderResponse)(nil),          // 1: order.v1.PlaceOrderResponse
-	(*ResolveOrderAttemptRequest)(nil),  // 2: order.v1.ResolveOrderAttemptRequest
-	(*ResolveOrderAttemptResponse)(nil), // 3: order.v1.ResolveOrderAttemptResponse
-	(*QueryOrderIntentsRequest)(nil),    // 4: order.v1.QueryOrderIntentsRequest
-	(*QueryOrderIntentsResponse)(nil),   // 5: order.v1.QueryOrderIntentsResponse
-	(*OrderIntentEntry)(nil),            // 6: order.v1.OrderIntentEntry
-	(*QueryOrderAttemptsRequest)(nil),   // 7: order.v1.QueryOrderAttemptsRequest
-	(*QueryOrderAttemptsResponse)(nil),  // 8: order.v1.QueryOrderAttemptsResponse
-	(*QueryOrdersRequest)(nil),          // 9: order.v1.QueryOrdersRequest
-	(*QueryOrdersResponse)(nil),         // 10: order.v1.QueryOrdersResponse
-	(*QueryOrderFillsRequest)(nil),      // 11: order.v1.QueryOrderFillsRequest
-	(*QueryOrderFillsResponse)(nil),     // 12: order.v1.QueryOrderFillsResponse
-	(*OrderAttemptEntry)(nil),           // 13: order.v1.OrderAttemptEntry
-	(*ExchangeOrderEntry)(nil),          // 14: order.v1.ExchangeOrderEntry
-	(*OrderFillEntry)(nil),              // 15: order.v1.OrderFillEntry
-	(*timestamppb.Timestamp)(nil),       // 16: google.protobuf.Timestamp
+	(*PlaceOrderRequest)(nil),                // 0: order.v1.PlaceOrderRequest
+	(*PlaceOrderResponse)(nil),               // 1: order.v1.PlaceOrderResponse
+	(*ResolveOrderAttemptRequest)(nil),       // 2: order.v1.ResolveOrderAttemptRequest
+	(*ResolveOrderAttemptResponse)(nil),      // 3: order.v1.ResolveOrderAttemptResponse
+	(*QueryOrderIntentsRequest)(nil),         // 4: order.v1.QueryOrderIntentsRequest
+	(*QueryOrderIntentsResponse)(nil),        // 5: order.v1.QueryOrderIntentsResponse
+	(*OrderIntentEntry)(nil),                 // 6: order.v1.OrderIntentEntry
+	(*QueryOrderAttemptsRequest)(nil),        // 7: order.v1.QueryOrderAttemptsRequest
+	(*QueryOrderAttemptsResponse)(nil),       // 8: order.v1.QueryOrderAttemptsResponse
+	(*QueryOrdersRequest)(nil),               // 9: order.v1.QueryOrdersRequest
+	(*QueryOrdersResponse)(nil),              // 10: order.v1.QueryOrdersResponse
+	(*QueryOrderFillsRequest)(nil),           // 11: order.v1.QueryOrderFillsRequest
+	(*QueryOrderFillsResponse)(nil),          // 12: order.v1.QueryOrderFillsResponse
+	(*OrderAttemptEntry)(nil),                // 13: order.v1.OrderAttemptEntry
+	(*ExchangeOrderEntry)(nil),               // 14: order.v1.ExchangeOrderEntry
+	(*OrderFillEntry)(nil),                   // 15: order.v1.OrderFillEntry
+	(*ListOrderLifecycleEventsRequest)(nil),  // 16: order.v1.ListOrderLifecycleEventsRequest
+	(*ListOrderLifecycleEventsResponse)(nil), // 17: order.v1.ListOrderLifecycleEventsResponse
+	(*OrderLifecycleEventEntry)(nil),         // 18: order.v1.OrderLifecycleEventEntry
+	(*FillDeltaEntry)(nil),                   // 19: order.v1.FillDeltaEntry
+	(*OrderStateEntry)(nil),                  // 20: order.v1.OrderStateEntry
+	(*timestamppb.Timestamp)(nil),            // 21: google.protobuf.Timestamp
 }
 var file_order_service_proto_depIdxs = []int32{
 	14, // 0: order.v1.PlaceOrderResponse.order:type_name -> order.v1.ExchangeOrderEntry
@@ -2045,30 +2647,39 @@ var file_order_service_proto_depIdxs = []int32{
 	14, // 2: order.v1.ResolveOrderAttemptResponse.order:type_name -> order.v1.ExchangeOrderEntry
 	15, // 3: order.v1.ResolveOrderAttemptResponse.fill_deltas:type_name -> order.v1.OrderFillEntry
 	6,  // 4: order.v1.QueryOrderIntentsResponse.intents:type_name -> order.v1.OrderIntentEntry
-	16, // 5: order.v1.OrderIntentEntry.time:type_name -> google.protobuf.Timestamp
+	21, // 5: order.v1.OrderIntentEntry.time:type_name -> google.protobuf.Timestamp
 	13, // 6: order.v1.QueryOrderAttemptsResponse.attempts:type_name -> order.v1.OrderAttemptEntry
 	14, // 7: order.v1.QueryOrdersResponse.orders:type_name -> order.v1.ExchangeOrderEntry
 	15, // 8: order.v1.QueryOrderFillsResponse.fills:type_name -> order.v1.OrderFillEntry
-	16, // 9: order.v1.OrderAttemptEntry.time:type_name -> google.protobuf.Timestamp
-	16, // 10: order.v1.ExchangeOrderEntry.time:type_name -> google.protobuf.Timestamp
-	16, // 11: order.v1.OrderFillEntry.time:type_name -> google.protobuf.Timestamp
-	0,  // 12: order.v1.OrderService.PlaceOrder:input_type -> order.v1.PlaceOrderRequest
-	4,  // 13: order.v1.OrderService.QueryOrderIntents:input_type -> order.v1.QueryOrderIntentsRequest
-	7,  // 14: order.v1.OrderService.QueryOrderAttempts:input_type -> order.v1.QueryOrderAttemptsRequest
-	9,  // 15: order.v1.OrderService.QueryOrders:input_type -> order.v1.QueryOrdersRequest
-	11, // 16: order.v1.OrderService.QueryOrderFills:input_type -> order.v1.QueryOrderFillsRequest
-	2,  // 17: order.v1.OrderService.ResolveOrderAttempt:input_type -> order.v1.ResolveOrderAttemptRequest
-	1,  // 18: order.v1.OrderService.PlaceOrder:output_type -> order.v1.PlaceOrderResponse
-	5,  // 19: order.v1.OrderService.QueryOrderIntents:output_type -> order.v1.QueryOrderIntentsResponse
-	8,  // 20: order.v1.OrderService.QueryOrderAttempts:output_type -> order.v1.QueryOrderAttemptsResponse
-	10, // 21: order.v1.OrderService.QueryOrders:output_type -> order.v1.QueryOrdersResponse
-	12, // 22: order.v1.OrderService.QueryOrderFills:output_type -> order.v1.QueryOrderFillsResponse
-	3,  // 23: order.v1.OrderService.ResolveOrderAttempt:output_type -> order.v1.ResolveOrderAttemptResponse
-	18, // [18:24] is the sub-list for method output_type
-	12, // [12:18] is the sub-list for method input_type
-	12, // [12:12] is the sub-list for extension type_name
-	12, // [12:12] is the sub-list for extension extendee
-	0,  // [0:12] is the sub-list for field type_name
+	21, // 9: order.v1.OrderAttemptEntry.time:type_name -> google.protobuf.Timestamp
+	21, // 10: order.v1.ExchangeOrderEntry.time:type_name -> google.protobuf.Timestamp
+	21, // 11: order.v1.OrderFillEntry.time:type_name -> google.protobuf.Timestamp
+	18, // 12: order.v1.ListOrderLifecycleEventsResponse.events:type_name -> order.v1.OrderLifecycleEventEntry
+	19, // 13: order.v1.OrderLifecycleEventEntry.fill_delta:type_name -> order.v1.FillDeltaEntry
+	20, // 14: order.v1.OrderLifecycleEventEntry.order_state:type_name -> order.v1.OrderStateEntry
+	21, // 15: order.v1.OrderLifecycleEventEntry.occurred_at:type_name -> google.protobuf.Timestamp
+	21, // 16: order.v1.OrderLifecycleEventEntry.created_at:type_name -> google.protobuf.Timestamp
+	21, // 17: order.v1.FillDeltaEntry.trade_time:type_name -> google.protobuf.Timestamp
+	21, // 18: order.v1.OrderStateEntry.updated_at:type_name -> google.protobuf.Timestamp
+	0,  // 19: order.v1.OrderService.PlaceOrder:input_type -> order.v1.PlaceOrderRequest
+	4,  // 20: order.v1.OrderService.QueryOrderIntents:input_type -> order.v1.QueryOrderIntentsRequest
+	7,  // 21: order.v1.OrderService.QueryOrderAttempts:input_type -> order.v1.QueryOrderAttemptsRequest
+	9,  // 22: order.v1.OrderService.QueryOrders:input_type -> order.v1.QueryOrdersRequest
+	11, // 23: order.v1.OrderService.QueryOrderFills:input_type -> order.v1.QueryOrderFillsRequest
+	2,  // 24: order.v1.OrderService.ResolveOrderAttempt:input_type -> order.v1.ResolveOrderAttemptRequest
+	16, // 25: order.v1.OrderService.ListOrderLifecycleEvents:input_type -> order.v1.ListOrderLifecycleEventsRequest
+	1,  // 26: order.v1.OrderService.PlaceOrder:output_type -> order.v1.PlaceOrderResponse
+	5,  // 27: order.v1.OrderService.QueryOrderIntents:output_type -> order.v1.QueryOrderIntentsResponse
+	8,  // 28: order.v1.OrderService.QueryOrderAttempts:output_type -> order.v1.QueryOrderAttemptsResponse
+	10, // 29: order.v1.OrderService.QueryOrders:output_type -> order.v1.QueryOrdersResponse
+	12, // 30: order.v1.OrderService.QueryOrderFills:output_type -> order.v1.QueryOrderFillsResponse
+	3,  // 31: order.v1.OrderService.ResolveOrderAttempt:output_type -> order.v1.ResolveOrderAttemptResponse
+	17, // 32: order.v1.OrderService.ListOrderLifecycleEvents:output_type -> order.v1.ListOrderLifecycleEventsResponse
+	26, // [26:33] is the sub-list for method output_type
+	19, // [19:26] is the sub-list for method input_type
+	19, // [19:19] is the sub-list for extension type_name
+	19, // [19:19] is the sub-list for extension extendee
+	0,  // [0:19] is the sub-list for field type_name
 }
 
 func init() { file_order_service_proto_init() }
@@ -2083,7 +2694,7 @@ func file_order_service_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_order_service_proto_rawDesc), len(file_order_service_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   16,
+			NumMessages:   21,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

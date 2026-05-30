@@ -12,6 +12,7 @@ import (
 	"github.com/hushine-tech/core-service/internal/logger"
 	"github.com/hushine-tech/core-service/internal/order/accountmeta"
 	"github.com/hushine-tech/core-service/internal/order/executor"
+	"github.com/hushine-tech/core-service/internal/order/lifecycle"
 	ordernotify "github.com/hushine-tech/core-service/internal/order/notification"
 	"github.com/hushine-tech/core-service/internal/order/repository"
 	"google.golang.org/grpc/codes"
@@ -63,6 +64,9 @@ const (
 	positionSideBoth  = int32(0)
 	positionSideLong  = int32(1)
 	positionSideShort = int32(2)
+
+	orderTypeMarket = int32(1)
+	orderTypeLimit  = int32(2)
 )
 
 func NewOrderGRPCService(meta MetaGetter, router RouterExecutor, repo repository.Repository, notifierOpt ...ordernotify.Publisher) *OrderGRPCService {
@@ -85,6 +89,10 @@ func (s *OrderGRPCService) PlaceOrder(ctx context.Context, req *orderv1.PlaceOrd
 		return nil, status.Error(codes.InvalidArgument, "qty must be non-zero")
 	}
 	if err := validateRouteRequest(req.GetExchange(), req.GetMarket(), req.GetPositionSide()); err != nil {
+		return nil, err
+	}
+	orderTypeCode, orderTypeText, timeInForce, err := normalizeOrderContract(req)
+	if err != nil {
 		return nil, err
 	}
 
@@ -120,7 +128,7 @@ func (s *OrderGRPCService) PlaceOrder(ctx context.Context, req *orderv1.PlaceOrd
 		Exchange:       meta.Exchange,
 		Market:         market,
 		PositionSide:   req.GetPositionSide(),
-		OrderType:      1,
+		OrderType:      orderTypeCode,
 		Symbol:         req.GetSymbol(),
 		Side:           req.GetSide(),
 		RequestedQty:   req.GetQty(),
@@ -144,7 +152,7 @@ func (s *OrderGRPCService) PlaceOrder(ctx context.Context, req *orderv1.PlaceOrd
 		Exchange:       meta.Exchange,
 		Market:         market,
 		PositionSide:   req.GetPositionSide(),
-		OrderType:      1,
+		OrderType:      orderTypeCode,
 		Symbol:         req.GetSymbol(),
 		Side:           req.GetSide(),
 		RequestedQty:   req.GetQty(),
@@ -173,6 +181,8 @@ func (s *OrderGRPCService) PlaceOrder(ctx context.Context, req *orderv1.PlaceOrd
 		Exchange:      meta.Exchange,
 		Market:        meta.Market,
 		PositionSide:  req.GetPositionSide(),
+		OrderType:     orderTypeText,
+		TimeInForce:   timeInForce,
 	}
 
 	result, execErr := s.routerExec.Execute(ctx, orderReq, meta)
@@ -230,6 +240,7 @@ func (s *OrderGRPCService) PlaceOrder(ctx context.Context, req *orderv1.PlaceOrd
 		return nil, status.Errorf(codes.Internal, "finalize order attempt: %v", err)
 	}
 
+	s.emitLifecycleEvents(ctx, persistedOrder, persistedFills)
 	s.publishOrderNotification(ctx, attempt, persistedOrder)
 	return buildPlaceOrderResponse(attempt, persistedOrder, persistedFills), nil
 }
@@ -296,6 +307,23 @@ func (s *OrderGRPCService) QueryOrderFills(ctx context.Context, req *orderv1.Que
 		out = append(out, toProtoFill(item))
 	}
 	return &orderv1.QueryOrderFillsResponse{Fills: out, Total: total}, nil
+}
+
+func (s *OrderGRPCService) ListOrderLifecycleEvents(ctx context.Context, req *orderv1.ListOrderLifecycleEventsRequest) (*orderv1.ListOrderLifecycleEventsResponse, error) {
+	sessionID := strings.TrimSpace(req.GetSessionId())
+	if sessionID == "" {
+		return nil, status.Error(codes.InvalidArgument, "session_id is required")
+	}
+	limit, _ := normalizePage(req.GetLimit(), 0)
+	items, err := s.repo.ListLifecycleEvents(ctx, sessionID, req.GetAfterEventId(), limit)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "list order lifecycle events: %v", err)
+	}
+	out := make([]*orderv1.OrderLifecycleEventEntry, 0, len(items))
+	for _, item := range items {
+		out = append(out, toProtoLifecycleEvent(item))
+	}
+	return &orderv1.ListOrderLifecycleEventsResponse{Events: out}, nil
 }
 
 func (s *OrderGRPCService) ResolveOrderAttempt(ctx context.Context, req *orderv1.ResolveOrderAttemptRequest) (*orderv1.ResolveOrderAttemptResponse, error) {
@@ -458,6 +486,7 @@ func (s *OrderGRPCService) resolveAttempt(
 		))
 		return buildRecoveryFailedResponse(attempt, fmt.Sprintf("failed to persist recovered execution: %v", finalizeErr)), nil
 	}
+	s.emitLifecycleEvents(ctx, persistedOrder, persistedFills)
 	if result.FillPending {
 		logger.Warn(ctx, "system", fmt.Sprintf(
 			"order recovery still pending fill details: intent_id=%s attempt_id=%s client_order_id=%s exchange_order_id=%s err=%s",
@@ -472,6 +501,56 @@ func (s *OrderGRPCService) resolveAttempt(
 	))
 	s.publishOrderNotification(ctx, attempt, persistedOrder)
 	return buildPlaceOrderResponse(attempt, persistedOrder, persistedFills), nil
+}
+
+func (s *OrderGRPCService) emitLifecycleEvents(ctx context.Context, order *repository.Order, fills []repository.OrderFill) {
+	if order == nil || len(fills) == 0 {
+		return
+	}
+	for _, fill := range fills {
+		event := lifecycle.Event{
+			SessionID:       fill.SessionID,
+			AccountID:       fill.AccountID,
+			VenueID:         fill.VenueID,
+			Environment:     fill.Environment,
+			Exchange:        fill.Exchange,
+			Market:          fill.Market,
+			PositionSide:    fill.PositionSide,
+			Side:            fill.Side,
+			IntentID:        fill.IntentID,
+			AttemptID:       fill.AttemptID,
+			OrderID:         fill.OrderID,
+			ExchangeOrderID: fill.ExchangeOrderID,
+			ExchangeTradeID: fill.ExchangeTradeID,
+			EventType:       "fill",
+			OrderStatus:     order.Status,
+			FillDelta: lifecycle.FillDelta{
+				ExchangeTradeID: fill.ExchangeTradeID,
+				ExchangeOrderID: fill.ExchangeOrderID,
+				Symbol:          fill.Symbol,
+				Qty:             fill.Qty,
+				FillPrice:       fill.FillPrice,
+				Fee:             fill.Fee,
+				FeeMissing:      strings.EqualFold(fill.Status, "FEE_MISSING"),
+				TradeTime:       fill.Time,
+			},
+			OrderState: lifecycle.OrderState{
+				ExchangeOrderID: order.ExchangeOrderID,
+				ClientOrderID:   order.ClientOrderID,
+				Symbol:          order.Symbol,
+				Status:          order.Status,
+				OrigQty:         order.OrigQty,
+				ExecutedQty:     order.ExecutedQty,
+				RemainingQty:    order.RemainingQty,
+				AvgPrice:        order.AvgPrice,
+				UpdatedAt:       order.Time,
+			},
+			OccurredAt: fill.Time,
+		}
+		if _, err := s.repo.SaveLifecycleEvent(ctx, event); err != nil {
+			logger.Error(ctx, "system", fmt.Sprintf("save lifecycle event failed: order_id=%s fill_id=%s err=%v", fill.OrderID, fill.FillID, err))
+		}
+	}
 }
 
 func (s *OrderGRPCService) publishOrderNotification(ctx context.Context, attempt repository.OrderAttempt, order *repository.Order) {
@@ -772,6 +851,58 @@ func toProtoFill(item repository.OrderFill) *orderv1.OrderFillEntry {
 	}
 }
 
+func toProtoLifecycleEvent(item lifecycle.Event) *orderv1.OrderLifecycleEventEntry {
+	return &orderv1.OrderLifecycleEventEntry{
+		EventId:         item.EventID,
+		SessionId:       item.SessionID,
+		AccountId:       item.AccountID,
+		VenueId:         item.VenueID,
+		Environment:     item.Environment,
+		Exchange:        item.Exchange,
+		Market:          item.Market,
+		PositionSide:    item.PositionSide,
+		Side:            item.Side,
+		IntentId:        item.IntentID,
+		AttemptId:       item.AttemptID,
+		OrderId:         item.OrderID,
+		ExchangeOrderId: item.ExchangeOrderID,
+		ExchangeTradeId: item.ExchangeTradeID,
+		EventType:       item.EventType,
+		OrderStatus:     item.OrderStatus,
+		FillDelta: &orderv1.FillDeltaEntry{
+			ExchangeTradeId: item.FillDelta.ExchangeTradeID,
+			ExchangeOrderId: item.FillDelta.ExchangeOrderID,
+			Symbol:          item.FillDelta.Symbol,
+			Qty:             item.FillDelta.Qty,
+			FillPrice:       item.FillDelta.FillPrice,
+			Fee:             item.FillDelta.Fee,
+			FeeAsset:        item.FillDelta.FeeAsset,
+			FeeMissing:      item.FillDelta.FeeMissing,
+			TradeTime:       timestampOrNil(item.FillDelta.TradeTime),
+		},
+		OrderState: &orderv1.OrderStateEntry{
+			ExchangeOrderId: item.OrderState.ExchangeOrderID,
+			ClientOrderId:   item.OrderState.ClientOrderID,
+			Symbol:          item.OrderState.Symbol,
+			Status:          item.OrderState.Status,
+			OrigQty:         item.OrderState.OrigQty,
+			ExecutedQty:     item.OrderState.ExecutedQty,
+			RemainingQty:    item.OrderState.RemainingQty,
+			AvgPrice:        item.OrderState.AvgPrice,
+			UpdatedAt:       timestampOrNil(item.OrderState.UpdatedAt),
+		},
+		OccurredAt: timestampOrNil(item.OccurredAt),
+		CreatedAt:  timestampOrNil(item.CreatedAt),
+	}
+}
+
+func timestampOrNil(value time.Time) *timestamppb.Timestamp {
+	if value.IsZero() {
+		return nil
+	}
+	return timestamppb.New(value)
+}
+
 func fallbackPositive(primary, fallback float64) float64 {
 	if primary > 0 {
 		return primary
@@ -824,6 +955,38 @@ func validateRouteRequest(exchange, market, positionSide int32) error {
 		return nil
 	default:
 		return status.Errorf(codes.InvalidArgument, "unsupported position_side: %d", positionSide)
+	}
+}
+
+func normalizeOrderContract(req *orderv1.PlaceOrderRequest) (int32, string, string, error) {
+	orderType := strings.ToUpper(strings.TrimSpace(req.GetOrderType()))
+	if orderType == "" {
+		if req.Price != nil {
+			orderType = "LIMIT"
+		} else {
+			orderType = "MARKET"
+		}
+	}
+	switch orderType {
+	case "MARKET":
+		if req.Price != nil {
+			return 0, "", "", status.Error(codes.InvalidArgument, "market order must not set price")
+		}
+		return orderTypeMarket, "MARKET", "", nil
+	case "LIMIT":
+		if req.Price == nil || req.GetPrice() <= 0 {
+			return 0, "", "", status.Error(codes.InvalidArgument, "limit order requires positive price")
+		}
+		tif := strings.ToUpper(strings.TrimSpace(req.GetTimeInForce()))
+		if tif == "" {
+			tif = "GTC"
+		}
+		if tif != "GTC" {
+			return 0, "", "", status.Errorf(codes.FailedPrecondition, "unsupported time_in_force: %s", tif)
+		}
+		return orderTypeLimit, "LIMIT", tif, nil
+	default:
+		return 0, "", "", status.Errorf(codes.FailedPrecondition, "unsupported order_type: %s", orderType)
 	}
 }
 

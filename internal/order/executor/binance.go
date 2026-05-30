@@ -15,9 +15,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hushine-tech/core-service/internal/order/accountmeta"
 	"github.com/hushine-tech/golang-lib/middleware/httpclient"
 	elog "github.com/hushine-tech/golang-lib/pkg/log"
-	"github.com/hushine-tech/core-service/internal/order/accountmeta"
 )
 
 const (
@@ -88,7 +88,26 @@ func (e *BinanceExecutor) Execute(ctx context.Context, req OrderRequest, meta ac
 	if positionSide != "" {
 		params.Set("positionSide", positionSide)
 	}
-	params.Set("type", "MARKET")
+	orderType := strings.ToUpper(strings.TrimSpace(req.OrderType))
+	if orderType == "" {
+		if req.Price != nil {
+			orderType = "LIMIT"
+		} else {
+			orderType = "MARKET"
+		}
+	}
+	params.Set("type", orderType)
+	if orderType == "LIMIT" {
+		if req.Price == nil || *req.Price <= 0 {
+			return failed(req, "limit order requires positive price"), nil
+		}
+		tif := strings.ToUpper(strings.TrimSpace(req.TimeInForce))
+		if tif == "" {
+			tif = "GTC"
+		}
+		params.Set("timeInForce", tif)
+		params.Set("price", strconv.FormatFloat(*req.Price, 'f', -1, 64))
+	}
 	params.Set("newOrderRespType", "RESULT")
 	params.Set("quantity", strconv.FormatFloat(req.Qty, 'f', -1, 64))
 	if strings.TrimSpace(req.ClientOrderID) != "" {
@@ -198,6 +217,8 @@ func failed(req OrderRequest, msg string) OrderResult {
 		Side:          req.Side,
 		Status:        "FAILED",
 		ClientOrderID: req.ClientOrderID,
+		OrderType:     req.OrderType,
+		TimeInForce:   req.TimeInForce,
 		OrigQty:       math.Abs(req.Qty),
 		ExecutedQty:   0,
 		RemainingQty:  math.Abs(req.Qty),
@@ -255,6 +276,8 @@ func (e *BinanceExecutor) orderResultFromResponse(ctx context.Context, orderResp
 		ClientOrderID:   nonEmptyStr(orderResp.ClientOrderID, req.ClientOrderID),
 		Symbol:          nonEmptyStr(orderResp.Symbol, req.Symbol),
 		Side:            nonEmptyStr(orderResp.Side, req.Side),
+		OrderType:       strings.ToUpper(strings.TrimSpace(req.OrderType)),
+		TimeInForce:     strings.ToUpper(strings.TrimSpace(req.TimeInForce)),
 		Status:          status,
 		OrigQty:         origQty,
 		ExecutedQty:     executedQty,

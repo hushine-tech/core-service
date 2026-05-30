@@ -6,8 +6,12 @@ import (
 	"testing"
 
 	"github.com/hushine-tech/core-service/gen/orderv1"
+	"github.com/hushine-tech/core-service/internal/domain"
+	exchangeadapter "github.com/hushine-tech/core-service/internal/exchange/adapter"
+	exchangebinance "github.com/hushine-tech/core-service/internal/exchange/binance"
 	"github.com/hushine-tech/core-service/internal/order/accountmeta"
 	"github.com/hushine-tech/core-service/internal/order/executor"
+	"github.com/hushine-tech/core-service/internal/order/lifecycle"
 	"github.com/hushine-tech/core-service/internal/order/repository"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -35,10 +39,12 @@ type stubRouterExec struct {
 	resolveResult executor.OrderResult
 	resolveErr    error
 	executeCalls  int
+	lastReq       executor.OrderRequest
 }
 
-func (r *stubRouterExec) Execute(_ context.Context, _ executor.OrderRequest, _ accountmeta.Meta) (executor.OrderResult, error) {
+func (r *stubRouterExec) Execute(_ context.Context, req executor.OrderRequest, _ accountmeta.Meta) (executor.OrderResult, error) {
 	r.executeCalls++
+	r.lastReq = req
 	return r.result, r.err
 }
 
@@ -51,6 +57,7 @@ type stubRepo struct {
 	attempts    []repository.OrderAttempt
 	orders      []repository.Order
 	fills       []repository.OrderFill
+	events      []lifecycle.Event
 	finalizeErr error
 }
 
@@ -185,6 +192,30 @@ func (s *stubRepo) ListOrderFillsByAttempt(_ context.Context, attemptID string) 
 	return out, nil
 }
 
+func (s *stubRepo) ListOpenOrders(_ context.Context, _ int) ([]lifecycle.OpenOrder, error) {
+	return nil, nil
+}
+
+func (s *stubRepo) SaveLifecycleEvent(_ context.Context, event lifecycle.Event) (lifecycle.Event, error) {
+	event.EventID = int64(len(s.events) + 1)
+	s.events = append(s.events, event)
+	return event, nil
+}
+
+func (s *stubRepo) ListLifecycleEvents(_ context.Context, sessionID string, afterEventID int64, limit int) ([]lifecycle.Event, error) {
+	out := make([]lifecycle.Event, 0)
+	for _, event := range s.events {
+		if event.SessionID != sessionID || event.EventID <= afterEventID {
+			continue
+		}
+		out = append(out, event)
+		if limit > 0 && len(out) >= limit {
+			break
+		}
+	}
+	return out, nil
+}
+
 func newTestSvc(meta accountmeta.Meta, metaErr error, result executor.OrderResult, execErr error) (*OrderGRPCService, *stubRepo) {
 	repo := &stubRepo{}
 	if meta.Environment == 0 && meta.Exchange == 0 && meta.Market == 0 {
@@ -241,6 +272,120 @@ func TestPlaceOrder_validationErrors(t *testing.T) {
 		if s, _ := status.FromError(err); s.Code() != tc.code {
 			t.Errorf("want %v, got %v", tc.code, s.Code())
 		}
+	}
+}
+
+func TestMarketOrderRejectsPrice(t *testing.T) {
+	svc, _ := newTestSvc(testOrderMeta(environmentBacktest), nil, executor.OrderResult{}, nil)
+	req := testPlaceOrderRequest()
+	req.OrderType = "MARKET"
+	price := 2500.0
+	req.Price = &price
+
+	_, err := svc.PlaceOrder(context.Background(), req)
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("code = %v, want InvalidArgument (err=%v)", status.Code(err), err)
+	}
+}
+
+func TestLimitOrderRequiresPrice(t *testing.T) {
+	svc, _ := newTestSvc(testOrderMeta(environmentBacktest), nil, executor.OrderResult{}, nil)
+	req := testPlaceOrderRequest()
+	req.OrderType = "LIMIT"
+	req.Price = nil
+
+	_, err := svc.PlaceOrder(context.Background(), req)
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("code = %v, want InvalidArgument (err=%v)", status.Code(err), err)
+	}
+}
+
+func TestLimitOrderDefaultsGTC(t *testing.T) {
+	meta := testOrderMeta(environmentBacktest)
+	router := &stubRouterExec{result: executor.OrderResult{
+		ExchangeOrderID: "limit-order-1",
+		Symbol:          "ETHUSDT",
+		Side:            "BUY",
+		Status:          "NEW",
+		OrigQty:         1,
+		ExecutedQty:     0,
+		RemainingQty:    1,
+	}}
+	repo := &stubRepo{}
+	svc := NewOrderGRPCService(&stubMetaGetter{meta: meta}, router, repo)
+
+	req := testPlaceOrderRequest()
+	price := 2499.0
+	req.Price = &price
+	req.OrderType = "LIMIT"
+	req.TimeInForce = ""
+	resp, err := svc.PlaceOrder(context.Background(), req)
+	if err != nil {
+		t.Fatalf("PlaceOrder: %v", err)
+	}
+	if resp.GetAttemptStatus() != attemptStatusAccepted {
+		t.Fatalf("attempt status = %s, want %s", resp.GetAttemptStatus(), attemptStatusAccepted)
+	}
+	if router.lastReq.OrderType != "LIMIT" || router.lastReq.TimeInForce != "GTC" {
+		t.Fatalf("order contract = %s/%s, want LIMIT/GTC", router.lastReq.OrderType, router.lastReq.TimeInForce)
+	}
+	if len(repo.intents) != 1 || repo.intents[0].OrderType != orderTypeLimit {
+		t.Fatalf("persisted intent order_type = %+v, want LIMIT", repo.intents)
+	}
+}
+
+func TestPlaceOrderBacktestLimitRemainsOpenWhenAdapterMarkDoesNotTouch(t *testing.T) {
+	meta := testOrderMeta(environmentBacktest)
+	registry := exchangeadapter.NewRegistry()
+	route := exchangeadapter.Route{
+		Exchange:    domain.ExchangeBinance,
+		Environment: domain.EnvironmentBacktest,
+		Market:      domain.MarketPerpetualFutures,
+	}
+	registry.Register(route, exchangebinance.NewBacktestFactory(route))
+	repo := &stubRepo{}
+	svc := NewOrderGRPCService(&stubMetaGetter{meta: meta}, executor.NewAdapterRouter(registry), repo)
+
+	price := 19.885
+	req := testPlaceOrderRequest()
+	req.Price = &price
+	req.OrderType = "LIMIT"
+	req.TimeInForce = "GTC"
+	req.MarkPrice = 1988.5
+	req.Qty = 0.004
+	req.StrategyId = 29
+	req.SessionId = "sess-limit-open"
+
+	resp, err := svc.PlaceOrder(context.Background(), req)
+	if err != nil {
+		t.Fatalf("PlaceOrder: %v", err)
+	}
+	if resp.GetAttemptStatus() != attemptStatusAccepted {
+		t.Fatalf("attempt status = %s, want %s", resp.GetAttemptStatus(), attemptStatusAccepted)
+	}
+	order := resp.GetOrder()
+	if order == nil {
+		t.Fatal("response order is nil")
+	}
+	if order.GetStatus() != "NEW" || order.GetExecutedQty() != 0 || order.GetRemainingQty() != 0.004 {
+		t.Fatalf("order = %+v, want open limit order", order)
+	}
+	if len(resp.GetFillDeltas()) != 0 || len(repo.fills) != 0 || len(repo.events) != 0 {
+		t.Fatalf("unexpected fills/events: resp=%d repo_fills=%d events=%d", len(resp.GetFillDeltas()), len(repo.fills), len(repo.events))
+	}
+}
+
+func TestUnsupportedTimeInForceFailsClosed(t *testing.T) {
+	svc, _ := newTestSvc(testOrderMeta(environmentBacktest), nil, executor.OrderResult{}, nil)
+	req := testPlaceOrderRequest()
+	price := 2500.0
+	req.Price = &price
+	req.OrderType = "LIMIT"
+	req.TimeInForce = "IOC"
+
+	_, err := svc.PlaceOrder(context.Background(), req)
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("code = %v, want FailedPrecondition (err=%v)", status.Code(err), err)
 	}
 }
 
@@ -660,5 +805,45 @@ func TestQueryOrderFills_filtersByOrder(t *testing.T) {
 	}
 	if resp.GetTotal() != 2 || len(resp.GetFills()) != 2 {
 		t.Fatalf("fills total/items = %d/%d", resp.GetTotal(), len(resp.GetFills()))
+	}
+}
+
+func TestListOrderLifecycleEventsAfterCursor(t *testing.T) {
+	svc, repo := newTestSvc(accountmeta.Meta{}, nil, executor.OrderResult{}, nil)
+	repo.events = append(repo.events,
+		lifecycle.Event{EventID: 1, SessionID: "sess-1", EventType: "fill", OrderStatus: "PARTIALLY_FILLED"},
+		lifecycle.Event{
+			EventID:      2,
+			SessionID:    "sess-1",
+			Environment:  environmentDemo,
+			Exchange:     exchangeBinance,
+			Market:       marketPerpetualFutures,
+			PositionSide: positionSideBoth,
+			Side:         "BUY",
+			EventType:    "fill",
+			OrderStatus:  "FILLED",
+			FillDelta:    lifecycle.FillDelta{Symbol: "ETHUSDT", Qty: 0.2, FillPrice: 3000},
+		},
+		lifecycle.Event{EventID: 3, SessionID: "other", EventType: "fill"},
+	)
+
+	resp, err := svc.ListOrderLifecycleEvents(context.Background(), &orderv1.ListOrderLifecycleEventsRequest{
+		SessionId:    "sess-1",
+		AfterEventId: 1,
+		Limit:        10,
+	})
+	if err != nil {
+		t.Fatalf("ListOrderLifecycleEvents err: %v", err)
+	}
+	if len(resp.GetEvents()) != 1 {
+		t.Fatalf("events len = %d, want 1", len(resp.GetEvents()))
+	}
+	event := resp.GetEvents()[0]
+	if event.GetEventId() != 2 || event.GetOrderStatus() != "FILLED" || event.GetFillDelta().GetSymbol() != "ETHUSDT" {
+		t.Fatalf("event = %+v, want cursor event 2", event)
+	}
+	if event.GetEnvironment() != environmentDemo || event.GetExchange() != exchangeBinance ||
+		event.GetMarket() != marketPerpetualFutures || event.GetPositionSide() != positionSideBoth || event.GetSide() != "BUY" {
+		t.Fatalf("event route facts = %+v, want binance futures BUY", event)
 	}
 }

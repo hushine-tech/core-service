@@ -40,6 +40,15 @@ service AccountService {
   // Latest wallet state: mode=0 reads DB; mode=1/2 fetches from Binance (live/testnet) per account registration.
   rpc GetOnlineAccountInfo(GetOnlineAccountInfoRequest) returns (GetOnlineAccountInfoResponse);
 
+  // Phase 2 canonical portfolio snapshot API. It reads active account venues
+  // through the exchange capability registry and returns account-level summary
+  // plus per-venue balances/positions.
+  rpc GetPortfolioSnapshot(GetPortfolioSnapshotRequest) returns (GetPortfolioSnapshotResponse);
+
+  // Refresh and persist the current portfolio snapshot. Exchange-backed
+  // accounts read from active venues; backtest accounts read local state.
+  rpc UpdatePortfolioSnapshot(UpdatePortfolioSnapshotRequest) returns (UpdatePortfolioSnapshotResponse);
+
   // Bidirectional wallet sync. Routing uses only account_id: look up the account's registered
   // mode (backtest vs live/testnet). strategy-service does not send a mode.
   // Backtest: request wallet is authoritative — persisted and returned.
@@ -395,6 +404,70 @@ message GetOnlineAccountInfoRequest {
 
 message GetOnlineAccountInfoResponse {
   AccountWalletState wallet = 1;
+}
+
+message GetPortfolioSnapshotRequest {
+  int64 account_id = 1;
+  int64 user_id = 100;
+}
+
+message GetPortfolioSnapshotResponse {
+  PortfolioSnapshot snapshot = 1;
+}
+
+message UpdatePortfolioSnapshotRequest {
+  int64 account_id = 1;
+  int64 user_id = 2;
+  int32 snapshot_reason = 3;
+  int64 strategy_id = 4;
+  string session_id = 5;
+}
+
+message UpdatePortfolioSnapshotResponse {
+  PortfolioSnapshot snapshot = 1;
+}
+
+message PortfolioSnapshot {
+  int64 account_id = 1;
+  int64 user_id = 2;
+  double total_value = 3;
+  double wallet_balance = 4;
+  double available_balance = 5;
+  google.protobuf.Timestamp updated_at = 6;
+  repeated VenueSnapshot venues = 7;
+  AccountWalletState wallet = 8;
+}
+
+message VenueSnapshot {
+  int64 venue_id = 1;
+  int32 exchange = 2;
+  int32 environment = 3;
+  int32 market = 4;
+  double total_value = 5;
+  double wallet_balance = 6;
+  double available_balance = 7;
+  google.protobuf.Timestamp updated_at = 8;
+  repeated BalanceEntry balances = 9;
+  repeated PositionEntry positions = 10;
+}
+
+message BalanceEntry {
+  string asset = 1;
+  double wallet_balance = 2;
+  double available_balance = 3;
+  double locked = 4;
+  double value_usdt = 5;
+}
+
+message PositionEntry {
+  string symbol = 1;
+  string position_side = 2;
+  double qty = 3;
+  double entry_price = 4;
+  double mark_price = 5;
+  double unrealized_pnl = 6;
+  double margin_balance = 7;
+  double liquidation_price = 8;
 }
 
 message UpdateAccountWalletStateRequest {

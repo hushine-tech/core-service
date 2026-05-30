@@ -23,7 +23,11 @@ import (
 	"github.com/hushine-tech/core-service/internal/catalog"
 	"github.com/hushine-tech/core-service/internal/config"
 	"github.com/hushine-tech/core-service/internal/credential"
+	"github.com/hushine-tech/core-service/internal/domain"
 	"github.com/hushine-tech/core-service/internal/exchange"
+	exchangeadapter "github.com/hushine-tech/core-service/internal/exchange/adapter"
+	exchangebinance "github.com/hushine-tech/core-service/internal/exchange/binance"
+	exchangeokx "github.com/hushine-tech/core-service/internal/exchange/okx"
 	"github.com/hushine-tech/core-service/internal/httpserver"
 	"github.com/hushine-tech/core-service/internal/logger"
 	"github.com/hushine-tech/core-service/internal/notification"
@@ -107,6 +111,19 @@ func main() {
 	}
 
 	router := exchange.NewAdapterRouter(fetchers, repo.GetAccountState)
+	exchangeRegistry := exchangeadapter.NewRegistry()
+	for _, env := range []domain.Environment{domain.EnvironmentBacktest, domain.EnvironmentDemo, domain.EnvironmentLive} {
+		route := exchangeadapter.Route{Exchange: domain.ExchangeBinance, Environment: env, Market: domain.MarketPerpetualFutures}
+		if env == domain.EnvironmentBacktest {
+			exchangeRegistry.Register(route, exchangebinance.NewBacktestFactory(route))
+		} else {
+			exchangeRegistry.Register(route, exchangebinance.NewFactory(route, logger.Instance()))
+		}
+	}
+	for _, env := range []domain.Environment{domain.EnvironmentDemo, domain.EnvironmentLive} {
+		route := exchangeadapter.Route{Exchange: domain.ExchangeOKX, Environment: env, Market: domain.MarketPerpetualFutures}
+		exchangeRegistry.Register(route, exchangeokx.NewFactory(route))
+	}
 	symbolCatalog := catalog.New(cfg.Exchange.SymbolCacheDuration(), logger.Instance())
 
 	var credentialManager *credential.Manager
@@ -160,10 +177,7 @@ func main() {
 	}
 
 	// ── Order Service Wiring ──────────────────────────────────────────────────
-	mockExecutor := orderexecutor.NewMockExecutor()
-	liveExecutor := orderexecutor.NewBinanceLiveExecutor(logger.Instance())
-	testnetExecutor := orderexecutor.NewBinanceTestnetExecutor(logger.Instance())
-	orderRouter := orderexecutor.NewRouter(mockExecutor, liveExecutor, testnetExecutor)
+	orderRouter := orderexecutor.NewAdapterRouter(exchangeRegistry)
 
 	var orderPublisher ordernotify.Publisher = ordernotify.NoopPublisher{}
 	var orderPublisherCloser interface{ Close() error }
@@ -215,7 +229,7 @@ func main() {
 	grpcSrv := grpc.NewServer(
 		grpc.UnaryInterceptor(grpcmw.UnaryServerInterceptor(logger.Instance())),
 	)
-	accountv1.RegisterAccountServiceServer(grpcSrv, service.NewAccountGRPCService(repo, router, symbolCatalog, reconciler, notificationSvc, service.WithCredentialManager(credentialManager)))
+	accountv1.RegisterAccountServiceServer(grpcSrv, service.NewAccountGRPCService(repo, router, symbolCatalog, reconciler, notificationSvc, service.WithCredentialManager(credentialManager), service.WithExchangeRegistry(exchangeRegistry)))
 	orderv1.RegisterOrderServiceServer(grpcSrv, orderService)
 
 	lis, err := net.Listen("tcp", grpcAddr)

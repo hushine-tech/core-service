@@ -70,10 +70,13 @@ type OrderRequest struct {
 	Symbol        string
 	Side          string
 	PositionSide  string
+	MarginMode    domain.MarginMode
+	PositionMode  domain.PositionMode
 	OrderType     string
 	TimeInForce   string
 	Qty           float64
 	Price         *float64
+	MarkPrice     float64
 	ClientOrderID string
 	Credential    ParsedCredential
 }
@@ -94,6 +97,7 @@ type OrderResult struct {
 	Price           float64
 	Fills           []FillDelta
 	ErrorMessage    string
+	FillPending     bool
 }
 
 type QueryOrderRequest struct {
@@ -133,6 +137,7 @@ type FillDelta struct {
 	FillPrice       float64
 	Fee             float64
 	FeeAsset        string
+	FeeMissing      bool
 	TradeTime       time.Time
 }
 

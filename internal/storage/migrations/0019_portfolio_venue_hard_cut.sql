@@ -112,6 +112,7 @@ CREATE TABLE strategy_sessions (
     bars_processed INTEGER NOT NULL DEFAULT 0,
     error TEXT NOT NULL DEFAULT '',
     error_code TEXT NOT NULL DEFAULT '',
+    error_message TEXT NOT NULL DEFAULT '',
     error_detail_json JSONB NOT NULL DEFAULT '{}'::jsonb,
     runtime_id TEXT NOT NULL DEFAULT '',
     runtime_source TEXT NOT NULL DEFAULT '',
@@ -123,7 +124,7 @@ CREATE TABLE strategy_sessions (
     completed_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT chk_strategy_sessions_environment CHECK (environment IN (0, 1, 2)),
-    CONSTRAINT chk_strategy_sessions_status CHECK (status IN (1, 2, 3, 4, 5, 6, 7, 8))
+    CONSTRAINT chk_strategy_sessions_status CHECK (status IN (1, 2, 3, 4, 5, 6, 7, 8, 9))
 );
 
 CREATE UNIQUE INDEX uq_strategy_sessions_active_account

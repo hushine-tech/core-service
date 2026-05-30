@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -69,5 +70,56 @@ func TestUpdateSessionFinishedPersistsBarsAndCompletion(t *testing.T) {
 	}
 	if got.CompletedAt == nil {
 		t.Fatalf("completed_at is nil, want completion timestamp")
+	}
+}
+
+func TestSavePreflightFailedSessionPersistsStructuredError(t *testing.T) {
+	repo, ctx := notificationTestRepo(t)
+	user := createNotificationTestUser(t, ctx, repo)
+
+	accountID, err := repo.CreateAccount(ctx, domain.Account{
+		UserID:      user.ID,
+		Name:        fmt.Sprintf("preflight-failed-%d", time.Now().UnixNano()),
+		Description: "preflight failed regression",
+		Environment: domain.EnvironmentDemo,
+		Status:      domain.AccountStatusActive,
+		CreatedAt:   time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+
+	sessionID := fmt.Sprintf("preflight-failed-%d", time.Now().UnixNano())
+	t.Cleanup(func() {
+		_, _ = repo.db.ExecContext(context.Background(), `DELETE FROM strategy_sessions WHERE session_id = $1`, sessionID)
+		_, _ = repo.db.ExecContext(context.Background(), `DELETE FROM accounts WHERE account_id = $1`, accountID)
+	})
+
+	if err := repo.SaveSession(ctx, domain.StrategySession{
+		SessionID:       sessionID,
+		UserID:          user.ID,
+		AccountID:       accountID,
+		StrategyID:      2,
+		Environment:     domain.EnvironmentDemo,
+		Status:          domain.SessionStatusPreflightFailed,
+		ErrorCode:       "VENUE_MISSING",
+		ErrorMessage:    "active venue is missing",
+		ErrorDetailJSON: `{"exchange":1,"market":2}`,
+	}); err != nil {
+		t.Fatalf("SaveSession: %v", err)
+	}
+
+	got, err := repo.GetSession(ctx, sessionID, user.ID)
+	if err != nil {
+		t.Fatalf("GetSession: %v", err)
+	}
+	if got.Status != domain.SessionStatusPreflightFailed {
+		t.Fatalf("status = %q, want %q", got.Status, domain.SessionStatusPreflightFailed)
+	}
+	if got.ErrorCode != "VENUE_MISSING" || got.ErrorMessage != "active venue is missing" {
+		t.Fatalf("unexpected structured error fields: %+v", got)
+	}
+	if !strings.Contains(got.ErrorDetailJSON, `"exchange": 1`) || !got.StartedAt.IsZero() {
+		t.Fatalf("unexpected preflight failure session: %+v", got)
 	}
 }

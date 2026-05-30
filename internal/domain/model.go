@@ -215,28 +215,35 @@ const (
 
 // StrategySession represents a single strategy execution run (backtest or live).
 type StrategySession struct {
-	SessionID      string
-	AccountID      int64
-	UserID         int64
-	StrategyID     int64
-	Environment    Environment
-	Mode           int    // 0=backtest, 1=live, 2=testnet
-	Status         string // running, stopping, recoverable, finished, stopped, failed, stop_failed (completed = legacy)
-	Interval       string // "1m", "5m", etc.
-	StartTimeMs    *int64 // 回测参数（实盘为 nil）
-	EndTimeMs      *int64
-	BarsProcessed  int
-	Error          string
-	RuntimeID      string // owning strategy-runtime; empty means legacy/unbound
-	RuntimeSource  string // hosted / self_hosted; snapshot at session creation
-	RuntimeName    string // runtime name snapshot at session creation
-	SessionType    string // backtest / debugging / testnet
-	RuntimeVersion string
-	SessionName    string
-	StartedAt      time.Time
-	CompletedAt    *time.Time
-	CreatedAt      time.Time
+	SessionID       string
+	AccountID       int64
+	UserID          int64
+	StrategyID      int64
+	Environment     Environment
+	Mode            int    // 0=backtest, 1=live, 2=testnet
+	Status          string // running, stopping, recoverable, finished, stopped, failed, stop_failed, preflight_failed (completed = legacy)
+	Interval        string // "1m", "5m", etc.
+	StartTimeMs     *int64 // 回测参数（实盘为 nil）
+	EndTimeMs       *int64
+	BarsProcessed   int
+	Error           string
+	ErrorCode       string
+	ErrorMessage    string
+	ErrorDetailJSON string
+	RuntimeID       string // owning strategy-runtime; empty means legacy/unbound
+	RuntimeSource   string // hosted / self_hosted; snapshot at session creation
+	RuntimeName     string // runtime name snapshot at session creation
+	SessionType     string // backtest / debugging / testnet
+	RuntimeVersion  string
+	SessionName     string
+	StartedAt       time.Time
+	CompletedAt     *time.Time
+	CreatedAt       time.Time
 }
+
+const (
+	SessionStatusPreflightFailed = "preflight_failed"
+)
 
 // SnapshotRow represents an account snapshot row (for session detail queries).
 type SnapshotRow struct {

@@ -1115,11 +1115,72 @@ func (s *AccountGRPCService) PreflightStrategySession(ctx context.Context, req *
 			continue
 		}
 	}
+	if len(issues) > 0 {
+		if err := s.savePreflightFailedSession(ctx, req, account, issues); err != nil {
+			return nil, err
+		}
+	}
 	return &accountv1.PreflightStrategySessionResponse{
 		Ok:             len(issues) == 0,
 		Issues:         issues,
 		ResolvedVenues: resolved,
 	}, nil
+}
+
+func (s *AccountGRPCService) savePreflightFailedSession(
+	ctx context.Context,
+	req *accountv1.PreflightStrategySessionRequest,
+	account domain.Account,
+	issues []*accountv1.PreflightIssue,
+) error {
+	sessionID := strings.TrimSpace(req.GetSessionId())
+	if sessionID == "" || len(issues) == 0 {
+		return nil
+	}
+	firstIssue := issues[0]
+	type preflightIssueDetail struct {
+		Code     string `json:"code"`
+		Message  string `json:"message"`
+		Exchange int32  `json:"exchange,omitempty"`
+		Market   int32  `json:"market,omitempty"`
+		Symbol   string `json:"symbol,omitempty"`
+	}
+	details := make([]preflightIssueDetail, 0, len(issues))
+	for _, issue := range issues {
+		details = append(details, preflightIssueDetail{
+			Code:     issue.GetCode(),
+			Message:  issue.GetMessage(),
+			Exchange: issue.GetExchange(),
+			Market:   issue.GetMarket(),
+			Symbol:   issue.GetSymbol(),
+		})
+	}
+	detailJSON, err := json.Marshal(struct {
+		Issues []preflightIssueDetail `json:"issues"`
+	}{Issues: details})
+	if err != nil {
+		return status.Errorf(codes.Internal, "marshal preflight issues: %v", err)
+	}
+	now := time.Now().UTC()
+	env := environmentFromAccount(account)
+	sess := domain.StrategySession{
+		SessionID:       sessionID,
+		AccountID:       req.GetAccountId(),
+		UserID:          account.UserID,
+		StrategyID:      req.GetStrategyId(),
+		Environment:     env,
+		Mode:            int(accountModeFromEnvironment(env)),
+		Status:          domain.SessionStatusPreflightFailed,
+		Error:           firstIssue.GetMessage(),
+		ErrorCode:       firstIssue.GetCode(),
+		ErrorMessage:    firstIssue.GetMessage(),
+		ErrorDetailJSON: string(detailJSON),
+		CompletedAt:     &now,
+	}
+	if err := s.repo.SaveSession(ctx, sess); err != nil {
+		return mapRepoErr(err)
+	}
+	return nil
 }
 
 func symbolRulesContain(rules adapter.SymbolRules, symbol string) bool {
@@ -2577,23 +2638,28 @@ func toProtoFieldDiff(diff domain.FieldDiff) *accountv1.FieldDiffEntry {
 
 func toProtoSession(s domain.StrategySession) *accountv1.StrategySessionEntry {
 	e := &accountv1.StrategySessionEntry{
-		SessionId:      s.SessionID,
-		AccountId:      s.AccountID,
-		StrategyId:     s.StrategyID,
-		Mode:           int32(s.Mode),
-		Status:         s.Status,
-		Interval:       s.Interval,
-		BarsProcessed:  int32(s.BarsProcessed),
-		Error:          s.Error,
-		StartedAt:      timestamppb.New(s.StartedAt),
-		CreatedAt:      timestamppb.New(s.CreatedAt),
-		UserId:         s.UserID,
-		RuntimeId:      s.RuntimeID,
-		RuntimeSource:  s.RuntimeSource,
-		RuntimeName:    s.RuntimeName,
-		SessionType:    normalizeServiceSessionType(s.Mode, s.SessionType),
-		RuntimeVersion: normalizeServiceRuntimeVersion(s.RuntimeVersion),
-		SessionName:    s.SessionName,
+		SessionId:       s.SessionID,
+		AccountId:       s.AccountID,
+		StrategyId:      s.StrategyID,
+		Mode:            int32(s.Mode),
+		Status:          s.Status,
+		Interval:        s.Interval,
+		BarsProcessed:   int32(s.BarsProcessed),
+		Error:           s.Error,
+		CreatedAt:       timestamppb.New(s.CreatedAt),
+		UserId:          s.UserID,
+		RuntimeId:       s.RuntimeID,
+		RuntimeSource:   s.RuntimeSource,
+		RuntimeName:     s.RuntimeName,
+		SessionType:     normalizeServiceSessionType(s.Mode, s.SessionType),
+		RuntimeVersion:  normalizeServiceRuntimeVersion(s.RuntimeVersion),
+		SessionName:     s.SessionName,
+		ErrorCode:       s.ErrorCode,
+		ErrorMessage:    s.ErrorMessage,
+		ErrorDetailJson: s.ErrorDetailJSON,
+	}
+	if !s.StartedAt.IsZero() {
+		e.StartedAt = timestamppb.New(s.StartedAt)
 	}
 	if s.StartTimeMs != nil {
 		e.StartTimeMs = *s.StartTimeMs

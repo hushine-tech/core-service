@@ -1074,6 +1074,8 @@ func sessionStatusCode(status string) int16 {
 		return 7
 	case "failed", "stop_failed":
 		return 8
+	case domain.SessionStatusPreflightFailed:
+		return 9
 	default:
 		return 8
 	}
@@ -1097,6 +1099,8 @@ func sessionStatusText(status int16) string {
 		return "stopped"
 	case 8:
 		return "failed"
+	case 9:
+		return domain.SessionStatusPreflightFailed
 	default:
 		return "failed"
 	}
@@ -1106,7 +1110,7 @@ func sessionStatusText(status int16) string {
 
 const sessionSelectColumns = `
 	session_id, account_id, user_id, strategy_id, environment, status, interval,
-	start_time_ms, end_time_ms, bars_processed, error,
+	start_time_ms, end_time_ms, bars_processed, error, error_code, error_message, error_detail_json,
 	runtime_id, runtime_source, runtime_name, session_type, runtime_version, session_name,
 	started_at, completed_at, created_at`
 
@@ -1130,21 +1134,30 @@ func (r *TimescaleRepository) SaveSession(ctx context.Context, s domain.Strategy
 	if !s.StartedAt.IsZero() {
 		startedAt = s.StartedAt.UTC()
 	}
+	var completedAt any
+	if s.CompletedAt != nil {
+		completedAt = s.CompletedAt.UTC()
+	}
+	errorDetailJSON := strings.TrimSpace(s.ErrorDetailJSON)
+	if errorDetailJSON == "" {
+		errorDetailJSON = "{}"
+	}
 	res, err := tx.ExecContext(ctx, `
 		INSERT INTO strategy_sessions (
 			session_id, account_id, user_id, strategy_id, environment, status, interval,
-			start_time_ms, end_time_ms, bars_processed, error,
-			runtime_id, runtime_source, runtime_name, session_type, runtime_version, session_name, started_at
+			start_time_ms, end_time_ms, bars_processed, error, error_code, error_message, error_detail_json,
+			runtime_id, runtime_source, runtime_name, session_type, runtime_version, session_name, started_at, completed_at
 		)
-		SELECT $1, a.account_id, a.user_id, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
+		SELECT $1, a.account_id, a.user_id, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13, $14, $15, $16, $17, $18, $19, $20
 		FROM accounts a
-		WHERE a.account_id = $17
+		WHERE a.account_id = $21
 		  AND a.environment = $3`,
 		s.SessionID, strategyID, int16(env), statusCode, s.Interval,
 		s.StartTimeMs, s.EndTimeMs, s.BarsProcessed, s.Error,
+		s.ErrorCode, s.ErrorMessage, errorDetailJSON,
 		s.RuntimeID, s.RuntimeSource, s.RuntimeName,
 		normalizeSessionType(s.Mode, s.SessionType), normalizeRuntimeVersion(s.RuntimeVersion), s.SessionName,
-		startedAt, s.AccountID)
+		startedAt, completedAt, s.AccountID)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return ErrConflict
@@ -1423,10 +1436,11 @@ func scanSession(s interface{ Scan(...any) error }) (domain.StrategySession, err
 	var strategyID, startMs, endMs sql.NullInt64
 	var completedAt, startedAt sql.NullTime
 	var runtimeID, runtimeSource, runtimeName, sessionType, runtimeVersion, sessionName sql.NullString
+	var errorCode, errorMessage, errorDetailJSON sql.NullString
 	var env, statusCode int16
 	if err := s.Scan(
 		&sess.SessionID, &sess.AccountID, &sess.UserID, &strategyID, &env, &statusCode, &sess.Interval,
-		&startMs, &endMs, &sess.BarsProcessed, &sess.Error,
+		&startMs, &endMs, &sess.BarsProcessed, &sess.Error, &errorCode, &errorMessage, &errorDetailJSON,
 		&runtimeID, &runtimeSource, &runtimeName, &sessionType, &runtimeVersion, &sessionName,
 		&startedAt, &completedAt, &sess.CreatedAt,
 	); err != nil {
@@ -1472,6 +1486,15 @@ func scanSession(s interface{ Scan(...any) error }) (domain.StrategySession, err
 	}
 	if sessionName.Valid {
 		sess.SessionName = sessionName.String
+	}
+	if errorCode.Valid {
+		sess.ErrorCode = errorCode.String
+	}
+	if errorMessage.Valid {
+		sess.ErrorMessage = errorMessage.String
+	}
+	if errorDetailJSON.Valid {
+		sess.ErrorDetailJSON = errorDetailJSON.String
 	}
 	sess.SessionType = normalizeSessionType(sess.Mode, sess.SessionType)
 	sess.RuntimeVersion = normalizeRuntimeVersion(sess.RuntimeVersion)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -45,6 +46,37 @@ type stubRepo struct {
 
 	err   error
 	users map[string]domain.User
+}
+
+type preflightSessionRepo struct {
+	stubRepo
+	sessions map[string]domain.StrategySession
+}
+
+func newPreflightSessionRepo(account domain.Account) *preflightSessionRepo {
+	return &preflightSessionRepo{
+		stubRepo: stubRepo{account: account},
+		sessions: make(map[string]domain.StrategySession),
+	}
+}
+
+func (r *preflightSessionRepo) SaveSession(_ context.Context, s domain.StrategySession) error {
+	if s.CreatedAt.IsZero() {
+		s.CreatedAt = time.Now().UTC()
+	}
+	r.sessions[s.SessionID] = s
+	return nil
+}
+
+func (r *preflightSessionRepo) GetSession(_ context.Context, sessionID string, userID int64) (domain.StrategySession, error) {
+	s, ok := r.sessions[sessionID]
+	if !ok {
+		return domain.StrategySession{}, repository.ErrNotFound
+	}
+	if userID > 0 && s.UserID != userID {
+		return domain.StrategySession{}, repository.ErrNotFound
+	}
+	return s, nil
 }
 
 func (s *stubRepo) CreateUser(_ context.Context, user domain.User) (domain.User, error) {
@@ -676,6 +708,51 @@ func TestPreflightStrategySessionReportsMissingVenue(t *testing.T) {
 	}
 	if len(resp.GetIssues()) != 1 || resp.GetIssues()[0].GetCode() != "VENUE_MISSING" {
 		t.Fatalf("issues = %+v", resp.GetIssues())
+	}
+}
+
+func TestPreflightStrategySessionPersistsFailedSession(t *testing.T) {
+	repo := newPreflightSessionRepo(domain.Account{
+		AccountID:   11,
+		UserID:      serviceTestUserID,
+		Environment: domain.EnvironmentDemo,
+		Status:      domain.AccountStatusActive,
+	})
+	svc := NewAccountGRPCService(repo, nil, nil, nil)
+
+	resp, err := svc.PreflightStrategySession(context.Background(), &accountv1.PreflightStrategySessionRequest{
+		UserId:     serviceTestUserID,
+		AccountId:  11,
+		SessionId:  "preflight-failed-service-1",
+		StrategyId: 29,
+		RequiredRoutes: []*accountv1.RequiredRoute{{
+			Exchange: int32(domain.ExchangeBinance),
+			Market:   int32(domain.MarketPerpetualFutures),
+		}},
+	})
+	if err != nil {
+		t.Fatalf("PreflightStrategySession: %v", err)
+	}
+	if resp.GetOk() {
+		t.Fatal("preflight ok = true, want false")
+	}
+
+	got, err := svc.GetSession(context.Background(), &accountv1.GetSessionRequest{
+		SessionId: "preflight-failed-service-1",
+		UserId:    serviceTestUserID,
+	})
+	if err != nil {
+		t.Fatalf("GetSession: %v", err)
+	}
+	sess := got.GetSession()
+	if sess.GetStatus() != domain.SessionStatusPreflightFailed {
+		t.Fatalf("status = %q, want %q", sess.GetStatus(), domain.SessionStatusPreflightFailed)
+	}
+	if sess.GetErrorCode() != "VENUE_MISSING" || sess.GetErrorMessage() != "active venue is missing" {
+		t.Fatalf("unexpected structured error fields: %+v", sess)
+	}
+	if !strings.Contains(sess.GetErrorDetailJson(), `"code":"VENUE_MISSING"`) {
+		t.Fatalf("error_detail_json = %q, want issue payload", sess.GetErrorDetailJson())
 	}
 }
 

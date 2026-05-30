@@ -2071,6 +2071,8 @@ type PreflightStrategySessionRequest struct {
 	AccountId       int64                  `protobuf:"varint,2,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
 	RequiredRoutes  []*RequiredRoute       `protobuf:"bytes,3,rep,name=required_routes,json=requiredRoutes,proto3" json:"required_routes,omitempty"`
 	RequiredSymbols []*RequiredSymbol      `protobuf:"bytes,4,rep,name=required_symbols,json=requiredSymbols,proto3" json:"required_symbols,omitempty"`
+	SessionId       string                 `protobuf:"bytes,5,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	StrategyId      int64                  `protobuf:"varint,6,opt,name=strategy_id,json=strategyId,proto3" json:"strategy_id,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -2131,6 +2133,20 @@ func (x *PreflightStrategySessionRequest) GetRequiredSymbols() []*RequiredSymbol
 		return x.RequiredSymbols
 	}
 	return nil
+}
+
+func (x *PreflightStrategySessionRequest) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+func (x *PreflightStrategySessionRequest) GetStrategyId() int64 {
+	if x != nil {
+		return x.StrategyId
+	}
+	return 0
 }
 
 type PreflightStrategySessionResponse struct {
@@ -5629,29 +5645,32 @@ func (x *GetActiveStrategyResponse) GetRuntimeProfile() string {
 }
 
 type StrategySessionEntry struct {
-	state          protoimpl.MessageState `protogen:"open.v1"`
-	SessionId      string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	AccountId      int64                  `protobuf:"varint,2,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
-	StrategyId     int64                  `protobuf:"varint,3,opt,name=strategy_id,json=strategyId,proto3" json:"strategy_id,omitempty"`
-	Mode           int32                  `protobuf:"varint,4,opt,name=mode,proto3" json:"mode,omitempty"`
-	Status         string                 `protobuf:"bytes,5,opt,name=status,proto3" json:"status,omitempty"`
-	Interval       string                 `protobuf:"bytes,6,opt,name=interval,proto3" json:"interval,omitempty"`
-	StartTimeMs    int64                  `protobuf:"varint,7,opt,name=start_time_ms,json=startTimeMs,proto3" json:"start_time_ms,omitempty"`
-	EndTimeMs      int64                  `protobuf:"varint,8,opt,name=end_time_ms,json=endTimeMs,proto3" json:"end_time_ms,omitempty"`
-	BarsProcessed  int32                  `protobuf:"varint,9,opt,name=bars_processed,json=barsProcessed,proto3" json:"bars_processed,omitempty"`
-	Error          string                 `protobuf:"bytes,10,opt,name=error,proto3" json:"error,omitempty"`
-	StartedAt      *timestamppb.Timestamp `protobuf:"bytes,11,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
-	CompletedAt    *timestamppb.Timestamp `protobuf:"bytes,12,opt,name=completed_at,json=completedAt,proto3" json:"completed_at,omitempty"`
-	CreatedAt      *timestamppb.Timestamp `protobuf:"bytes,13,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	UserId         int64                  `protobuf:"varint,14,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	RuntimeId      string                 `protobuf:"bytes,15,opt,name=runtime_id,json=runtimeId,proto3" json:"runtime_id,omitempty"`
-	RuntimeSource  string                 `protobuf:"bytes,16,opt,name=runtime_source,json=runtimeSource,proto3" json:"runtime_source,omitempty"`
-	RuntimeName    string                 `protobuf:"bytes,17,opt,name=runtime_name,json=runtimeName,proto3" json:"runtime_name,omitempty"`
-	SessionType    string                 `protobuf:"bytes,18,opt,name=session_type,json=sessionType,proto3" json:"session_type,omitempty"`
-	RuntimeVersion string                 `protobuf:"bytes,19,opt,name=runtime_version,json=runtimeVersion,proto3" json:"runtime_version,omitempty"`
-	SessionName    string                 `protobuf:"bytes,20,opt,name=session_name,json=sessionName,proto3" json:"session_name,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	SessionId       string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	AccountId       int64                  `protobuf:"varint,2,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
+	StrategyId      int64                  `protobuf:"varint,3,opt,name=strategy_id,json=strategyId,proto3" json:"strategy_id,omitempty"`
+	Mode            int32                  `protobuf:"varint,4,opt,name=mode,proto3" json:"mode,omitempty"`
+	Status          string                 `protobuf:"bytes,5,opt,name=status,proto3" json:"status,omitempty"`
+	Interval        string                 `protobuf:"bytes,6,opt,name=interval,proto3" json:"interval,omitempty"`
+	StartTimeMs     int64                  `protobuf:"varint,7,opt,name=start_time_ms,json=startTimeMs,proto3" json:"start_time_ms,omitempty"`
+	EndTimeMs       int64                  `protobuf:"varint,8,opt,name=end_time_ms,json=endTimeMs,proto3" json:"end_time_ms,omitempty"`
+	BarsProcessed   int32                  `protobuf:"varint,9,opt,name=bars_processed,json=barsProcessed,proto3" json:"bars_processed,omitempty"`
+	Error           string                 `protobuf:"bytes,10,opt,name=error,proto3" json:"error,omitempty"`
+	StartedAt       *timestamppb.Timestamp `protobuf:"bytes,11,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
+	CompletedAt     *timestamppb.Timestamp `protobuf:"bytes,12,opt,name=completed_at,json=completedAt,proto3" json:"completed_at,omitempty"`
+	CreatedAt       *timestamppb.Timestamp `protobuf:"bytes,13,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	UserId          int64                  `protobuf:"varint,14,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	RuntimeId       string                 `protobuf:"bytes,15,opt,name=runtime_id,json=runtimeId,proto3" json:"runtime_id,omitempty"`
+	RuntimeSource   string                 `protobuf:"bytes,16,opt,name=runtime_source,json=runtimeSource,proto3" json:"runtime_source,omitempty"`
+	RuntimeName     string                 `protobuf:"bytes,17,opt,name=runtime_name,json=runtimeName,proto3" json:"runtime_name,omitempty"`
+	SessionType     string                 `protobuf:"bytes,18,opt,name=session_type,json=sessionType,proto3" json:"session_type,omitempty"`
+	RuntimeVersion  string                 `protobuf:"bytes,19,opt,name=runtime_version,json=runtimeVersion,proto3" json:"runtime_version,omitempty"`
+	SessionName     string                 `protobuf:"bytes,20,opt,name=session_name,json=sessionName,proto3" json:"session_name,omitempty"`
+	ErrorCode       string                 `protobuf:"bytes,21,opt,name=error_code,json=errorCode,proto3" json:"error_code,omitempty"`
+	ErrorMessage    string                 `protobuf:"bytes,22,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	ErrorDetailJson string                 `protobuf:"bytes,23,opt,name=error_detail_json,json=errorDetailJson,proto3" json:"error_detail_json,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *StrategySessionEntry) Reset() {
@@ -5820,6 +5839,27 @@ func (x *StrategySessionEntry) GetRuntimeVersion() string {
 func (x *StrategySessionEntry) GetSessionName() string {
 	if x != nil {
 		return x.SessionName
+	}
+	return ""
+}
+
+func (x *StrategySessionEntry) GetErrorCode() string {
+	if x != nil {
+		return x.ErrorCode
+	}
+	return ""
+}
+
+func (x *StrategySessionEntry) GetErrorMessage() string {
+	if x != nil {
+		return x.ErrorMessage
+	}
+	return ""
+}
+
+func (x *StrategySessionEntry) GetErrorDetailJson() string {
+	if x != nil {
+		return x.ErrorDetailJson
 	}
 	return ""
 }
@@ -8373,13 +8413,17 @@ const file_account_service_proto_rawDesc = "" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x12\x1a\n" +
 	"\bexchange\x18\x03 \x01(\x05R\bexchange\x12\x16\n" +
 	"\x06market\x18\x04 \x01(\x05R\x06market\x12\x16\n" +
-	"\x06symbol\x18\x05 \x01(\tR\x06symbol\"\xe4\x01\n" +
+	"\x06symbol\x18\x05 \x01(\tR\x06symbol\"\xa4\x02\n" +
 	"\x1fPreflightStrategySessionRequest\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x1d\n" +
 	"\n" +
 	"account_id\x18\x02 \x01(\x03R\taccountId\x12B\n" +
 	"\x0frequired_routes\x18\x03 \x03(\v2\x19.account.v1.RequiredRouteR\x0erequiredRoutes\x12E\n" +
-	"\x10required_symbols\x18\x04 \x03(\v2\x1a.account.v1.RequiredSymbolR\x0frequiredSymbols\"\xa7\x01\n" +
+	"\x10required_symbols\x18\x04 \x03(\v2\x1a.account.v1.RequiredSymbolR\x0frequiredSymbols\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x05 \x01(\tR\tsessionId\x12\x1f\n" +
+	"\vstrategy_id\x18\x06 \x01(\x03R\n" +
+	"strategyId\"\xa7\x01\n" +
 	" PreflightStrategySessionResponse\x12\x0e\n" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\x122\n" +
 	"\x06issues\x18\x02 \x03(\v2\x1a.account.v1.PreflightIssueR\x06issues\x12?\n" +
@@ -8708,7 +8752,7 @@ const file_account_service_proto_rawDesc = "" +
 	"\x04name\x18\x03 \x01(\tR\x04name\x12\x18\n" +
 	"\aversion\x18\x04 \x01(\tR\aversion\x12'\n" +
 	"\x0fruntime_version\x18\x05 \x01(\tR\x0eruntimeVersion\x12'\n" +
-	"\x0fruntime_profile\x18\x06 \x01(\tR\x0eruntimeProfile\"\xe4\x05\n" +
+	"\x0fruntime_profile\x18\x06 \x01(\tR\x0eruntimeProfile\"\xd4\x06\n" +
 	"\x14StrategySessionEntry\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x1d\n" +
@@ -8736,7 +8780,11 @@ const file_account_service_proto_rawDesc = "" +
 	"\fruntime_name\x18\x11 \x01(\tR\vruntimeName\x12!\n" +
 	"\fsession_type\x18\x12 \x01(\tR\vsessionType\x12'\n" +
 	"\x0fruntime_version\x18\x13 \x01(\tR\x0eruntimeVersion\x12!\n" +
-	"\fsession_name\x18\x14 \x01(\tR\vsessionName\"\xd8\x03\n" +
+	"\fsession_name\x18\x14 \x01(\tR\vsessionName\x12\x1d\n" +
+	"\n" +
+	"error_code\x18\x15 \x01(\tR\terrorCode\x12#\n" +
+	"\rerror_message\x18\x16 \x01(\tR\ferrorMessage\x12*\n" +
+	"\x11error_detail_json\x18\x17 \x01(\tR\x0ferrorDetailJson\"\xd8\x03\n" +
 	"\x12SaveSessionRequest\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x1d\n" +

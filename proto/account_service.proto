@@ -376,6 +376,8 @@ message PreflightStrategySessionRequest {
   int64 account_id = 2;
   repeated RequiredRoute required_routes = 3;
   repeated RequiredSymbol required_symbols = 4;
+  string session_id = 5;
+  int64 strategy_id = 6;
 }
 
 message PreflightStrategySessionResponse {
@@ -784,6 +786,9 @@ message StrategySessionEntry {
   string session_type = 18;
   string runtime_version = 19;
   string session_name = 20;
+  string error_code = 21;
+  string error_message = 22;
+  string error_detail_json = 23;
 }
 
 message SaveSessionRequest {

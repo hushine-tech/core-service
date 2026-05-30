@@ -547,6 +547,10 @@ func (s *OrderGRPCService) emitLifecycleEvents(ctx context.Context, order *repos
 			},
 			OccurredAt: fill.Time,
 		}
+		if err := lifecycle.ValidateEventRouteFacts(event); err != nil {
+			logger.Error(ctx, "system", fmt.Sprintf("skip invalid lifecycle event: order_id=%s fill_id=%s err=%v", fill.OrderID, fill.FillID, err))
+			continue
+		}
 		if _, err := s.repo.SaveLifecycleEvent(ctx, event); err != nil {
 			logger.Error(ctx, "system", fmt.Sprintf("save lifecycle event failed: order_id=%s fill_id=%s err=%v", fill.OrderID, fill.FillID, err))
 		}

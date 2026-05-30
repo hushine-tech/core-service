@@ -769,6 +769,9 @@ func (r *TimescaleRepository) SaveLifecycleEvent(ctx context.Context, event life
 	if event.EventType == "" {
 		return lifecycle.Event{}, fmt.Errorf("event_type is required")
 	}
+	if err := lifecycle.ValidateEventRouteFacts(event); err != nil {
+		return lifecycle.Event{}, fmt.Errorf("invalid lifecycle event route facts: %w", err)
+	}
 	if event.OccurredAt.IsZero() {
 		event.OccurredAt = time.Now().UTC()
 	}

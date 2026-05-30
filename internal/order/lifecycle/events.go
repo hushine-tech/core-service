@@ -1,6 +1,10 @@
 package lifecycle
 
-import "time"
+import (
+	"fmt"
+	"strings"
+	"time"
+)
 
 type FillDelta struct {
 	ExchangeTradeID string    `json:"exchange_trade_id,omitempty"`
@@ -47,4 +51,43 @@ type Event struct {
 	OrderState      OrderState
 	OccurredAt      time.Time
 	CreatedAt       time.Time
+}
+
+func ValidateEventRouteFacts(event Event) error {
+	if strings.TrimSpace(event.EventType) == "" {
+		return fmt.Errorf("event_type is required")
+	}
+	if event.AccountID <= 0 {
+		return fmt.Errorf("account_id is required")
+	}
+	if event.VenueID <= 0 {
+		return fmt.Errorf("venue_id is required")
+	}
+	if event.Exchange <= 0 {
+		return fmt.Errorf("exchange is required")
+	}
+	if event.Market <= 0 {
+		return fmt.Errorf("market is required")
+	}
+	switch event.PositionSide {
+	case 0, 1, 2:
+	default:
+		return fmt.Errorf("unsupported position_side: %d", event.PositionSide)
+	}
+	if strings.TrimSpace(event.Side) == "" {
+		return fmt.Errorf("side is required")
+	}
+	if strings.TrimSpace(firstNonEmpty(event.FillDelta.Symbol, event.OrderState.Symbol)) == "" {
+		return fmt.Errorf("symbol is required")
+	}
+	return nil
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }

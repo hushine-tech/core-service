@@ -45,6 +45,11 @@ func TestScannerWritesFillLifecycleEvent(t *testing.T) {
 		SessionID:       "sess-1",
 		AccountID:       1,
 		VenueID:         10,
+		Environment:     0,
+		Exchange:        1,
+		Market:          2,
+		PositionSide:    0,
+		Side:            "BUY",
 		IntentID:        "intent-1",
 		AttemptID:       "attempt-1",
 		OrderID:         "order-1",
@@ -66,6 +71,72 @@ func TestScannerWritesFillLifecycleEvent(t *testing.T) {
 	event := store.events[0]
 	if event.EventType != "fill" || event.ExchangeTradeID != "trade-1" || event.OrderStatus != "FILLED" {
 		t.Fatalf("event = %+v, want fill lifecycle event", event)
+	}
+	if event.PositionSide != 0 {
+		t.Fatalf("position_side = %d, want BOTH/0 to be valid", event.PositionSide)
+	}
+}
+
+func TestValidateEventRouteFactsAllowsPositionSideBoth(t *testing.T) {
+	err := ValidateEventRouteFacts(Event{
+		SessionID:    "sess-1",
+		AccountID:    1,
+		VenueID:      10,
+		Environment:  0,
+		Exchange:     1,
+		Market:       2,
+		PositionSide: 0,
+		Side:         "BUY",
+		EventType:    "fill",
+		OrderStatus:  "FILLED",
+		FillDelta:    FillDelta{Symbol: "ETHUSDT", Qty: 0.2, FillPrice: 3000},
+		OrderState:   OrderState{Symbol: "ETHUSDT", Status: "FILLED"},
+		OccurredAt:   time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatalf("ValidateEventRouteFacts: %v", err)
+	}
+}
+
+func TestScannerRejectsLifecycleEventWithoutRouteFacts(t *testing.T) {
+	now := time.Now().UTC()
+	store := &scannerStoreStub{orders: []OpenOrder{{
+		SessionID:       "sess-1",
+		AccountID:       1,
+		VenueID:         10,
+		ExchangeOrderID: "ex-1",
+		Symbol:          "ETHUSDT",
+	}}}
+	reader := &stateReaderStub{
+		state:  OrderState{ExchangeOrderID: "ex-1", Symbol: "ETHUSDT", Status: "FILLED", ExecutedQty: 0.2},
+		trades: []FillDelta{{ExchangeOrderID: "ex-1", ExchangeTradeID: "trade-1", Symbol: "ETHUSDT", Qty: 0.2, FillPrice: 3000, TradeTime: now}},
+	}
+
+	written, err := NewScanner(store, reader, ScannerConfig{}).ScanOnce(context.Background(), now)
+	if err == nil {
+		t.Fatal("expected missing route facts to fail closed")
+	}
+	if written != 0 || len(store.events) != 0 {
+		t.Fatalf("written=%d events=%d, want no ambiguous lifecycle event", written, len(store.events))
+	}
+}
+
+func TestValidateEventRouteFactsRejectsMissingSymbol(t *testing.T) {
+	err := ValidateEventRouteFacts(Event{
+		SessionID:    "sess-1",
+		AccountID:    1,
+		VenueID:      10,
+		Environment:  0,
+		Exchange:     1,
+		Market:       2,
+		PositionSide: 0,
+		Side:         "BUY",
+		EventType:    "fill",
+		OrderStatus:  "FILLED",
+		OccurredAt:   time.Now().UTC(),
+	})
+	if err == nil {
+		t.Fatal("expected missing symbol to be rejected")
 	}
 }
 

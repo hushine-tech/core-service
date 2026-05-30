@@ -91,7 +91,7 @@ func (s *Scanner) ScanOnce(ctx context.Context, now time.Time) (int, error) {
 			if fill.TradeTime.IsZero() {
 				fill.TradeTime = now
 			}
-			_, err := s.store.SaveLifecycleEvent(ctx, Event{
+			event := Event{
 				SessionID:       order.SessionID,
 				AccountID:       order.AccountID,
 				VenueID:         order.VenueID,
@@ -110,7 +110,11 @@ func (s *Scanner) ScanOnce(ctx context.Context, now time.Time) (int, error) {
 				FillDelta:       fill,
 				OrderState:      state,
 				OccurredAt:      fill.TradeTime,
-			})
+			}
+			if err := ValidateEventRouteFacts(event); err != nil {
+				return written, err
+			}
+			_, err := s.store.SaveLifecycleEvent(ctx, event)
 			if err != nil {
 				return written, err
 			}
@@ -135,13 +139,4 @@ func hasFillDelta(state OrderState) bool {
 	default:
 		return false
 	}
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if value != "" {
-			return value
-		}
-	}
-	return ""
 }

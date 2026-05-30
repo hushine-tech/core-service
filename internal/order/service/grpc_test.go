@@ -847,3 +847,79 @@ func TestListOrderLifecycleEventsAfterCursor(t *testing.T) {
 		t.Fatalf("event route facts = %+v, want binance futures BUY", event)
 	}
 }
+
+func TestEmitLifecycleEventsSkipsAmbiguousRouteFacts(t *testing.T) {
+	svc, repo := newTestSvc(accountmeta.Meta{}, nil, executor.OrderResult{}, nil)
+	order := &repository.Order{
+		OrderID:         "order-ambiguous",
+		ExchangeOrderID: "exchange-ambiguous",
+		Symbol:          "ETHUSDT",
+		Status:          "FILLED",
+		OrigQty:         0.1,
+		ExecutedQty:     0.1,
+	}
+	fills := []repository.OrderFill{{
+		FillID:          "fill-ambiguous",
+		OrderID:         "order-ambiguous",
+		ExchangeOrderID: "exchange-ambiguous",
+		Symbol:          "ETHUSDT",
+		Side:            "BUY",
+		Qty:             0.1,
+		FillPrice:       2500,
+		Status:          "FILLED",
+	}}
+
+	svc.emitLifecycleEvents(context.Background(), order, fills)
+
+	if len(repo.events) != 0 {
+		t.Fatalf("events = %+v, want no ambiguous lifecycle event", repo.events)
+	}
+}
+
+func TestEmitLifecycleEventsAllowsPositionSideBoth(t *testing.T) {
+	svc, repo := newTestSvc(accountmeta.Meta{}, nil, executor.OrderResult{}, nil)
+	order := &repository.Order{
+		OrderID:         "order-1",
+		ExchangeOrderID: "exchange-1",
+		ClientOrderID:   "client-1",
+		AccountID:       1,
+		VenueID:         10,
+		UserID:          77,
+		Environment:     environmentBacktest,
+		Exchange:        exchangeBinance,
+		Market:          marketPerpetualFutures,
+		PositionSide:    positionSideBoth,
+		Symbol:          "ETHUSDT",
+		Side:            "BUY",
+		Status:          "FILLED",
+		OrigQty:         0.1,
+		ExecutedQty:     0.1,
+	}
+	fills := []repository.OrderFill{{
+		FillID:          "fill-1",
+		ExchangeTradeID: "trade-1",
+		OrderID:         "order-1",
+		ExchangeOrderID: "exchange-1",
+		AccountID:       1,
+		VenueID:         10,
+		UserID:          77,
+		Environment:     environmentBacktest,
+		Exchange:        exchangeBinance,
+		Market:          marketPerpetualFutures,
+		PositionSide:    positionSideBoth,
+		Symbol:          "ETHUSDT",
+		Side:            "BUY",
+		Qty:             0.1,
+		FillPrice:       2500,
+		Status:          "FILLED",
+	}}
+
+	svc.emitLifecycleEvents(context.Background(), order, fills)
+
+	if len(repo.events) != 1 {
+		t.Fatalf("events = %+v, want one valid lifecycle event", repo.events)
+	}
+	if repo.events[0].PositionSide != positionSideBoth {
+		t.Fatalf("position_side = %d, want BOTH/0", repo.events[0].PositionSide)
+	}
+}

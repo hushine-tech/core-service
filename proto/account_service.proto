@@ -457,6 +457,7 @@ message VenueSnapshot {
   google.protobuf.Timestamp updated_at = 8;
   repeated BalanceEntry balances = 9;
   repeated PositionEntry positions = 10;
+  AccountWalletState wallet = 11;
 }
 
 message BalanceEntry {

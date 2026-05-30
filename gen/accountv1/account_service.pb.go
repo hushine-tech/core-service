@@ -2809,6 +2809,7 @@ type VenueSnapshot struct {
 	UpdatedAt        *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
 	Balances         []*BalanceEntry        `protobuf:"bytes,9,rep,name=balances,proto3" json:"balances,omitempty"`
 	Positions        []*PositionEntry       `protobuf:"bytes,10,rep,name=positions,proto3" json:"positions,omitempty"`
+	Wallet           *AccountWalletState    `protobuf:"bytes,11,opt,name=wallet,proto3" json:"wallet,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -2909,6 +2910,13 @@ func (x *VenueSnapshot) GetBalances() []*BalanceEntry {
 func (x *VenueSnapshot) GetPositions() []*PositionEntry {
 	if x != nil {
 		return x.Positions
+	}
+	return nil
+}
+
+func (x *VenueSnapshot) GetWallet() *AccountWalletState {
+	if x != nil {
+		return x.Wallet
 	}
 	return nil
 }
@@ -8431,7 +8439,7 @@ const file_account_service_proto_rawDesc = "" +
 	"\n" +
 	"updated_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x121\n" +
 	"\x06venues\x18\a \x03(\v2\x19.account.v1.VenueSnapshotR\x06venues\x126\n" +
-	"\x06wallet\x18\b \x01(\v2\x1e.account.v1.AccountWalletStateR\x06wallet\"\x9f\x03\n" +
+	"\x06wallet\x18\b \x01(\v2\x1e.account.v1.AccountWalletStateR\x06wallet\"\xd7\x03\n" +
 	"\rVenueSnapshot\x12\x19\n" +
 	"\bvenue_id\x18\x01 \x01(\x03R\avenueId\x12\x1a\n" +
 	"\bexchange\x18\x02 \x01(\x05R\bexchange\x12 \n" +
@@ -8445,7 +8453,8 @@ const file_account_service_proto_rawDesc = "" +
 	"updated_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x124\n" +
 	"\bbalances\x18\t \x03(\v2\x18.account.v1.BalanceEntryR\bbalances\x127\n" +
 	"\tpositions\x18\n" +
-	" \x03(\v2\x19.account.v1.PositionEntryR\tpositions\"\xaf\x01\n" +
+	" \x03(\v2\x19.account.v1.PositionEntryR\tpositions\x126\n" +
+	"\x06wallet\x18\v \x01(\v2\x1e.account.v1.AccountWalletStateR\x06wallet\"\xaf\x01\n" +
 	"\fBalanceEntry\x12\x14\n" +
 	"\x05asset\x18\x01 \x01(\tR\x05asset\x12%\n" +
 	"\x0ewallet_balance\x18\x02 \x01(\x01R\rwalletBalance\x12+\n" +
@@ -9150,143 +9159,144 @@ var file_account_service_proto_depIdxs = []int32{
 	118, // 29: account.v1.VenueSnapshot.updated_at:type_name -> google.protobuf.Timestamp
 	44,  // 30: account.v1.VenueSnapshot.balances:type_name -> account.v1.BalanceEntry
 	45,  // 31: account.v1.VenueSnapshot.positions:type_name -> account.v1.PositionEntry
-	49,  // 32: account.v1.UpdateAccountWalletStateRequest.futures:type_name -> account.v1.FuturesWallet
-	53,  // 33: account.v1.UpdateAccountWalletStateRequest.spot:type_name -> account.v1.SpotWallet
-	48,  // 34: account.v1.UpdateAccountWalletStateResponse.wallet:type_name -> account.v1.AccountWalletState
-	49,  // 35: account.v1.AccountWalletState.futures:type_name -> account.v1.FuturesWallet
-	53,  // 36: account.v1.AccountWalletState.spot:type_name -> account.v1.SpotWallet
-	118, // 37: account.v1.AccountWalletState.updated_at:type_name -> google.protobuf.Timestamp
-	50,  // 38: account.v1.FuturesWallet.positions:type_name -> account.v1.FuturesPosition
-	51,  // 39: account.v1.FuturesWallet.risk_metadata:type_name -> account.v1.FuturesRiskMetadata
-	52,  // 40: account.v1.FuturesRiskMetadata.brackets:type_name -> account.v1.FuturesRiskBracket
-	54,  // 41: account.v1.SpotWallet.assets:type_name -> account.v1.SpotAsset
-	118, // 42: account.v1.StrategyEntry.created_at:type_name -> google.protobuf.Timestamp
-	59,  // 43: account.v1.CreateStrategyResponse.strategy:type_name -> account.v1.StrategyEntry
-	59,  // 44: account.v1.ListStrategiesResponse.strategies:type_name -> account.v1.StrategyEntry
-	59,  // 45: account.v1.GetStrategyResponse.strategy:type_name -> account.v1.StrategyEntry
-	59,  // 46: account.v1.AccountStrategyEntry.strategy:type_name -> account.v1.StrategyEntry
-	118, // 47: account.v1.AccountStrategyEntry.mounted_at:type_name -> google.protobuf.Timestamp
-	77,  // 48: account.v1.ListAccountStrategiesResponse.entries:type_name -> account.v1.AccountStrategyEntry
-	118, // 49: account.v1.StrategySessionEntry.started_at:type_name -> google.protobuf.Timestamp
-	118, // 50: account.v1.StrategySessionEntry.completed_at:type_name -> google.protobuf.Timestamp
-	118, // 51: account.v1.StrategySessionEntry.created_at:type_name -> google.protobuf.Timestamp
-	81,  // 52: account.v1.GetSessionResponse.session:type_name -> account.v1.StrategySessionEntry
-	81,  // 53: account.v1.ListSessionsResponse.sessions:type_name -> account.v1.StrategySessionEntry
-	81,  // 54: account.v1.ListRunningSessionsResponse.sessions:type_name -> account.v1.StrategySessionEntry
-	96,  // 55: account.v1.ListSessionSnapshotsResponse.items:type_name -> account.v1.SnapshotEntry
-	118, // 56: account.v1.SnapshotEntry.time:type_name -> google.protobuf.Timestamp
-	101, // 57: account.v1.ListReconciliationRunsResponse.items:type_name -> account.v1.ReconciliationRunEntry
-	118, // 58: account.v1.ReconciliationRunEntry.time:type_name -> google.protobuf.Timestamp
-	102, // 59: account.v1.ReconciliationRunEntry.field_diffs:type_name -> account.v1.FieldDiffEntry
-	102, // 60: account.v1.ReconciliationRunEntry.advisory_diffs:type_name -> account.v1.FieldDiffEntry
-	118, // 61: account.v1.NotificationChannel.bound_at:type_name -> google.protobuf.Timestamp
-	118, // 62: account.v1.NotificationChannel.last_delivery_at:type_name -> google.protobuf.Timestamp
-	104, // 63: account.v1.GetNotificationSettingsResponse.preferences:type_name -> account.v1.NotificationPreferences
-	103, // 64: account.v1.GetNotificationSettingsResponse.plan:type_name -> account.v1.NotificationPlan
-	105, // 65: account.v1.GetNotificationSettingsResponse.telegram:type_name -> account.v1.NotificationChannel
-	104, // 66: account.v1.UpdateNotificationPreferencesRequest.preferences:type_name -> account.v1.NotificationPreferences
-	107, // 67: account.v1.UpdateNotificationPreferencesResponse.settings:type_name -> account.v1.GetNotificationSettingsResponse
-	118, // 68: account.v1.CreateNotificationBindCodeResponse.expires_at:type_name -> google.protobuf.Timestamp
-	107, // 69: account.v1.ConfirmNotificationBindingResponse.settings:type_name -> account.v1.GetNotificationSettingsResponse
-	107, // 70: account.v1.UnbindNotificationChannelResponse.settings:type_name -> account.v1.GetNotificationSettingsResponse
-	107, // 71: account.v1.SendTestNotificationResponse.settings:type_name -> account.v1.GetNotificationSettingsResponse
-	3,   // 72: account.v1.AccountService.CreateUser:input_type -> account.v1.CreateUserRequest
-	5,   // 73: account.v1.AccountService.VerifyUserPassword:input_type -> account.v1.VerifyUserPasswordRequest
-	1,   // 74: account.v1.AccountService.GetUser:input_type -> account.v1.GetUserRequest
-	11,  // 75: account.v1.AccountService.CreateAccount:input_type -> account.v1.CreateAccountRequest
-	7,   // 76: account.v1.AccountService.ListAccounts:input_type -> account.v1.ListAccountsRequest
-	9,   // 77: account.v1.AccountService.GetAccount:input_type -> account.v1.GetAccountRequest
-	15,  // 78: account.v1.AccountService.CreateVenue:input_type -> account.v1.CreateVenueRequest
-	17,  // 79: account.v1.AccountService.ListVenues:input_type -> account.v1.ListVenuesRequest
-	19,  // 80: account.v1.AccountService.GetVenue:input_type -> account.v1.GetVenueRequest
-	21,  // 81: account.v1.AccountService.GetVenueOnlineInfo:input_type -> account.v1.GetVenueOnlineInfoRequest
-	23,  // 82: account.v1.AccountService.BindVenue:input_type -> account.v1.BindVenueRequest
-	25,  // 83: account.v1.AccountService.ReleaseVenue:input_type -> account.v1.ReleaseVenueRequest
-	27,  // 84: account.v1.AccountService.ArchiveVenue:input_type -> account.v1.ArchiveVenueRequest
-	32,  // 85: account.v1.AccountService.PreflightStrategySession:input_type -> account.v1.PreflightStrategySessionRequest
-	34,  // 86: account.v1.AccountService.GetVenueRouteMeta:input_type -> account.v1.GetVenueRouteMetaRequest
-	36,  // 87: account.v1.AccountService.GetOnlineAccountInfo:input_type -> account.v1.GetOnlineAccountInfoRequest
-	38,  // 88: account.v1.AccountService.GetPortfolioSnapshot:input_type -> account.v1.GetPortfolioSnapshotRequest
-	40,  // 89: account.v1.AccountService.UpdatePortfolioSnapshot:input_type -> account.v1.UpdatePortfolioSnapshotRequest
-	46,  // 90: account.v1.AccountService.UpdateAccountWalletState:input_type -> account.v1.UpdateAccountWalletStateRequest
-	55,  // 91: account.v1.AccountService.ListSymbols:input_type -> account.v1.ListSymbolsRequest
-	57,  // 92: account.v1.AccountService.GetAccountMeta:input_type -> account.v1.GetAccountMetaRequest
-	60,  // 93: account.v1.AccountService.CreateStrategy:input_type -> account.v1.CreateStrategyRequest
-	62,  // 94: account.v1.AccountService.ListStrategies:input_type -> account.v1.ListStrategiesRequest
-	64,  // 95: account.v1.AccountService.GetStrategy:input_type -> account.v1.GetStrategyRequest
-	66,  // 96: account.v1.AccountService.ArchiveStrategy:input_type -> account.v1.ArchiveStrategyRequest
-	68,  // 97: account.v1.AccountService.MountStrategy:input_type -> account.v1.MountStrategyRequest
-	70,  // 98: account.v1.AccountService.UnmountStrategy:input_type -> account.v1.UnmountStrategyRequest
-	72,  // 99: account.v1.AccountService.ActivateStrategy:input_type -> account.v1.ActivateStrategyRequest
-	74,  // 100: account.v1.AccountService.DeactivateStrategy:input_type -> account.v1.DeactivateStrategyRequest
-	76,  // 101: account.v1.AccountService.ListAccountStrategies:input_type -> account.v1.ListAccountStrategiesRequest
-	79,  // 102: account.v1.AccountService.GetActiveStrategy:input_type -> account.v1.GetActiveStrategyRequest
-	82,  // 103: account.v1.AccountService.SaveSession:input_type -> account.v1.SaveSessionRequest
-	84,  // 104: account.v1.AccountService.UpdateSession:input_type -> account.v1.UpdateSessionRequest
-	86,  // 105: account.v1.AccountService.GetSession:input_type -> account.v1.GetSessionRequest
-	88,  // 106: account.v1.AccountService.ListSessions:input_type -> account.v1.ListSessionsRequest
-	90,  // 107: account.v1.AccountService.ListRunningSessions:input_type -> account.v1.ListRunningSessionsRequest
-	92,  // 108: account.v1.AccountService.MarkRuntimeSessionsRecoverable:input_type -> account.v1.MarkRuntimeSessionsRecoverableRequest
-	94,  // 109: account.v1.AccountService.ListSessionSnapshots:input_type -> account.v1.ListSessionSnapshotsRequest
-	97,  // 110: account.v1.AccountService.ListReconciliationRuns:input_type -> account.v1.ListReconciliationRunsRequest
-	99,  // 111: account.v1.AccountService.GetSessionReconciliationSummary:input_type -> account.v1.GetSessionReconciliationSummaryRequest
-	106, // 112: account.v1.AccountService.GetNotificationSettings:input_type -> account.v1.GetNotificationSettingsRequest
-	108, // 113: account.v1.AccountService.UpdateNotificationPreferences:input_type -> account.v1.UpdateNotificationPreferencesRequest
-	110, // 114: account.v1.AccountService.CreateNotificationBindCode:input_type -> account.v1.CreateNotificationBindCodeRequest
-	112, // 115: account.v1.AccountService.ConfirmNotificationBinding:input_type -> account.v1.ConfirmNotificationBindingRequest
-	114, // 116: account.v1.AccountService.UnbindNotificationChannel:input_type -> account.v1.UnbindNotificationChannelRequest
-	116, // 117: account.v1.AccountService.SendTestNotification:input_type -> account.v1.SendTestNotificationRequest
-	4,   // 118: account.v1.AccountService.CreateUser:output_type -> account.v1.CreateUserResponse
-	6,   // 119: account.v1.AccountService.VerifyUserPassword:output_type -> account.v1.VerifyUserPasswordResponse
-	2,   // 120: account.v1.AccountService.GetUser:output_type -> account.v1.GetUserResponse
-	12,  // 121: account.v1.AccountService.CreateAccount:output_type -> account.v1.CreateAccountResponse
-	8,   // 122: account.v1.AccountService.ListAccounts:output_type -> account.v1.ListAccountsResponse
-	10,  // 123: account.v1.AccountService.GetAccount:output_type -> account.v1.GetAccountResponse
-	16,  // 124: account.v1.AccountService.CreateVenue:output_type -> account.v1.CreateVenueResponse
-	18,  // 125: account.v1.AccountService.ListVenues:output_type -> account.v1.ListVenuesResponse
-	20,  // 126: account.v1.AccountService.GetVenue:output_type -> account.v1.GetVenueResponse
-	22,  // 127: account.v1.AccountService.GetVenueOnlineInfo:output_type -> account.v1.GetVenueOnlineInfoResponse
-	24,  // 128: account.v1.AccountService.BindVenue:output_type -> account.v1.BindVenueResponse
-	26,  // 129: account.v1.AccountService.ReleaseVenue:output_type -> account.v1.ReleaseVenueResponse
-	28,  // 130: account.v1.AccountService.ArchiveVenue:output_type -> account.v1.ArchiveVenueResponse
-	33,  // 131: account.v1.AccountService.PreflightStrategySession:output_type -> account.v1.PreflightStrategySessionResponse
-	35,  // 132: account.v1.AccountService.GetVenueRouteMeta:output_type -> account.v1.GetVenueRouteMetaResponse
-	37,  // 133: account.v1.AccountService.GetOnlineAccountInfo:output_type -> account.v1.GetOnlineAccountInfoResponse
-	39,  // 134: account.v1.AccountService.GetPortfolioSnapshot:output_type -> account.v1.GetPortfolioSnapshotResponse
-	41,  // 135: account.v1.AccountService.UpdatePortfolioSnapshot:output_type -> account.v1.UpdatePortfolioSnapshotResponse
-	47,  // 136: account.v1.AccountService.UpdateAccountWalletState:output_type -> account.v1.UpdateAccountWalletStateResponse
-	56,  // 137: account.v1.AccountService.ListSymbols:output_type -> account.v1.ListSymbolsResponse
-	58,  // 138: account.v1.AccountService.GetAccountMeta:output_type -> account.v1.GetAccountMetaResponse
-	61,  // 139: account.v1.AccountService.CreateStrategy:output_type -> account.v1.CreateStrategyResponse
-	63,  // 140: account.v1.AccountService.ListStrategies:output_type -> account.v1.ListStrategiesResponse
-	65,  // 141: account.v1.AccountService.GetStrategy:output_type -> account.v1.GetStrategyResponse
-	67,  // 142: account.v1.AccountService.ArchiveStrategy:output_type -> account.v1.ArchiveStrategyResponse
-	69,  // 143: account.v1.AccountService.MountStrategy:output_type -> account.v1.MountStrategyResponse
-	71,  // 144: account.v1.AccountService.UnmountStrategy:output_type -> account.v1.UnmountStrategyResponse
-	73,  // 145: account.v1.AccountService.ActivateStrategy:output_type -> account.v1.ActivateStrategyResponse
-	75,  // 146: account.v1.AccountService.DeactivateStrategy:output_type -> account.v1.DeactivateStrategyResponse
-	78,  // 147: account.v1.AccountService.ListAccountStrategies:output_type -> account.v1.ListAccountStrategiesResponse
-	80,  // 148: account.v1.AccountService.GetActiveStrategy:output_type -> account.v1.GetActiveStrategyResponse
-	83,  // 149: account.v1.AccountService.SaveSession:output_type -> account.v1.SaveSessionResponse
-	85,  // 150: account.v1.AccountService.UpdateSession:output_type -> account.v1.UpdateSessionResponse
-	87,  // 151: account.v1.AccountService.GetSession:output_type -> account.v1.GetSessionResponse
-	89,  // 152: account.v1.AccountService.ListSessions:output_type -> account.v1.ListSessionsResponse
-	91,  // 153: account.v1.AccountService.ListRunningSessions:output_type -> account.v1.ListRunningSessionsResponse
-	93,  // 154: account.v1.AccountService.MarkRuntimeSessionsRecoverable:output_type -> account.v1.MarkRuntimeSessionsRecoverableResponse
-	95,  // 155: account.v1.AccountService.ListSessionSnapshots:output_type -> account.v1.ListSessionSnapshotsResponse
-	98,  // 156: account.v1.AccountService.ListReconciliationRuns:output_type -> account.v1.ListReconciliationRunsResponse
-	100, // 157: account.v1.AccountService.GetSessionReconciliationSummary:output_type -> account.v1.GetSessionReconciliationSummaryResponse
-	107, // 158: account.v1.AccountService.GetNotificationSettings:output_type -> account.v1.GetNotificationSettingsResponse
-	109, // 159: account.v1.AccountService.UpdateNotificationPreferences:output_type -> account.v1.UpdateNotificationPreferencesResponse
-	111, // 160: account.v1.AccountService.CreateNotificationBindCode:output_type -> account.v1.CreateNotificationBindCodeResponse
-	113, // 161: account.v1.AccountService.ConfirmNotificationBinding:output_type -> account.v1.ConfirmNotificationBindingResponse
-	115, // 162: account.v1.AccountService.UnbindNotificationChannel:output_type -> account.v1.UnbindNotificationChannelResponse
-	117, // 163: account.v1.AccountService.SendTestNotification:output_type -> account.v1.SendTestNotificationResponse
-	118, // [118:164] is the sub-list for method output_type
-	72,  // [72:118] is the sub-list for method input_type
-	72,  // [72:72] is the sub-list for extension type_name
-	72,  // [72:72] is the sub-list for extension extendee
-	0,   // [0:72] is the sub-list for field type_name
+	48,  // 32: account.v1.VenueSnapshot.wallet:type_name -> account.v1.AccountWalletState
+	49,  // 33: account.v1.UpdateAccountWalletStateRequest.futures:type_name -> account.v1.FuturesWallet
+	53,  // 34: account.v1.UpdateAccountWalletStateRequest.spot:type_name -> account.v1.SpotWallet
+	48,  // 35: account.v1.UpdateAccountWalletStateResponse.wallet:type_name -> account.v1.AccountWalletState
+	49,  // 36: account.v1.AccountWalletState.futures:type_name -> account.v1.FuturesWallet
+	53,  // 37: account.v1.AccountWalletState.spot:type_name -> account.v1.SpotWallet
+	118, // 38: account.v1.AccountWalletState.updated_at:type_name -> google.protobuf.Timestamp
+	50,  // 39: account.v1.FuturesWallet.positions:type_name -> account.v1.FuturesPosition
+	51,  // 40: account.v1.FuturesWallet.risk_metadata:type_name -> account.v1.FuturesRiskMetadata
+	52,  // 41: account.v1.FuturesRiskMetadata.brackets:type_name -> account.v1.FuturesRiskBracket
+	54,  // 42: account.v1.SpotWallet.assets:type_name -> account.v1.SpotAsset
+	118, // 43: account.v1.StrategyEntry.created_at:type_name -> google.protobuf.Timestamp
+	59,  // 44: account.v1.CreateStrategyResponse.strategy:type_name -> account.v1.StrategyEntry
+	59,  // 45: account.v1.ListStrategiesResponse.strategies:type_name -> account.v1.StrategyEntry
+	59,  // 46: account.v1.GetStrategyResponse.strategy:type_name -> account.v1.StrategyEntry
+	59,  // 47: account.v1.AccountStrategyEntry.strategy:type_name -> account.v1.StrategyEntry
+	118, // 48: account.v1.AccountStrategyEntry.mounted_at:type_name -> google.protobuf.Timestamp
+	77,  // 49: account.v1.ListAccountStrategiesResponse.entries:type_name -> account.v1.AccountStrategyEntry
+	118, // 50: account.v1.StrategySessionEntry.started_at:type_name -> google.protobuf.Timestamp
+	118, // 51: account.v1.StrategySessionEntry.completed_at:type_name -> google.protobuf.Timestamp
+	118, // 52: account.v1.StrategySessionEntry.created_at:type_name -> google.protobuf.Timestamp
+	81,  // 53: account.v1.GetSessionResponse.session:type_name -> account.v1.StrategySessionEntry
+	81,  // 54: account.v1.ListSessionsResponse.sessions:type_name -> account.v1.StrategySessionEntry
+	81,  // 55: account.v1.ListRunningSessionsResponse.sessions:type_name -> account.v1.StrategySessionEntry
+	96,  // 56: account.v1.ListSessionSnapshotsResponse.items:type_name -> account.v1.SnapshotEntry
+	118, // 57: account.v1.SnapshotEntry.time:type_name -> google.protobuf.Timestamp
+	101, // 58: account.v1.ListReconciliationRunsResponse.items:type_name -> account.v1.ReconciliationRunEntry
+	118, // 59: account.v1.ReconciliationRunEntry.time:type_name -> google.protobuf.Timestamp
+	102, // 60: account.v1.ReconciliationRunEntry.field_diffs:type_name -> account.v1.FieldDiffEntry
+	102, // 61: account.v1.ReconciliationRunEntry.advisory_diffs:type_name -> account.v1.FieldDiffEntry
+	118, // 62: account.v1.NotificationChannel.bound_at:type_name -> google.protobuf.Timestamp
+	118, // 63: account.v1.NotificationChannel.last_delivery_at:type_name -> google.protobuf.Timestamp
+	104, // 64: account.v1.GetNotificationSettingsResponse.preferences:type_name -> account.v1.NotificationPreferences
+	103, // 65: account.v1.GetNotificationSettingsResponse.plan:type_name -> account.v1.NotificationPlan
+	105, // 66: account.v1.GetNotificationSettingsResponse.telegram:type_name -> account.v1.NotificationChannel
+	104, // 67: account.v1.UpdateNotificationPreferencesRequest.preferences:type_name -> account.v1.NotificationPreferences
+	107, // 68: account.v1.UpdateNotificationPreferencesResponse.settings:type_name -> account.v1.GetNotificationSettingsResponse
+	118, // 69: account.v1.CreateNotificationBindCodeResponse.expires_at:type_name -> google.protobuf.Timestamp
+	107, // 70: account.v1.ConfirmNotificationBindingResponse.settings:type_name -> account.v1.GetNotificationSettingsResponse
+	107, // 71: account.v1.UnbindNotificationChannelResponse.settings:type_name -> account.v1.GetNotificationSettingsResponse
+	107, // 72: account.v1.SendTestNotificationResponse.settings:type_name -> account.v1.GetNotificationSettingsResponse
+	3,   // 73: account.v1.AccountService.CreateUser:input_type -> account.v1.CreateUserRequest
+	5,   // 74: account.v1.AccountService.VerifyUserPassword:input_type -> account.v1.VerifyUserPasswordRequest
+	1,   // 75: account.v1.AccountService.GetUser:input_type -> account.v1.GetUserRequest
+	11,  // 76: account.v1.AccountService.CreateAccount:input_type -> account.v1.CreateAccountRequest
+	7,   // 77: account.v1.AccountService.ListAccounts:input_type -> account.v1.ListAccountsRequest
+	9,   // 78: account.v1.AccountService.GetAccount:input_type -> account.v1.GetAccountRequest
+	15,  // 79: account.v1.AccountService.CreateVenue:input_type -> account.v1.CreateVenueRequest
+	17,  // 80: account.v1.AccountService.ListVenues:input_type -> account.v1.ListVenuesRequest
+	19,  // 81: account.v1.AccountService.GetVenue:input_type -> account.v1.GetVenueRequest
+	21,  // 82: account.v1.AccountService.GetVenueOnlineInfo:input_type -> account.v1.GetVenueOnlineInfoRequest
+	23,  // 83: account.v1.AccountService.BindVenue:input_type -> account.v1.BindVenueRequest
+	25,  // 84: account.v1.AccountService.ReleaseVenue:input_type -> account.v1.ReleaseVenueRequest
+	27,  // 85: account.v1.AccountService.ArchiveVenue:input_type -> account.v1.ArchiveVenueRequest
+	32,  // 86: account.v1.AccountService.PreflightStrategySession:input_type -> account.v1.PreflightStrategySessionRequest
+	34,  // 87: account.v1.AccountService.GetVenueRouteMeta:input_type -> account.v1.GetVenueRouteMetaRequest
+	36,  // 88: account.v1.AccountService.GetOnlineAccountInfo:input_type -> account.v1.GetOnlineAccountInfoRequest
+	38,  // 89: account.v1.AccountService.GetPortfolioSnapshot:input_type -> account.v1.GetPortfolioSnapshotRequest
+	40,  // 90: account.v1.AccountService.UpdatePortfolioSnapshot:input_type -> account.v1.UpdatePortfolioSnapshotRequest
+	46,  // 91: account.v1.AccountService.UpdateAccountWalletState:input_type -> account.v1.UpdateAccountWalletStateRequest
+	55,  // 92: account.v1.AccountService.ListSymbols:input_type -> account.v1.ListSymbolsRequest
+	57,  // 93: account.v1.AccountService.GetAccountMeta:input_type -> account.v1.GetAccountMetaRequest
+	60,  // 94: account.v1.AccountService.CreateStrategy:input_type -> account.v1.CreateStrategyRequest
+	62,  // 95: account.v1.AccountService.ListStrategies:input_type -> account.v1.ListStrategiesRequest
+	64,  // 96: account.v1.AccountService.GetStrategy:input_type -> account.v1.GetStrategyRequest
+	66,  // 97: account.v1.AccountService.ArchiveStrategy:input_type -> account.v1.ArchiveStrategyRequest
+	68,  // 98: account.v1.AccountService.MountStrategy:input_type -> account.v1.MountStrategyRequest
+	70,  // 99: account.v1.AccountService.UnmountStrategy:input_type -> account.v1.UnmountStrategyRequest
+	72,  // 100: account.v1.AccountService.ActivateStrategy:input_type -> account.v1.ActivateStrategyRequest
+	74,  // 101: account.v1.AccountService.DeactivateStrategy:input_type -> account.v1.DeactivateStrategyRequest
+	76,  // 102: account.v1.AccountService.ListAccountStrategies:input_type -> account.v1.ListAccountStrategiesRequest
+	79,  // 103: account.v1.AccountService.GetActiveStrategy:input_type -> account.v1.GetActiveStrategyRequest
+	82,  // 104: account.v1.AccountService.SaveSession:input_type -> account.v1.SaveSessionRequest
+	84,  // 105: account.v1.AccountService.UpdateSession:input_type -> account.v1.UpdateSessionRequest
+	86,  // 106: account.v1.AccountService.GetSession:input_type -> account.v1.GetSessionRequest
+	88,  // 107: account.v1.AccountService.ListSessions:input_type -> account.v1.ListSessionsRequest
+	90,  // 108: account.v1.AccountService.ListRunningSessions:input_type -> account.v1.ListRunningSessionsRequest
+	92,  // 109: account.v1.AccountService.MarkRuntimeSessionsRecoverable:input_type -> account.v1.MarkRuntimeSessionsRecoverableRequest
+	94,  // 110: account.v1.AccountService.ListSessionSnapshots:input_type -> account.v1.ListSessionSnapshotsRequest
+	97,  // 111: account.v1.AccountService.ListReconciliationRuns:input_type -> account.v1.ListReconciliationRunsRequest
+	99,  // 112: account.v1.AccountService.GetSessionReconciliationSummary:input_type -> account.v1.GetSessionReconciliationSummaryRequest
+	106, // 113: account.v1.AccountService.GetNotificationSettings:input_type -> account.v1.GetNotificationSettingsRequest
+	108, // 114: account.v1.AccountService.UpdateNotificationPreferences:input_type -> account.v1.UpdateNotificationPreferencesRequest
+	110, // 115: account.v1.AccountService.CreateNotificationBindCode:input_type -> account.v1.CreateNotificationBindCodeRequest
+	112, // 116: account.v1.AccountService.ConfirmNotificationBinding:input_type -> account.v1.ConfirmNotificationBindingRequest
+	114, // 117: account.v1.AccountService.UnbindNotificationChannel:input_type -> account.v1.UnbindNotificationChannelRequest
+	116, // 118: account.v1.AccountService.SendTestNotification:input_type -> account.v1.SendTestNotificationRequest
+	4,   // 119: account.v1.AccountService.CreateUser:output_type -> account.v1.CreateUserResponse
+	6,   // 120: account.v1.AccountService.VerifyUserPassword:output_type -> account.v1.VerifyUserPasswordResponse
+	2,   // 121: account.v1.AccountService.GetUser:output_type -> account.v1.GetUserResponse
+	12,  // 122: account.v1.AccountService.CreateAccount:output_type -> account.v1.CreateAccountResponse
+	8,   // 123: account.v1.AccountService.ListAccounts:output_type -> account.v1.ListAccountsResponse
+	10,  // 124: account.v1.AccountService.GetAccount:output_type -> account.v1.GetAccountResponse
+	16,  // 125: account.v1.AccountService.CreateVenue:output_type -> account.v1.CreateVenueResponse
+	18,  // 126: account.v1.AccountService.ListVenues:output_type -> account.v1.ListVenuesResponse
+	20,  // 127: account.v1.AccountService.GetVenue:output_type -> account.v1.GetVenueResponse
+	22,  // 128: account.v1.AccountService.GetVenueOnlineInfo:output_type -> account.v1.GetVenueOnlineInfoResponse
+	24,  // 129: account.v1.AccountService.BindVenue:output_type -> account.v1.BindVenueResponse
+	26,  // 130: account.v1.AccountService.ReleaseVenue:output_type -> account.v1.ReleaseVenueResponse
+	28,  // 131: account.v1.AccountService.ArchiveVenue:output_type -> account.v1.ArchiveVenueResponse
+	33,  // 132: account.v1.AccountService.PreflightStrategySession:output_type -> account.v1.PreflightStrategySessionResponse
+	35,  // 133: account.v1.AccountService.GetVenueRouteMeta:output_type -> account.v1.GetVenueRouteMetaResponse
+	37,  // 134: account.v1.AccountService.GetOnlineAccountInfo:output_type -> account.v1.GetOnlineAccountInfoResponse
+	39,  // 135: account.v1.AccountService.GetPortfolioSnapshot:output_type -> account.v1.GetPortfolioSnapshotResponse
+	41,  // 136: account.v1.AccountService.UpdatePortfolioSnapshot:output_type -> account.v1.UpdatePortfolioSnapshotResponse
+	47,  // 137: account.v1.AccountService.UpdateAccountWalletState:output_type -> account.v1.UpdateAccountWalletStateResponse
+	56,  // 138: account.v1.AccountService.ListSymbols:output_type -> account.v1.ListSymbolsResponse
+	58,  // 139: account.v1.AccountService.GetAccountMeta:output_type -> account.v1.GetAccountMetaResponse
+	61,  // 140: account.v1.AccountService.CreateStrategy:output_type -> account.v1.CreateStrategyResponse
+	63,  // 141: account.v1.AccountService.ListStrategies:output_type -> account.v1.ListStrategiesResponse
+	65,  // 142: account.v1.AccountService.GetStrategy:output_type -> account.v1.GetStrategyResponse
+	67,  // 143: account.v1.AccountService.ArchiveStrategy:output_type -> account.v1.ArchiveStrategyResponse
+	69,  // 144: account.v1.AccountService.MountStrategy:output_type -> account.v1.MountStrategyResponse
+	71,  // 145: account.v1.AccountService.UnmountStrategy:output_type -> account.v1.UnmountStrategyResponse
+	73,  // 146: account.v1.AccountService.ActivateStrategy:output_type -> account.v1.ActivateStrategyResponse
+	75,  // 147: account.v1.AccountService.DeactivateStrategy:output_type -> account.v1.DeactivateStrategyResponse
+	78,  // 148: account.v1.AccountService.ListAccountStrategies:output_type -> account.v1.ListAccountStrategiesResponse
+	80,  // 149: account.v1.AccountService.GetActiveStrategy:output_type -> account.v1.GetActiveStrategyResponse
+	83,  // 150: account.v1.AccountService.SaveSession:output_type -> account.v1.SaveSessionResponse
+	85,  // 151: account.v1.AccountService.UpdateSession:output_type -> account.v1.UpdateSessionResponse
+	87,  // 152: account.v1.AccountService.GetSession:output_type -> account.v1.GetSessionResponse
+	89,  // 153: account.v1.AccountService.ListSessions:output_type -> account.v1.ListSessionsResponse
+	91,  // 154: account.v1.AccountService.ListRunningSessions:output_type -> account.v1.ListRunningSessionsResponse
+	93,  // 155: account.v1.AccountService.MarkRuntimeSessionsRecoverable:output_type -> account.v1.MarkRuntimeSessionsRecoverableResponse
+	95,  // 156: account.v1.AccountService.ListSessionSnapshots:output_type -> account.v1.ListSessionSnapshotsResponse
+	98,  // 157: account.v1.AccountService.ListReconciliationRuns:output_type -> account.v1.ListReconciliationRunsResponse
+	100, // 158: account.v1.AccountService.GetSessionReconciliationSummary:output_type -> account.v1.GetSessionReconciliationSummaryResponse
+	107, // 159: account.v1.AccountService.GetNotificationSettings:output_type -> account.v1.GetNotificationSettingsResponse
+	109, // 160: account.v1.AccountService.UpdateNotificationPreferences:output_type -> account.v1.UpdateNotificationPreferencesResponse
+	111, // 161: account.v1.AccountService.CreateNotificationBindCode:output_type -> account.v1.CreateNotificationBindCodeResponse
+	113, // 162: account.v1.AccountService.ConfirmNotificationBinding:output_type -> account.v1.ConfirmNotificationBindingResponse
+	115, // 163: account.v1.AccountService.UnbindNotificationChannel:output_type -> account.v1.UnbindNotificationChannelResponse
+	117, // 164: account.v1.AccountService.SendTestNotification:output_type -> account.v1.SendTestNotificationResponse
+	119, // [119:165] is the sub-list for method output_type
+	73,  // [73:119] is the sub-list for method input_type
+	73,  // [73:73] is the sub-list for extension type_name
+	73,  // [73:73] is the sub-list for extension extendee
+	0,   // [0:73] is the sub-list for field type_name
 }
 
 func init() { file_account_service_proto_init() }

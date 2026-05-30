@@ -1546,6 +1546,12 @@ func toProtoPortfolioSnapshot(snapshot adapter.PortfolioSnapshot) *accountv1.Por
 }
 
 func toProtoVenueSnapshot(snapshot adapter.PortfolioSnapshot) *accountv1.VenueSnapshot {
+	wallet := toProtoAccountWalletState(onlineInfoFromPortfolioSnapshot(snapshot, domain.Account{
+		AccountID:   snapshot.AccountID,
+		UserID:      snapshot.UserID,
+		Environment: snapshot.Environment,
+		Mode:        accountModeFromEnvironment(snapshot.Environment),
+	}))
 	out := &accountv1.VenueSnapshot{
 		VenueId:          snapshot.VenueID,
 		Exchange:         int32(snapshot.Exchange),
@@ -1555,6 +1561,7 @@ func toProtoVenueSnapshot(snapshot adapter.PortfolioSnapshot) *accountv1.VenueSn
 		WalletBalance:    snapshot.WalletBalance,
 		AvailableBalance: snapshot.AvailableBalance,
 		UpdatedAt:        timestamppb.New(snapshot.UpdatedAt),
+		Wallet:           wallet,
 	}
 	for _, balance := range snapshot.Balances {
 		out.Balances = append(out.Balances, &accountv1.BalanceEntry{

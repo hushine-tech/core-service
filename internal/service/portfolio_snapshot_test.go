@@ -102,6 +102,34 @@ func TestGetPortfolioSnapshotReturnsVenueArray(t *testing.T) {
 		Positions: []adapter.PositionEntry{
 			{Symbol: "ETHUSDT", PositionSide: "BOTH", Qty: 0.2, MarkPrice: 2000},
 		},
+		OnlineInfo: &domain.OnlineAccountInfo{
+			Mode:             domain.AccountModeBinanceTestnet,
+			WalletBalance:    900,
+			AvailableBalance: 800,
+			Futures: domain.FuturesWallet{
+				MarginMode:       "cross",
+				PositionMode:     "one_way",
+				WalletBalance:    900,
+				AvailableBalance: 800,
+				MarginBalance:    940,
+				RiskMetadata: []domain.FuturesRiskMetadata{{
+					Symbol:               "ETHUSDT",
+					ConfiguredLeverage:   20,
+					ConfiguredMarginMode: "cross",
+				}},
+				Positions: []domain.FuturesPosition{{
+					Symbol:        "ETHUSDT",
+					PositionSide:  "BOTH",
+					PositionQty:   0.2,
+					EntryPrice:    1900,
+					MarkPrice:     2000,
+					Leverage:      20,
+					MarginMode:    "cross",
+					MarginType:    "cross",
+					InitialMargin: 20,
+				}},
+			},
+		},
 	}}
 	registry := adapter.NewRegistry()
 	registry.Register(adapter.Route{Exchange: domain.ExchangeBinance, Environment: domain.EnvironmentDemo, Market: domain.MarketPerpetualFutures}, snapshotFactory{reader: reader})
@@ -133,6 +161,12 @@ func TestGetPortfolioSnapshotReturnsVenueArray(t *testing.T) {
 	venue := resp.GetSnapshot().GetVenues()[0]
 	if venue.GetVenueId() != venueID || venue.GetExchange() != int32(domain.ExchangeBinance) || venue.GetBalances()[0].GetAsset() != "USDT" {
 		t.Fatalf("venue snapshot = %+v", venue)
+	}
+	if venue.GetWallet() == nil || venue.GetWallet().GetFutures().GetPositions()[0].GetLeverage() != 20 {
+		t.Fatalf("venue wallet futures = %+v, want full canonical futures wallet", venue.GetWallet().GetFutures())
+	}
+	if venue.GetWallet().GetFutures().GetRiskMetadata()[0].GetConfiguredLeverage() != 20 {
+		t.Fatalf("venue wallet risk metadata = %+v, want leverage 20", venue.GetWallet().GetFutures().GetRiskMetadata())
 	}
 }
 
@@ -183,6 +217,9 @@ func TestBacktestPortfolioSnapshotIncludesBoundSimulatedVenue(t *testing.T) {
 	}
 	if venue.GetWalletBalance() != 1000 || venue.GetAvailableBalance() != 900 {
 		t.Fatalf("venue balances = wallet %v available %v, want 1000/900", venue.GetWalletBalance(), venue.GetAvailableBalance())
+	}
+	if venue.GetWallet() == nil || venue.GetWallet().GetMode() != int32(domain.AccountModeBacktest) {
+		t.Fatalf("venue wallet = %+v, want backtest account wallet state", venue.GetWallet())
 	}
 }
 

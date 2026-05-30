@@ -13,6 +13,7 @@ import (
 	"github.com/hushine-tech/core-service/internal/credential"
 	"github.com/hushine-tech/core-service/internal/domain"
 	"github.com/hushine-tech/core-service/internal/exchange"
+	"github.com/hushine-tech/core-service/internal/exchange/adapter"
 	"github.com/hushine-tech/core-service/internal/notification"
 	"github.com/hushine-tech/core-service/internal/reconciliation"
 	"github.com/hushine-tech/core-service/internal/repository"
@@ -46,6 +47,7 @@ type AccountGRPCService struct {
 	reconciler *reconciliation.Service // Phase C; may be nil or disabled
 	notifier   *notification.Service
 	creds      *credential.Manager
+	registry   *adapter.Registry
 }
 
 type AccountServiceOption func(*AccountGRPCService)
@@ -53,6 +55,12 @@ type AccountServiceOption func(*AccountGRPCService)
 func WithCredentialManager(manager *credential.Manager) AccountServiceOption {
 	return func(s *AccountGRPCService) {
 		s.creds = manager
+	}
+}
+
+func WithExchangeRegistry(registry *adapter.Registry) AccountServiceOption {
+	return func(s *AccountGRPCService) {
+		s.registry = registry
 	}
 }
 
@@ -1162,28 +1170,330 @@ func (s *AccountGRPCService) GetOnlineAccountInfo(ctx context.Context, req *acco
 		return nil, status.Error(codes.InvalidArgument, "account_id is required")
 	}
 
+	resp, err := s.UpdatePortfolioSnapshot(ctx, &accountv1.UpdatePortfolioSnapshotRequest{
+		AccountId: accountID,
+		UserId:    req.GetUserId(),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &accountv1.GetOnlineAccountInfoResponse{Wallet: resp.GetSnapshot().GetWallet()}, nil
+}
+
+func (s *AccountGRPCService) GetPortfolioSnapshot(ctx context.Context, req *accountv1.GetPortfolioSnapshotRequest) (*accountv1.GetPortfolioSnapshotResponse, error) {
+	if err := requireUserID(req.GetUserId()); err != nil {
+		return nil, err
+	}
+	accountID := req.GetAccountId()
+	if accountID == 0 {
+		return nil, status.Error(codes.InvalidArgument, "account_id is required")
+	}
 	account, err := s.repo.GetAccount(ctx, accountID, req.GetUserId())
 	if err != nil {
 		return nil, mapRepoErr(err)
 	}
-
-	fetchAccount, err := s.accountForExchangeFetch(ctx, account)
+	snapshot, err := s.readPortfolioSnapshot(ctx, account)
 	if err != nil {
 		return nil, err
 	}
-	info, err := s.router.GetOnlineInfo(ctx, fetchAccount)
-	if err != nil {
-		return nil, status.Errorf(codes.Unavailable, "get online info: %v", err)
-	}
+	return &accountv1.GetPortfolioSnapshotResponse{Snapshot: toProtoPortfolioSnapshot(snapshot)}, nil
+}
 
-	// 实盘/测试网：把交易所最新状态写回 accounts 表（不写快照）
-	if account.Mode != domain.AccountModeBacktest {
-		if err := s.repo.UpdateAccountState(ctx, info); err != nil {
-			return nil, status.Errorf(codes.Unavailable, "update account state: %v", err)
+func (s *AccountGRPCService) UpdatePortfolioSnapshot(ctx context.Context, req *accountv1.UpdatePortfolioSnapshotRequest) (*accountv1.UpdatePortfolioSnapshotResponse, error) {
+	if err := requireUserID(req.GetUserId()); err != nil {
+		return nil, err
+	}
+	accountID := req.GetAccountId()
+	if accountID == 0 {
+		return nil, status.Error(codes.InvalidArgument, "account_id is required")
+	}
+	account, err := s.repo.GetAccount(ctx, accountID, req.GetUserId())
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	if err := s.requireActiveSessionForAccount(ctx, req.GetSessionId(), accountID, req.GetStrategyId(), account.UserID); err != nil {
+		return nil, err
+	}
+	snapshot, err := s.readPortfolioSnapshot(ctx, account)
+	if err != nil {
+		return nil, err
+	}
+	info := onlineInfoFromPortfolioSnapshot(snapshot, account)
+	if err := s.repo.UpdateAccountState(ctx, info); err != nil {
+		return nil, status.Errorf(codes.Unavailable, "update account state: %v", err)
+	}
+	if reason := domain.SnapshotReason(req.GetSnapshotReason()); reason > 0 {
+		if err := s.repo.SaveSnapshot(ctx, accountID, reason, req.GetStrategyId(), req.GetSessionId()); err != nil {
+			return nil, status.Errorf(codes.Unavailable, "save snapshot: %v", err)
 		}
 	}
+	return &accountv1.UpdatePortfolioSnapshotResponse{Snapshot: toProtoPortfolioSnapshot(snapshot)}, nil
+}
 
-	return &accountv1.GetOnlineAccountInfoResponse{Wallet: toProtoAccountWalletState(info)}, nil
+func (s *AccountGRPCService) readPortfolioSnapshot(ctx context.Context, account domain.Account) (adapter.PortfolioSnapshot, error) {
+	if account.Mode == domain.AccountModeBacktest || account.Environment == domain.EnvironmentBacktest {
+		info, err := s.repo.GetAccountState(ctx, account.AccountID)
+		if err != nil {
+			return adapter.PortfolioSnapshot{}, status.Errorf(codes.Unavailable, "read backtest portfolio snapshot: %v", err)
+		}
+		return portfolioSnapshotFromOnlineInfo(info, account), nil
+	}
+	if s.registry == nil {
+		return adapter.PortfolioSnapshot{}, status.Error(codes.FailedPrecondition, "exchange capability registry is not configured")
+	}
+	venues, err := s.repo.ListActiveAccountVenues(ctx, account.UserID, account.AccountID)
+	if err != nil {
+		return adapter.PortfolioSnapshot{}, mapRepoErr(err)
+	}
+	if len(venues) == 0 {
+		return adapter.PortfolioSnapshot{}, status.Error(codes.FailedPrecondition, "account has no active venue")
+	}
+
+	out := adapter.PortfolioSnapshot{
+		UserID:      account.UserID,
+		AccountID:   account.AccountID,
+		Environment: account.Environment,
+		UpdatedAt:   time.Now().UTC(),
+	}
+	for _, venue := range venues {
+		route := adapter.Route{Exchange: venue.Exchange, Environment: venue.Environment, Market: venue.Market}
+		validator, err := s.registry.CredentialValidator(route)
+		if err != nil {
+			return adapter.PortfolioSnapshot{}, status.Errorf(codes.FailedPrecondition, "credential validator: %v", err)
+		}
+		reader, err := s.registry.AccountSnapshotReader(route)
+		if err != nil {
+			return adapter.PortfolioSnapshot{}, status.Errorf(codes.FailedPrecondition, "portfolio snapshot reader: %v", err)
+		}
+		parsed, err := s.parsedCredentialForVenue(ctx, venue, validator)
+		if err != nil {
+			return adapter.PortfolioSnapshot{}, err
+		}
+		venueSnapshot, err := reader.ReadPortfolioSnapshot(ctx, adapter.PortfolioSnapshotRequest{
+			UserID:     account.UserID,
+			AccountID:  account.AccountID,
+			VenueID:    venue.VenueID,
+			Credential: parsed,
+		})
+		if err != nil {
+			return adapter.PortfolioSnapshot{}, status.Errorf(codes.Unavailable, "read venue portfolio snapshot: %v", err)
+		}
+		if venueSnapshot.Exchange == 0 {
+			venueSnapshot.Exchange = venue.Exchange
+		}
+		if venueSnapshot.Environment == 0 {
+			venueSnapshot.Environment = venue.Environment
+		}
+		if venueSnapshot.Market == 0 {
+			venueSnapshot.Market = venue.Market
+		}
+		out.TotalValue += venueSnapshot.TotalValue
+		out.WalletBalance += venueSnapshot.WalletBalance
+		out.AvailableBalance += venueSnapshot.AvailableBalance
+		out.Balances = append(out.Balances, venueSnapshot.Balances...)
+		out.Positions = append(out.Positions, venueSnapshot.Positions...)
+		out.OnlineInfo = mergePortfolioOnlineInfo(out.OnlineInfo, venueSnapshot.OnlineInfo, account)
+		out.RawPayload = venueSnapshot.RawPayload
+		if venueSnapshot.UpdatedAt.After(out.UpdatedAt) {
+			out.UpdatedAt = venueSnapshot.UpdatedAt
+		}
+		out.VenueSnapshots = append(out.VenueSnapshots, venueSnapshot)
+	}
+	return out, nil
+}
+
+func (s *AccountGRPCService) parsedCredentialForVenue(ctx context.Context, venue domain.Venue, validator adapter.CredentialValidator) (adapter.ParsedCredential, error) {
+	if venue.Environment == domain.EnvironmentBacktest {
+		return adapter.ParsedCredential{Exchange: venue.Exchange, Environment: venue.Environment}, nil
+	}
+	if s.creds == nil {
+		return adapter.ParsedCredential{}, status.Error(codes.FailedPrecondition, "credential manager is not configured")
+	}
+	if strings.TrimSpace(venue.CredentialInfo) == "" {
+		return adapter.ParsedCredential{}, status.Error(codes.FailedPrecondition, "venue credential is missing")
+	}
+	credentialJSON, err := s.creds.Decrypt(venue.CredentialInfo)
+	if err != nil {
+		return adapter.ParsedCredential{}, status.Errorf(codes.FailedPrecondition, "decrypt venue credential: %v", err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(credentialJSON), &payload); err != nil {
+		return adapter.ParsedCredential{}, status.Errorf(codes.FailedPrecondition, "invalid venue credential json: %v", err)
+	}
+	payload["api_key"] = venue.APIKey
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return adapter.ParsedCredential{}, status.Errorf(codes.FailedPrecondition, "marshal venue credential json: %v", err)
+	}
+	parsed, err := validator.ValidateCredential(ctx, raw)
+	if err != nil {
+		return adapter.ParsedCredential{}, status.Errorf(codes.FailedPrecondition, "validate venue credential: %v", err)
+	}
+	if parsed.Exchange == 0 {
+		parsed.Exchange = venue.Exchange
+	}
+	if parsed.Environment == 0 {
+		parsed.Environment = venue.Environment
+	}
+	return parsed, nil
+}
+
+func portfolioSnapshotFromOnlineInfo(info domain.OnlineAccountInfo, account domain.Account) adapter.PortfolioSnapshot {
+	if info.UpdatedAt.IsZero() {
+		info.UpdatedAt = time.Now().UTC()
+	}
+	snapshot := adapter.PortfolioSnapshot{
+		UserID:           account.UserID,
+		AccountID:        account.AccountID,
+		Environment:      account.Environment,
+		TotalValue:       info.TotalValue,
+		WalletBalance:    info.WalletBalance,
+		AvailableBalance: info.AvailableBalance,
+		Balances: []adapter.BalanceEntry{
+			{
+				Asset:            "USDT",
+				WalletBalance:    info.WalletBalance,
+				AvailableBalance: info.AvailableBalance,
+				ValueUSDT:        info.WalletBalance,
+			},
+		},
+		OnlineInfo: &info,
+		UpdatedAt:  info.UpdatedAt,
+	}
+	for _, position := range info.Futures.Positions {
+		snapshot.Positions = append(snapshot.Positions, adapter.PositionEntry{
+			Symbol:           position.Symbol,
+			PositionSide:     position.PositionSide,
+			Qty:              position.PositionQty,
+			EntryPrice:       position.EntryPrice,
+			MarkPrice:        position.MarkPrice,
+			UnrealizedPnl:    position.UnrealizedPnl,
+			LiquidationPrice: position.LiquidationPrice,
+		})
+	}
+	return snapshot
+}
+
+func onlineInfoFromPortfolioSnapshot(snapshot adapter.PortfolioSnapshot, account domain.Account) domain.OnlineAccountInfo {
+	if snapshot.OnlineInfo != nil {
+		info := *snapshot.OnlineInfo
+		info.AccountID = account.AccountID
+		info.Mode = account.Mode
+		if info.UpdatedAt.IsZero() {
+			info.UpdatedAt = snapshot.UpdatedAt
+		}
+		return info
+	}
+	futures := domain.FuturesWallet{
+		MarginMode:       account.MarginMode,
+		PositionMode:     account.PositionMode,
+		WalletBalance:    snapshot.WalletBalance,
+		AvailableBalance: snapshot.AvailableBalance,
+		MarginBalance:    snapshot.WalletBalance,
+	}
+	for _, position := range snapshot.Positions {
+		futures.Positions = append(futures.Positions, domain.FuturesPosition{
+			Symbol:           position.Symbol,
+			PositionSide:     position.PositionSide,
+			PositionQty:      position.Qty,
+			Qty:              position.Qty,
+			EntryPrice:       position.EntryPrice,
+			MarkPrice:        position.MarkPrice,
+			UnrealizedPnl:    position.UnrealizedPnl,
+			LiquidationPrice: position.LiquidationPrice,
+		})
+	}
+	return domain.OnlineAccountInfo{
+		AccountID:        account.AccountID,
+		Mode:             account.Mode,
+		Futures:          futures,
+		TotalValue:       snapshot.TotalValue,
+		WalletBalance:    snapshot.WalletBalance,
+		AvailableBalance: snapshot.AvailableBalance,
+		UpdatedAt:        snapshot.UpdatedAt,
+	}
+}
+
+func mergePortfolioOnlineInfo(current *domain.OnlineAccountInfo, next *domain.OnlineAccountInfo, account domain.Account) *domain.OnlineAccountInfo {
+	if next == nil {
+		return current
+	}
+	merged := *next
+	merged.AccountID = account.AccountID
+	merged.Mode = account.Mode
+	if current == nil {
+		return &merged
+	}
+	merged.TotalValue += current.TotalValue
+	merged.WalletBalance += current.WalletBalance
+	merged.AvailableBalance += current.AvailableBalance
+	merged.Futures.Positions = append(current.Futures.Positions, merged.Futures.Positions...)
+	merged.Spot.Assets = append(current.Spot.Assets, merged.Spot.Assets...)
+	if current.UpdatedAt.After(merged.UpdatedAt) {
+		merged.UpdatedAt = current.UpdatedAt
+	}
+	return &merged
+}
+
+func toProtoPortfolioSnapshot(snapshot adapter.PortfolioSnapshot) *accountv1.PortfolioSnapshot {
+	wallet := toProtoAccountWalletState(onlineInfoFromPortfolioSnapshot(snapshot, domain.Account{
+		AccountID:   snapshot.AccountID,
+		UserID:      snapshot.UserID,
+		Environment: snapshot.Environment,
+		Mode:        accountModeFromEnvironment(snapshot.Environment),
+	}))
+	out := &accountv1.PortfolioSnapshot{
+		AccountId:        snapshot.AccountID,
+		UserId:           snapshot.UserID,
+		TotalValue:       snapshot.TotalValue,
+		WalletBalance:    snapshot.WalletBalance,
+		AvailableBalance: snapshot.AvailableBalance,
+		UpdatedAt:        timestamppb.New(snapshot.UpdatedAt),
+		Wallet:           wallet,
+	}
+	sourceVenues := snapshot.VenueSnapshots
+	if len(sourceVenues) == 0 && snapshot.VenueID != 0 {
+		sourceVenues = []adapter.PortfolioSnapshot{snapshot}
+	}
+	for _, venue := range sourceVenues {
+		out.Venues = append(out.Venues, toProtoVenueSnapshot(venue))
+	}
+	return out
+}
+
+func toProtoVenueSnapshot(snapshot adapter.PortfolioSnapshot) *accountv1.VenueSnapshot {
+	out := &accountv1.VenueSnapshot{
+		VenueId:          snapshot.VenueID,
+		Exchange:         int32(snapshot.Exchange),
+		Environment:      int32(snapshot.Environment),
+		Market:           int32(snapshot.Market),
+		TotalValue:       snapshot.TotalValue,
+		WalletBalance:    snapshot.WalletBalance,
+		AvailableBalance: snapshot.AvailableBalance,
+		UpdatedAt:        timestamppb.New(snapshot.UpdatedAt),
+	}
+	for _, balance := range snapshot.Balances {
+		out.Balances = append(out.Balances, &accountv1.BalanceEntry{
+			Asset:            balance.Asset,
+			WalletBalance:    balance.WalletBalance,
+			AvailableBalance: balance.AvailableBalance,
+			Locked:           balance.Locked,
+			ValueUsdt:        balance.ValueUSDT,
+		})
+	}
+	for _, position := range snapshot.Positions {
+		out.Positions = append(out.Positions, &accountv1.PositionEntry{
+			Symbol:           position.Symbol,
+			PositionSide:     position.PositionSide,
+			Qty:              position.Qty,
+			EntryPrice:       position.EntryPrice,
+			MarkPrice:        position.MarkPrice,
+			UnrealizedPnl:    position.UnrealizedPnl,
+			MarginBalance:    position.MarginBalance,
+			LiquidationPrice: position.LiquidationPrice,
+		})
+	}
+	return out
 }
 
 // UpdateAccountWalletState branches on the account's registered mode.
@@ -1258,14 +1568,11 @@ func (s *AccountGRPCService) UpdateAccountWalletState(ctx context.Context, req *
 		return &accountv1.UpdateAccountWalletStateResponse{Wallet: toProtoAccountWalletState(saved)}, nil
 
 	case domain.AccountModeBinanceLive, domain.AccountModeBinanceTestnet:
-		fetchAccount, err := s.accountForExchangeFetch(ctx, account)
+		snapshot, err := s.readPortfolioSnapshot(ctx, account)
 		if err != nil {
 			return nil, err
 		}
-		info, err := s.router.GetOnlineInfo(ctx, fetchAccount)
-		if err != nil {
-			return nil, status.Errorf(codes.Unavailable, "fetch from exchange: %v", err)
-		}
+		info := onlineInfoFromPortfolioSnapshot(snapshot, account)
 		if err := s.repo.UpdateAccountState(ctx, info); err != nil {
 			return nil, status.Errorf(codes.Unavailable, "update account state: %v", err)
 		}

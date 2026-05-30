@@ -35,6 +35,8 @@ const (
 	AccountService_PreflightStrategySession_FullMethodName        = "/account.v1.AccountService/PreflightStrategySession"
 	AccountService_GetVenueRouteMeta_FullMethodName               = "/account.v1.AccountService/GetVenueRouteMeta"
 	AccountService_GetOnlineAccountInfo_FullMethodName            = "/account.v1.AccountService/GetOnlineAccountInfo"
+	AccountService_GetPortfolioSnapshot_FullMethodName            = "/account.v1.AccountService/GetPortfolioSnapshot"
+	AccountService_UpdatePortfolioSnapshot_FullMethodName         = "/account.v1.AccountService/UpdatePortfolioSnapshot"
 	AccountService_UpdateAccountWalletState_FullMethodName        = "/account.v1.AccountService/UpdateAccountWalletState"
 	AccountService_ListSymbols_FullMethodName                     = "/account.v1.AccountService/ListSymbols"
 	AccountService_GetAccountMeta_FullMethodName                  = "/account.v1.AccountService/GetAccountMeta"
@@ -96,6 +98,13 @@ type AccountServiceClient interface {
 	GetVenueRouteMeta(ctx context.Context, in *GetVenueRouteMetaRequest, opts ...grpc.CallOption) (*GetVenueRouteMetaResponse, error)
 	// Latest wallet state: mode=0 reads DB; mode=1/2 fetches from Binance (live/testnet) per account registration.
 	GetOnlineAccountInfo(ctx context.Context, in *GetOnlineAccountInfoRequest, opts ...grpc.CallOption) (*GetOnlineAccountInfoResponse, error)
+	// Phase 2 canonical portfolio snapshot API. It reads active account venues
+	// through the exchange capability registry and returns account-level summary
+	// plus per-venue balances/positions.
+	GetPortfolioSnapshot(ctx context.Context, in *GetPortfolioSnapshotRequest, opts ...grpc.CallOption) (*GetPortfolioSnapshotResponse, error)
+	// Refresh and persist the current portfolio snapshot. Exchange-backed
+	// accounts read from active venues; backtest accounts read local state.
+	UpdatePortfolioSnapshot(ctx context.Context, in *UpdatePortfolioSnapshotRequest, opts ...grpc.CallOption) (*UpdatePortfolioSnapshotResponse, error)
 	// Bidirectional wallet sync. Routing uses only account_id: look up the account's registered
 	// mode (backtest vs live/testnet). strategy-service does not send a mode.
 	// Backtest: request wallet is authoritative — persisted and returned.
@@ -321,6 +330,26 @@ func (c *accountServiceClient) GetOnlineAccountInfo(ctx context.Context, in *Get
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetOnlineAccountInfoResponse)
 	err := c.cc.Invoke(ctx, AccountService_GetOnlineAccountInfo_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *accountServiceClient) GetPortfolioSnapshot(ctx context.Context, in *GetPortfolioSnapshotRequest, opts ...grpc.CallOption) (*GetPortfolioSnapshotResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetPortfolioSnapshotResponse)
+	err := c.cc.Invoke(ctx, AccountService_GetPortfolioSnapshot_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *accountServiceClient) UpdatePortfolioSnapshot(ctx context.Context, in *UpdatePortfolioSnapshotRequest, opts ...grpc.CallOption) (*UpdatePortfolioSnapshotResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UpdatePortfolioSnapshotResponse)
+	err := c.cc.Invoke(ctx, AccountService_UpdatePortfolioSnapshot_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -638,6 +667,13 @@ type AccountServiceServer interface {
 	GetVenueRouteMeta(context.Context, *GetVenueRouteMetaRequest) (*GetVenueRouteMetaResponse, error)
 	// Latest wallet state: mode=0 reads DB; mode=1/2 fetches from Binance (live/testnet) per account registration.
 	GetOnlineAccountInfo(context.Context, *GetOnlineAccountInfoRequest) (*GetOnlineAccountInfoResponse, error)
+	// Phase 2 canonical portfolio snapshot API. It reads active account venues
+	// through the exchange capability registry and returns account-level summary
+	// plus per-venue balances/positions.
+	GetPortfolioSnapshot(context.Context, *GetPortfolioSnapshotRequest) (*GetPortfolioSnapshotResponse, error)
+	// Refresh and persist the current portfolio snapshot. Exchange-backed
+	// accounts read from active venues; backtest accounts read local state.
+	UpdatePortfolioSnapshot(context.Context, *UpdatePortfolioSnapshotRequest) (*UpdatePortfolioSnapshotResponse, error)
 	// Bidirectional wallet sync. Routing uses only account_id: look up the account's registered
 	// mode (backtest vs live/testnet). strategy-service does not send a mode.
 	// Backtest: request wallet is authoritative — persisted and returned.
@@ -756,6 +792,12 @@ func (UnimplementedAccountServiceServer) GetVenueRouteMeta(context.Context, *Get
 }
 func (UnimplementedAccountServiceServer) GetOnlineAccountInfo(context.Context, *GetOnlineAccountInfoRequest) (*GetOnlineAccountInfoResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetOnlineAccountInfo not implemented")
+}
+func (UnimplementedAccountServiceServer) GetPortfolioSnapshot(context.Context, *GetPortfolioSnapshotRequest) (*GetPortfolioSnapshotResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetPortfolioSnapshot not implemented")
+}
+func (UnimplementedAccountServiceServer) UpdatePortfolioSnapshot(context.Context, *UpdatePortfolioSnapshotRequest) (*UpdatePortfolioSnapshotResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method UpdatePortfolioSnapshot not implemented")
 }
 func (UnimplementedAccountServiceServer) UpdateAccountWalletState(context.Context, *UpdateAccountWalletStateRequest) (*UpdateAccountWalletStateResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method UpdateAccountWalletState not implemented")
@@ -1146,6 +1188,42 @@ func _AccountService_GetOnlineAccountInfo_Handler(srv interface{}, ctx context.C
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(AccountServiceServer).GetOnlineAccountInfo(ctx, req.(*GetOnlineAccountInfoRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AccountService_GetPortfolioSnapshot_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetPortfolioSnapshotRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AccountServiceServer).GetPortfolioSnapshot(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AccountService_GetPortfolioSnapshot_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AccountServiceServer).GetPortfolioSnapshot(ctx, req.(*GetPortfolioSnapshotRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AccountService_UpdatePortfolioSnapshot_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdatePortfolioSnapshotRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AccountServiceServer).UpdatePortfolioSnapshot(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AccountService_UpdatePortfolioSnapshot_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AccountServiceServer).UpdatePortfolioSnapshot(ctx, req.(*UpdatePortfolioSnapshotRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1724,6 +1802,14 @@ var AccountService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetOnlineAccountInfo",
 			Handler:    _AccountService_GetOnlineAccountInfo_Handler,
+		},
+		{
+			MethodName: "GetPortfolioSnapshot",
+			Handler:    _AccountService_GetPortfolioSnapshot_Handler,
+		},
+		{
+			MethodName: "UpdatePortfolioSnapshot",
+			Handler:    _AccountService_UpdatePortfolioSnapshot_Handler,
 		},
 		{
 			MethodName: "UpdateAccountWalletState",

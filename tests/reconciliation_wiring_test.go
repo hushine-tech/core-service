@@ -20,25 +20,6 @@ import (
 // internal/reconciliation prove the service semantics in isolation; this
 // file proves the handler actually calls into the service.
 
-// fakeOnlineInfoFetcher returns a deterministic authoritative snapshot so
-// mode=2 UpdateAccountWalletState flows through successfully without hitting
-// real Binance.
-type fakeOnlineInfoFetcher struct {
-	info domain.OnlineAccountInfo
-	seen domain.Account
-}
-
-func (f *fakeOnlineInfoFetcher) FetchOnlineAccountInfo(_ context.Context, account domain.Account) (domain.OnlineAccountInfo, error) {
-	f.seen = account
-	resp := f.info
-	resp.AccountID = account.AccountID
-	resp.Mode = account.Mode
-	if resp.UpdatedAt.IsZero() {
-		resp.UpdatedAt = time.Now().UTC()
-	}
-	return resp, nil
-}
-
 // waitForReconRuns polls the mockRepo's reconRuns list for `target` entries.
 // Needed because LaunchAsync is fire-and-forget. Uses the race-safe
 // accessor so the race detector stays quiet.
@@ -84,8 +65,8 @@ func TestUpdateAccountWalletState_Mode2_LaunchesReconciliation(t *testing.T) {
 	}
 	credManager := seedBinancePerpVenue(t, repo, accountID, domain.EnvironmentDemo, "test-key", "test-secret")
 
-	// Seed an authoritative snapshot the fake exchange will return.
-	fakeExchange := &fakeOnlineInfoFetcher{
+	// Seed an authoritative snapshot the fake registry-backed exchange will return.
+	reader := &testPortfolioSnapshotReader{
 		info: domain.OnlineAccountInfo{
 			Mode: domain.AccountModeBinanceTestnet,
 			Futures: domain.FuturesWallet{
@@ -99,14 +80,10 @@ func TestUpdateAccountWalletState_Mode2_LaunchesReconciliation(t *testing.T) {
 			AvailableBalance: 9500,
 		},
 	}
-	router := exchange.NewAdapterRouter(
-		map[exchange.ExchangeTarget]exchange.OnlineInfoFetcher{
-			{Provider: exchange.ProviderBinance, Environment: exchange.EnvTestnet}: fakeExchange,
-		},
-		repo.GetAccountState,
-	)
+	router := exchange.NewAdapterRouter(nil, repo.GetAccountState)
+	registry := newBinancePerpSnapshotRegistry(reader, domain.EnvironmentDemo)
 	reconciler := reconciliation.NewService(enabledReconConfig(), repo)
-	svc := service.NewAccountGRPCService(repo, router, testCatalog(), reconciler, service.WithCredentialManager(credManager))
+	svc := service.NewAccountGRPCService(repo, router, testCatalog(), reconciler, service.WithCredentialManager(credManager), service.WithExchangeRegistry(registry))
 
 	// Call UpdateAccountWalletState with a slightly-different local snapshot.
 	resp, err := svc.UpdateAccountWalletState(ctx, &accountv1.UpdateAccountWalletStateRequest{
@@ -124,6 +101,9 @@ func TestUpdateAccountWalletState_Mode2_LaunchesReconciliation(t *testing.T) {
 	}
 	if resp.GetWallet() == nil {
 		t.Fatal("expected wallet in response")
+	}
+	if reader.seen.Credential.Metadata["api_key"] != "test-key" || reader.seen.Credential.Metadata["api_secret"] != "test-secret" {
+		t.Fatalf("snapshot reader did not receive venue credentials: %+v", reader.seen.Credential.Metadata)
 	}
 
 	// Response is returned immediately — the compare runs in the background.
@@ -216,7 +196,7 @@ func TestUpdateAccountWalletState_Mode2_DisabledReconcilerSkips(t *testing.T) {
 	})
 	credManager := seedBinancePerpVenue(t, repo, accountID, domain.EnvironmentDemo, "test-key", "test-secret")
 
-	fakeExchange := &fakeOnlineInfoFetcher{
+	reader := &testPortfolioSnapshotReader{
 		info: domain.OnlineAccountInfo{
 			Mode: domain.AccountModeBinanceTestnet,
 			Futures: domain.FuturesWallet{
@@ -224,18 +204,14 @@ func TestUpdateAccountWalletState_Mode2_DisabledReconcilerSkips(t *testing.T) {
 			},
 		},
 	}
-	router := exchange.NewAdapterRouter(
-		map[exchange.ExchangeTarget]exchange.OnlineInfoFetcher{
-			{Provider: exchange.ProviderBinance, Environment: exchange.EnvTestnet}: fakeExchange,
-		},
-		repo.GetAccountState,
-	)
+	router := exchange.NewAdapterRouter(nil, repo.GetAccountState)
+	registry := newBinancePerpSnapshotRegistry(reader, domain.EnvironmentDemo)
 
 	// Reconciler constructed but explicitly disabled.
 	disabled := config.DefaultReconciliationConfig()
 	disabled.Enabled = false
 	reconciler := reconciliation.NewService(disabled, repo)
-	svc := service.NewAccountGRPCService(repo, router, testCatalog(), reconciler, service.WithCredentialManager(credManager))
+	svc := service.NewAccountGRPCService(repo, router, testCatalog(), reconciler, service.WithCredentialManager(credManager), service.WithExchangeRegistry(registry))
 
 	_, err := svc.UpdateAccountWalletState(ctx, &accountv1.UpdateAccountWalletStateRequest{
 		AccountId:      accountID,

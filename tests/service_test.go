@@ -157,17 +157,13 @@ func TestGetOnlineAccountInfo_TestnetFetchesExchangeAndRefreshesStoredState(t *t
 		TotalValue:       4321,
 		UpdatedAt:        time.Now().UTC(),
 	}
-	fetcher := &fakeOnlineInfoFetcher{info: exchangeInfo}
-	router := exchange.NewAdapterRouter(
-		map[exchange.ExchangeTarget]exchange.OnlineInfoFetcher{
-			{Provider: exchange.ProviderBinance, Environment: exchange.EnvTestnet}: fetcher,
-		},
-		func(_ context.Context, _ int64) (domain.OnlineAccountInfo, error) {
-			t.Fatal("testnet GetOnlineAccountInfo must not read local wallet state")
-			return domain.OnlineAccountInfo{}, nil
-		},
-	)
-	svc := service.NewAccountGRPCService(repo, router, testCatalog(), nil, service.WithCredentialManager(credManager))
+	reader := &testPortfolioSnapshotReader{info: exchangeInfo}
+	router := exchange.NewAdapterRouter(nil, func(_ context.Context, _ int64) (domain.OnlineAccountInfo, error) {
+		t.Fatal("testnet GetOnlineAccountInfo must not read local wallet state")
+		return domain.OnlineAccountInfo{}, nil
+	})
+	registry := newBinancePerpSnapshotRegistry(reader, domain.EnvironmentDemo)
+	svc := service.NewAccountGRPCService(repo, router, testCatalog(), nil, service.WithCredentialManager(credManager), service.WithExchangeRegistry(registry))
 
 	resp, err := svc.GetOnlineAccountInfo(ctx, &accountv1.GetOnlineAccountInfoRequest{
 		AccountId: accountID,
@@ -183,8 +179,8 @@ func TestGetOnlineAccountInfo_TestnetFetchesExchangeAndRefreshesStoredState(t *t
 	if got := wallet.GetFutures().GetWalletBalance(); got != 4321 {
 		t.Fatalf("expected exchange wallet balance, got %f", got)
 	}
-	if fetcher.seen.APIKey != "test-key" || fetcher.seen.APISecret != "test-secret" {
-		t.Fatalf("exchange fetch did not receive venue credentials: api_key=%q api_secret=%q", fetcher.seen.APIKey, fetcher.seen.APISecret)
+	if reader.seen.Credential.Metadata["api_key"] != "test-key" || reader.seen.Credential.Metadata["api_secret"] != "test-secret" {
+		t.Fatalf("exchange snapshot did not receive venue credentials: %+v", reader.seen.Credential.Metadata)
 	}
 
 	stored, err := repo.GetAccountState(ctx, accountID)
@@ -278,8 +274,8 @@ func TestGetOnlineAccountInfo_Live_NoAdapter(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if status.Code(err) != codes.Unavailable {
-		t.Fatalf("expected Unavailable, got %s", status.Code(err))
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("expected FailedPrecondition, got %s", status.Code(err))
 	}
 }
 
@@ -406,8 +402,8 @@ func TestUpdateAccountWalletState_Live_NoAdapter(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if status.Code(err) != codes.Unavailable {
-		t.Fatalf("expected Unavailable, got %s", status.Code(err))
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("expected FailedPrecondition, got %s", status.Code(err))
 	}
 }
 

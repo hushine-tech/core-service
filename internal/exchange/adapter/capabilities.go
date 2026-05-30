@@ -35,11 +35,40 @@ type PortfolioSnapshotRequest struct {
 }
 
 type PortfolioSnapshot struct {
-	UserID     int64
-	AccountID  int64
-	VenueID    int64
-	UpdatedAt  time.Time
-	RawPayload json.RawMessage
+	UserID           int64
+	AccountID        int64
+	VenueID          int64
+	Exchange         domain.Exchange
+	Environment      domain.Environment
+	Market           domain.Market
+	TotalValue       float64
+	WalletBalance    float64
+	AvailableBalance float64
+	Balances         []BalanceEntry
+	Positions        []PositionEntry
+	VenueSnapshots   []PortfolioSnapshot
+	OnlineInfo       *domain.OnlineAccountInfo
+	UpdatedAt        time.Time
+	RawPayload       json.RawMessage
+}
+
+type BalanceEntry struct {
+	Asset            string
+	WalletBalance    float64
+	AvailableBalance float64
+	Locked           float64
+	ValueUSDT        float64
+}
+
+type PositionEntry struct {
+	Symbol           string
+	PositionSide     string
+	Qty              float64
+	EntryPrice       float64
+	MarkPrice        float64
+	UnrealizedPnl    float64
+	MarginBalance    float64
+	LiquidationPrice float64
 }
 
 type SymbolRulesRequest struct {

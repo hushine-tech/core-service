@@ -1,6 +1,6 @@
--- Backtest accounts need a simulated spot venue as well as a simulated
--- perpetual futures venue so Phase 3 strategies can declare both wallet
--- routes without exchange credentials.
+-- Superseded by 0025_remove_unsupported_backtest_simulated_spot_venues.sql.
+-- Backtest spot routes are removed until spot symbol rules and execution are
+-- implemented in the exchange capability registry.
 
 INSERT INTO venues (
     user_id,

@@ -24,7 +24,7 @@ func TestPortfolioVenueHardCutDropsStaleStrategyMounts(t *testing.T) {
 	}
 }
 
-func TestBacktestAccountsGetDefaultSimulatedVenueBackfill(t *testing.T) {
+func TestBacktestAccountsGetDefaultPerpetualVenueBackfillAndSpotCleanup(t *testing.T) {
 	matches, err := filepath.Glob("*.sql")
 	if err != nil {
 		t.Fatalf("glob migrations: %v", err)
@@ -44,11 +44,13 @@ func TestBacktestAccountsGetDefaultSimulatedVenueBackfill(t *testing.T) {
 		"from accounts",
 		"environment = 0",
 		"default simulated venue",
-		"simulated binance spot",
+		"simulated binance perpetual futures",
 		"not exists",
+		"delete from venues",
+		"market = 1",
 	} {
 		if !strings.Contains(sql, required) {
-			t.Fatalf("migrations must backfill default simulated venues for existing backtest accounts; missing %q", required)
+			t.Fatalf("migrations must backfill futures default venues and clean unsupported spot venues; missing %q", required)
 		}
 	}
 }

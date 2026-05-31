@@ -192,7 +192,7 @@ func TestGetOnlineAccountInfo_TestnetFetchesExchangeAndRefreshesStoredState(t *t
 	}
 }
 
-func TestCreateAccount_BacktestSeedsSpotAndFuturesLedgers(t *testing.T) {
+func TestCreateAccount_BacktestSeedsFuturesLedger(t *testing.T) {
 	repo := newMockRepo()
 	router := exchange.NewAdapterRouter(nil, repo.GetAccountState)
 	svc := service.NewAccountGRPCService(repo, router, testCatalog(), nil)
@@ -214,10 +214,10 @@ func TestCreateAccount_BacktestSeedsSpotAndFuturesLedgers(t *testing.T) {
 	if state.Futures.WalletBalance != 5000 {
 		t.Fatalf("unexpected futures wallet seed: %f", state.Futures.WalletBalance)
 	}
-	if state.Spot.Free != 5000 {
-		t.Fatalf("unexpected spot free seed: %f", state.Spot.Free)
+	if state.Spot.Free != 0 || state.Spot.Locked != 0 {
+		t.Fatalf("backtest default seed must not create unsupported spot wallet: %+v", state.Spot)
 	}
-	if state.TotalValue != 10000 {
+	if state.TotalValue != 5000 {
 		t.Fatalf("unexpected total_value seed: %f", state.TotalValue)
 	}
 	if len(repo.snapshots) != 1 || repo.snapshots[0] != domain.SnapshotReasonInitialSeed {

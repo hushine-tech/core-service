@@ -491,7 +491,7 @@ func TestCreateAccountStoresDescription(t *testing.T) {
 	}
 }
 
-func TestCreateBacktestAccountCreatesSimulatedVenues(t *testing.T) {
+func TestCreateBacktestAccountCreatesSimulatedPerpetualFuturesVenueOnly(t *testing.T) {
 	repo := &stubRepo{}
 	svc := NewAccountGRPCService(repo, nil, nil, nil)
 
@@ -511,8 +511,8 @@ func TestCreateBacktestAccountCreatesSimulatedVenues(t *testing.T) {
 	if got := repo.createdAccount.Environment; got != domain.EnvironmentBacktest {
 		t.Fatalf("account environment = %v", got)
 	}
-	if len(repo.createdVenues) != 2 {
-		t.Fatalf("created venues len = %d, want 2", len(repo.createdVenues))
+	if len(repo.createdVenues) != 1 {
+		t.Fatalf("created venues len = %d, want 1", len(repo.createdVenues))
 	}
 	byMarket := map[domain.Market]domain.Venue{}
 	for _, venue := range repo.createdVenues {
@@ -533,8 +533,8 @@ func TestCreateBacktestAccountCreatesSimulatedVenues(t *testing.T) {
 	if _, ok := byMarket[domain.MarketPerpetualFutures]; !ok {
 		t.Fatal("missing simulated perpetual futures venue")
 	}
-	if _, ok := byMarket[domain.MarketSpot]; !ok {
-		t.Fatal("missing simulated spot venue")
+	if _, ok := byMarket[domain.MarketSpot]; ok {
+		t.Fatal("simulated spot venue should not be created until spot execution is supported")
 	}
 	if repo.state.Futures.InitialBalance != 1000 || repo.state.WalletBalance != 1000 {
 		t.Fatalf("initial state futures=%v wallet=%v", repo.state.Futures.InitialBalance, repo.state.WalletBalance)

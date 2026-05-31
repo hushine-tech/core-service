@@ -183,10 +183,16 @@ func TestBacktestPortfolioSnapshotIncludesBoundSimulatedVenue(t *testing.T) {
 		state: domain.OnlineAccountInfo{
 			AccountID:        accountID,
 			Mode:             domain.AccountModeBacktest,
-			TotalValue:       1000,
+			TotalValue:       1500,
 			WalletBalance:    1000,
 			AvailableBalance: 900,
-			UpdatedAt:        time.Unix(100, 0).UTC(),
+			Futures: domain.FuturesWallet{
+				WalletBalance:    1000,
+				AvailableBalance: 900,
+				MarginBalance:    1000,
+			},
+			Spot:      domain.SpotWallet{Free: 500},
+			UpdatedAt: time.Unix(100, 0).UTC(),
 		},
 		venues: []domain.Venue{{
 			VenueID:     venueID,
@@ -220,6 +226,9 @@ func TestBacktestPortfolioSnapshotIncludesBoundSimulatedVenue(t *testing.T) {
 	}
 	if venue.GetWallet() == nil || venue.GetWallet().GetMode() != int32(domain.AccountModeBacktest) {
 		t.Fatalf("venue wallet = %+v, want backtest account wallet state", venue.GetWallet())
+	}
+	if venue.GetWallet().GetSpot().GetFree() != 0 || venue.GetWallet().GetSpot().GetLocked() != 0 {
+		t.Fatalf("futures venue snapshot must not carry spot wallet: %+v", venue.GetWallet().GetSpot())
 	}
 }
 

@@ -649,11 +649,6 @@ func (s *AccountGRPCService) CreateAccount(ctx context.Context, req *accountv1.C
 	// 回测账号有初始余额：写入 accounts 表当前状态 + initial_seed 快照
 	if env == domain.EnvironmentBacktest && req.GetInitialBalance() > 0 {
 		totalValue := req.GetInitialBalance()
-		spot := domain.SpotWallet{}
-		if req.GetInitialBalance() > 0 {
-			spot.Free = req.GetInitialBalance()
-			totalValue += req.GetInitialBalance()
-		}
 		info := domain.OnlineAccountInfo{
 			AccountID: newID,
 			Mode:      account.Mode,
@@ -666,7 +661,6 @@ func (s *AccountGRPCService) CreateAccount(ctx context.Context, req *accountv1.C
 				TotalMarginBalance: req.GetInitialBalance(),
 				MarginBalance:      req.GetInitialBalance(),
 			},
-			Spot:             spot,
 			TotalValue:       totalValue,
 			WalletBalance:    req.GetInitialBalance(),
 			AvailableBalance: req.GetInitialBalance(),
@@ -704,20 +698,6 @@ func (s *AccountGRPCService) createDefaultBacktestVenues(ctx context.Context, us
 			Description:  "default simulated venue",
 			MarginMode:   domain.MarginModeCross,
 			PositionMode: domain.PositionModeOneWay,
-			CreatedAt:    now,
-			UpdatedAt:    now,
-		},
-		{
-			UserID:       userID,
-			AccountID:    &accountID,
-			Exchange:     domain.ExchangeBinance,
-			Market:       domain.MarketSpot,
-			Environment:  domain.EnvironmentBacktest,
-			Status:       domain.VenueStatusActive,
-			DisplayName:  "Simulated Binance Spot",
-			Description:  "default simulated venue",
-			MarginMode:   domain.MarginModeNone,
-			PositionMode: domain.PositionModeNone,
 			CreatedAt:    now,
 			UpdatedAt:    now,
 		},
@@ -1536,6 +1516,12 @@ func portfolioSnapshotFromOnlineInfo(info domain.OnlineAccountInfo, account doma
 }
 
 func portfolioSnapshotFromOnlineInfoForVenue(info domain.OnlineAccountInfo, account domain.Account, venue domain.Venue) adapter.PortfolioSnapshot {
+	switch venue.Market {
+	case domain.MarketSpot:
+		return spotPortfolioSnapshotFromOnlineInfoForVenue(info, account, venue)
+	case domain.MarketPerpetualFutures, domain.MarketDeliveryFutures:
+		return futuresPortfolioSnapshotFromOnlineInfoForVenue(info, account, venue)
+	}
 	snapshot := portfolioSnapshotFromOnlineInfo(info, account)
 	snapshot.VenueID = venue.VenueID
 	snapshot.Exchange = venue.Exchange
@@ -1543,6 +1529,123 @@ func portfolioSnapshotFromOnlineInfoForVenue(info domain.OnlineAccountInfo, acco
 	snapshot.Market = venue.Market
 	snapshot.VenueSnapshots = nil
 	return snapshot
+}
+
+func futuresPortfolioSnapshotFromOnlineInfoForVenue(info domain.OnlineAccountInfo, account domain.Account, venue domain.Venue) adapter.PortfolioSnapshot {
+	if info.UpdatedAt.IsZero() {
+		info.UpdatedAt = time.Now().UTC()
+	}
+	futures := info.Futures
+	walletBalance := futures.WalletBalance
+	availableBalance := futures.AvailableBalance
+	marginBalance := futures.MarginBalance
+	if marginBalance == 0 {
+		marginBalance = futures.TotalMarginBalance
+	}
+	if marginBalance == 0 {
+		marginBalance = walletBalance + futures.UnrealizedPnl
+	}
+	totalValue := marginBalance
+	if totalValue == 0 {
+		totalValue = walletBalance
+	}
+	venueInfo := domain.OnlineAccountInfo{
+		AccountID:        account.AccountID,
+		Mode:             account.Mode,
+		Futures:          futures,
+		TotalValue:       totalValue,
+		WalletBalance:    walletBalance,
+		AvailableBalance: availableBalance,
+		UpdatedAt:        info.UpdatedAt,
+	}
+	snapshot := adapter.PortfolioSnapshot{
+		UserID:           account.UserID,
+		AccountID:        account.AccountID,
+		VenueID:          venue.VenueID,
+		Exchange:         venue.Exchange,
+		Environment:      venue.Environment,
+		Market:           venue.Market,
+		TotalValue:       totalValue,
+		WalletBalance:    walletBalance,
+		AvailableBalance: availableBalance,
+		Balances: []adapter.BalanceEntry{
+			{
+				Asset:            "USDT",
+				WalletBalance:    walletBalance,
+				AvailableBalance: availableBalance,
+				ValueUSDT:        walletBalance,
+			},
+		},
+		OnlineInfo: &venueInfo,
+		UpdatedAt:  info.UpdatedAt,
+	}
+	for _, position := range futures.Positions {
+		snapshot.Positions = append(snapshot.Positions, adapter.PositionEntry{
+			Symbol:           position.Symbol,
+			PositionSide:     position.PositionSide,
+			Qty:              position.PositionQty,
+			EntryPrice:       position.EntryPrice,
+			MarkPrice:        position.MarkPrice,
+			UnrealizedPnl:    position.UnrealizedPnl,
+			LiquidationPrice: position.LiquidationPrice,
+		})
+	}
+	return snapshot
+}
+
+func spotPortfolioSnapshotFromOnlineInfoForVenue(info domain.OnlineAccountInfo, account domain.Account, venue domain.Venue) adapter.PortfolioSnapshot {
+	if info.UpdatedAt.IsZero() {
+		info.UpdatedAt = time.Now().UTC()
+	}
+	spot := info.Spot
+	walletBalance := spot.Free + spot.Locked
+	totalValue := walletBalance
+	balances := []adapter.BalanceEntry{
+		{
+			Asset:            "USDT",
+			WalletBalance:    walletBalance,
+			AvailableBalance: spot.Free,
+			Locked:           spot.Locked,
+			ValueUSDT:        walletBalance,
+		},
+	}
+	for _, asset := range spot.Assets {
+		valueUSDT := 0.0
+		if asset.Price != nil {
+			valueUSDT = (asset.Qty + asset.Locked) * *asset.Price
+			totalValue += valueUSDT
+		}
+		balances = append(balances, adapter.BalanceEntry{
+			Asset:            asset.Symbol,
+			WalletBalance:    asset.Qty + asset.Locked,
+			AvailableBalance: asset.Qty,
+			Locked:           asset.Locked,
+			ValueUSDT:        valueUSDT,
+		})
+	}
+	venueInfo := domain.OnlineAccountInfo{
+		AccountID:        account.AccountID,
+		Mode:             account.Mode,
+		Spot:             spot,
+		TotalValue:       totalValue,
+		WalletBalance:    walletBalance,
+		AvailableBalance: spot.Free,
+		UpdatedAt:        info.UpdatedAt,
+	}
+	return adapter.PortfolioSnapshot{
+		UserID:           account.UserID,
+		AccountID:        account.AccountID,
+		VenueID:          venue.VenueID,
+		Exchange:         venue.Exchange,
+		Environment:      venue.Environment,
+		Market:           venue.Market,
+		TotalValue:       totalValue,
+		WalletBalance:    walletBalance,
+		AvailableBalance: spot.Free,
+		Balances:         balances,
+		OnlineInfo:       &venueInfo,
+		UpdatedAt:        info.UpdatedAt,
+	}
 }
 
 func onlineInfoFromPortfolioSnapshot(snapshot adapter.PortfolioSnapshot, account domain.Account) domain.OnlineAccountInfo {

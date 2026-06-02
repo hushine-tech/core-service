@@ -14,8 +14,8 @@ import (
 )
 
 // These tests verify the wiring contract between the gRPC handler and the
-// reconciliation goroutine: mode=2 triggers a compare run; mode=0 does NOT.
-// The wiring is the only place where "UpdateAccountWalletState in mode=2
+// reconciliation goroutine: demo environment triggers a compare run; backtest does NOT.
+// The wiring is the only place where "UpdateAccountWalletState in demo
 // launches a compare async" is actually asserted end-to-end. Unit tests in
 // internal/reconciliation prove the service semantics in isolation; this
 // file proves the handler actually calls into the service.
@@ -45,19 +45,18 @@ func enabledReconConfig() config.ReconciliationConfig {
 }
 
 // TestUpdateAccountWalletState_Mode2_LaunchesReconciliation verifies the
-// spec: "Mode 2 wallet sync SHALL produce reconciliation runs" end-to-end
+// spec: "demo wallet sync SHALL produce reconciliation runs" end-to-end
 // through the gRPC handler. Without this test, the wiring in grpc.go could
 // silently break and no other test would catch it.
 func TestUpdateAccountWalletState_Mode2_LaunchesReconciliation(t *testing.T) {
 	ctx := context.Background()
 	repo := newMockRepo()
 
-	// Create a mode=2 testnet account.
+	// Create a demo account.
 	accountID, err := repo.CreateAccount(ctx, domain.Account{
 		UserID:      testsUserID,
 		Name:        "testnet-acc",
 		Environment: domain.EnvironmentDemo,
-		Mode:        domain.AccountModeBinanceTestnet,
 		CreatedAt:   time.Now().UTC(),
 	})
 	if err != nil {
@@ -68,7 +67,7 @@ func TestUpdateAccountWalletState_Mode2_LaunchesReconciliation(t *testing.T) {
 	// Seed an authoritative snapshot the fake registry-backed exchange will return.
 	reader := &testPortfolioSnapshotReader{
 		info: domain.OnlineAccountInfo{
-			Mode: domain.AccountModeBinanceTestnet,
+			Environment: domain.EnvironmentDemo,
 			Futures: domain.FuturesWallet{
 				WalletBalance:      10000,
 				AvailableBalance:   9500,
@@ -114,8 +113,8 @@ func TestUpdateAccountWalletState_Mode2_LaunchesReconciliation(t *testing.T) {
 	if run.AccountID != accountID {
 		t.Errorf("recon run account_id: got %d, want %d", run.AccountID, accountID)
 	}
-	if run.Mode != domain.AccountModeBinanceTestnet {
-		t.Errorf("recon run mode: got %d, want testnet", run.Mode)
+	if run.Environment != domain.EnvironmentDemo {
+		t.Errorf("recon run environment: got %d, want demo", run.Environment)
 	}
 	if run.RunType != domain.ReconciliationRunEvent {
 		t.Errorf("recon run type: got %q, want event (OrderFill)", run.RunType)
@@ -127,17 +126,17 @@ func TestUpdateAccountWalletState_Mode2_LaunchesReconciliation(t *testing.T) {
 
 // TestUpdateAccountWalletState_Mode0_DoesNotLaunchReconciliation locks in
 // the invariant that backtest sessions NEVER produce reconciliation runs
-// (spec: "Backtest mode ignores periodic trigger" + "mode=0 must NOT produce
+// (spec: "Backtest environment ignores periodic trigger" + "backtest must NOT produce
 // reconciliation runs").
 func TestUpdateAccountWalletState_Mode0_DoesNotLaunchReconciliation(t *testing.T) {
 	ctx := context.Background()
 	repo := newMockRepo()
 
 	accountID, err := repo.CreateAccount(ctx, domain.Account{
-		UserID:    testsUserID,
-		Name:      "backtest-acc",
-		Mode:      domain.AccountModeBacktest,
-		CreatedAt: time.Now().UTC(),
+		UserID:      testsUserID,
+		Name:        "backtest-acc",
+		Environment: domain.EnvironmentBacktest,
+		CreatedAt:   time.Now().UTC(),
 	})
 	if err != nil {
 		t.Fatalf("create account: %v", err)
@@ -145,8 +144,8 @@ func TestUpdateAccountWalletState_Mode0_DoesNotLaunchReconciliation(t *testing.T
 
 	// Seed the current state — backtest reads from DB.
 	_ = repo.UpdateAccountState(ctx, domain.OnlineAccountInfo{
-		AccountID: accountID,
-		Mode:      domain.AccountModeBacktest,
+		AccountID:   accountID,
+		Environment: domain.EnvironmentBacktest,
 		Futures: domain.FuturesWallet{
 			WalletBalance: 10000,
 		},
@@ -175,13 +174,13 @@ func TestUpdateAccountWalletState_Mode0_DoesNotLaunchReconciliation(t *testing.T
 	// Give any stray goroutine a chance to run — there should be none.
 	time.Sleep(100 * time.Millisecond)
 	if got := repo.reconRunsLen(); got != 0 {
-		t.Errorf("mode=0 must NOT produce reconciliation runs; got %d", got)
+		t.Errorf("backtest environment must NOT produce reconciliation runs; got %d", got)
 	}
 }
 
 // TestUpdateAccountWalletState_Mode2_DisabledReconcilerSkips verifies that
 // when reconciliation.enabled=false, no compare runs are produced even on
-// mode=2 paths. This protects rollbacks: flipping the feature flag MUST
+// demo environment paths. This protects rollbacks: flipping the feature flag MUST
 // cleanly stop all compare activity.
 func TestUpdateAccountWalletState_Mode2_DisabledReconcilerSkips(t *testing.T) {
 	ctx := context.Background()
@@ -191,14 +190,13 @@ func TestUpdateAccountWalletState_Mode2_DisabledReconcilerSkips(t *testing.T) {
 		UserID:      testsUserID,
 		Name:        "testnet-acc",
 		Environment: domain.EnvironmentDemo,
-		Mode:        domain.AccountModeBinanceTestnet,
 		CreatedAt:   time.Now().UTC(),
 	})
 	credManager := seedBinancePerpVenue(t, repo, accountID, domain.EnvironmentDemo, "test-key", "test-secret")
 
 	reader := &testPortfolioSnapshotReader{
 		info: domain.OnlineAccountInfo{
-			Mode: domain.AccountModeBinanceTestnet,
+			Environment: domain.EnvironmentDemo,
 			Futures: domain.FuturesWallet{
 				WalletBalance: 10000,
 			},

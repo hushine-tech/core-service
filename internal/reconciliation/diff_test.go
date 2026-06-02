@@ -51,8 +51,8 @@ func TestCompare_AllPass_IdenticalSnapshots(t *testing.T) {
 		},
 	}
 	snap := domain.OnlineAccountInfo{
-		Mode:    domain.AccountModeBinanceTestnet,
-		Futures: wallet,
+		Environment: domain.EnvironmentDemo,
+		Futures:     wallet,
 	}
 
 	res := Compare(snap, snap, testThresholds())
@@ -77,7 +77,7 @@ func TestCompare_AllPass_IdenticalSnapshots(t *testing.T) {
 
 func TestCompare_SoftFail_WalletBalanceDrift(t *testing.T) {
 	exchange := domain.OnlineAccountInfo{
-		Mode: domain.AccountModeBinanceTestnet,
+		Environment: domain.EnvironmentDemo,
 		Futures: domain.FuturesWallet{
 			WalletBalance: 10_000.0,
 		},
@@ -85,7 +85,7 @@ func TestCompare_SoftFail_WalletBalanceDrift(t *testing.T) {
 	// Effective threshold on $10k is max(0.01 USDT, 10000 * 0.0002) = 2.0 USDT.
 	// Use $10 drift to clearly exceed it.
 	local := domain.OnlineAccountInfo{
-		Mode: domain.AccountModeBinanceTestnet,
+		Environment: domain.EnvironmentDemo,
 		Futures: domain.FuturesWallet{
 			WalletBalance: 10_010.0,
 		},
@@ -119,7 +119,7 @@ func TestCompare_SoftFail_WalletBalanceDrift(t *testing.T) {
 func TestCompare_HardFail_PositionMissingOnLocal(t *testing.T) {
 	// Exchange reports a position, local doesn't know about it.
 	exchange := domain.OnlineAccountInfo{
-		Mode: domain.AccountModeBinanceTestnet,
+		Environment: domain.EnvironmentDemo,
 		Futures: domain.FuturesWallet{
 			Positions: []domain.FuturesPosition{
 				withPosition("BTCUSDT", "BOTH", 0.1, 45000, 45000, 0, 450, 90, 40000),
@@ -128,8 +128,8 @@ func TestCompare_HardFail_PositionMissingOnLocal(t *testing.T) {
 		},
 	}
 	local := domain.OnlineAccountInfo{
-		Mode:    domain.AccountModeBinanceTestnet,
-		Futures: domain.FuturesWallet{}, // no positions
+		Environment: domain.EnvironmentDemo,
+		Futures:     domain.FuturesWallet{}, // no positions
 	}
 	res := Compare(local, exchange, testThresholds())
 
@@ -160,7 +160,7 @@ func TestCompare_HardFail_EntryPriceBeyondTickTolerance(t *testing.T) {
 	// a diff that breaks BOTH (>$9 AND >0.1 tick). Use $50 diff — a
 	// substantial drift.
 	exchange := domain.OnlineAccountInfo{
-		Mode: domain.AccountModeBinanceTestnet,
+		Environment: domain.EnvironmentDemo,
 		Futures: domain.FuturesWallet{
 			Positions: []domain.FuturesPosition{
 				withPosition("BTCUSDT", "BOTH", 0.1, 45000.0, 45000.0, 0, 450, 90, 40000),
@@ -169,7 +169,7 @@ func TestCompare_HardFail_EntryPriceBeyondTickTolerance(t *testing.T) {
 		},
 	}
 	local := domain.OnlineAccountInfo{
-		Mode: domain.AccountModeBinanceTestnet,
+		Environment: domain.EnvironmentDemo,
 		Futures: domain.FuturesWallet{
 			Positions: []domain.FuturesPosition{
 				withPosition("BTCUSDT", "BOTH", 0.1, 45050.0, 45000.0, 0, 450, 90, 40000),
@@ -199,7 +199,7 @@ func TestCompare_HardFail_EntryPriceBeyondTickTolerance(t *testing.T) {
 func TestCompare_HardPass_EntryPriceWithinTickTolerance(t *testing.T) {
 	// $0.1 drift = exactly 1 tick = at the tick tolerance boundary (≤ threshold → pass).
 	exchange := domain.OnlineAccountInfo{
-		Mode: domain.AccountModeBinanceTestnet,
+		Environment: domain.EnvironmentDemo,
 		Futures: domain.FuturesWallet{
 			Positions: []domain.FuturesPosition{
 				withPosition("BTCUSDT", "BOTH", 0.1, 45000.0, 45000.0, 0, 450, 90, 40000),
@@ -208,7 +208,7 @@ func TestCompare_HardPass_EntryPriceWithinTickTolerance(t *testing.T) {
 		},
 	}
 	local := domain.OnlineAccountInfo{
-		Mode: domain.AccountModeBinanceTestnet,
+		Environment: domain.EnvironmentDemo,
 		Futures: domain.FuturesWallet{
 			Positions: []domain.FuturesPosition{
 				withPosition("BTCUSDT", "BOTH", 0.1, 45000.1, 45000.0, 0, 450, 90, 40000),
@@ -233,7 +233,7 @@ func TestCompare_AdvisoryRecordedButNotGated(t *testing.T) {
 	localPos.BreakEvenPrice = 99999.0
 
 	exchange := domain.OnlineAccountInfo{
-		Mode: domain.AccountModeBinanceTestnet,
+		Environment: domain.EnvironmentDemo,
 		Futures: domain.FuturesWallet{
 			Positions: []domain.FuturesPosition{
 				exchangePos,
@@ -242,7 +242,7 @@ func TestCompare_AdvisoryRecordedButNotGated(t *testing.T) {
 		},
 	}
 	local := domain.OnlineAccountInfo{
-		Mode: domain.AccountModeBinanceTestnet,
+		Environment: domain.EnvironmentDemo,
 		Futures: domain.FuturesWallet{
 			Positions: []domain.FuturesPosition{
 				localPos,
@@ -284,7 +284,7 @@ func TestCompare_AdvisoryRecordedButNotGated(t *testing.T) {
 
 func TestCompare_PositionQtyUsesCanonicalField(t *testing.T) {
 	exchange := domain.OnlineAccountInfo{
-		Mode: domain.AccountModeBinanceTestnet,
+		Environment: domain.EnvironmentDemo,
 		Futures: domain.FuturesWallet{
 			Positions: []domain.FuturesPosition{
 				{
@@ -300,7 +300,7 @@ func TestCompare_PositionQtyUsesCanonicalField(t *testing.T) {
 		},
 	}
 	local := domain.OnlineAccountInfo{
-		Mode: domain.AccountModeBinanceTestnet,
+		Environment: domain.EnvironmentDemo,
 		Futures: domain.FuturesWallet{
 			Positions: []domain.FuturesPosition{
 				{
@@ -334,13 +334,13 @@ func TestCompare_SoftTier_ZeroExchangeFallsBackToAbsTolerance(t *testing.T) {
 	// is 0.01 (abs wins at these scales). A 0.5 drift MUST soft-fail.
 	// Symmetric denominator means flipping exchange/local still fails.
 	exchange := domain.OnlineAccountInfo{
-		Mode: domain.AccountModeBinanceTestnet,
+		Environment: domain.EnvironmentDemo,
 		Futures: domain.FuturesWallet{
 			WalletBalance: 0, // fresh account or pre-deposit state
 		},
 	}
 	local := domain.OnlineAccountInfo{
-		Mode: domain.AccountModeBinanceTestnet,
+		Environment: domain.EnvironmentDemo,
 		Futures: domain.FuturesWallet{
 			WalletBalance: 0.5, // above the 0.01 abs threshold
 		},
@@ -403,7 +403,7 @@ func TestCompare_OneWayPositions_EmptyAndBothSideAliased(t *testing.T) {
 	// two distinct keyed rows and Compare would raise spurious structural
 	// diffs on the union.
 	exchange := domain.OnlineAccountInfo{
-		Mode: domain.AccountModeBinanceTestnet,
+		Environment: domain.EnvironmentDemo,
 		Futures: domain.FuturesWallet{
 			Positions: []domain.FuturesPosition{
 				withPosition("BTCUSDT", "", 0.1, 45_000, 45_000, 0, 450, 90, 40_000),
@@ -412,7 +412,7 @@ func TestCompare_OneWayPositions_EmptyAndBothSideAliased(t *testing.T) {
 		},
 	}
 	local := domain.OnlineAccountInfo{
-		Mode: domain.AccountModeBinanceTestnet,
+		Environment: domain.EnvironmentDemo,
 		Futures: domain.FuturesWallet{
 			Positions: []domain.FuturesPosition{
 				withPosition("BTCUSDT", "BOTH", 0.1, 45_000, 45_000, 0, 450, 90, 40_000),
@@ -434,7 +434,7 @@ func TestCompare_OneWayPositions_EmptyAndBothSideAliased(t *testing.T) {
 
 func TestCompare_OneWayShortBothDoesNotProduceShortExistsDiff(t *testing.T) {
 	exchange := domain.OnlineAccountInfo{
-		Mode: domain.AccountModeBinanceTestnet,
+		Environment: domain.EnvironmentDemo,
 		Futures: domain.FuturesWallet{
 			Positions: []domain.FuturesPosition{
 				withPosition("ETHUSDT", "BOTH", -0.021, 2328.08, 2327.57, 0.01, 2.44, 0.19, 2100),
@@ -443,7 +443,7 @@ func TestCompare_OneWayShortBothDoesNotProduceShortExistsDiff(t *testing.T) {
 		},
 	}
 	local := domain.OnlineAccountInfo{
-		Mode: domain.AccountModeBinanceTestnet,
+		Environment: domain.EnvironmentDemo,
 		Futures: domain.FuturesWallet{
 			Positions: []domain.FuturesPosition{
 				withPosition("ETHUSDT", "BOTH", -0.021, 2328.08, 2327.57, 0.01, 2.44, 0.19, 2100),
@@ -474,7 +474,7 @@ func TestCompare_LeverageAwarePositionInitialMarginUsesConfiguredLeverage(t *tes
 	metadata := minimalRiskMetadata("ETHUSDT", 0.01, 0.001)
 	metadata.ConfiguredLeverage = 20.0
 	exchange := domain.OnlineAccountInfo{
-		Mode: domain.AccountModeBinanceTestnet,
+		Environment: domain.EnvironmentDemo,
 		Futures: domain.FuturesWallet{
 			Positions: []domain.FuturesPosition{
 				withPosition("ETHUSDT", "BOTH", -0.021, 2328.08476, 2328.08476, 0, im20x, notional*0.004, 2100),
@@ -483,7 +483,7 @@ func TestCompare_LeverageAwarePositionInitialMarginUsesConfiguredLeverage(t *tes
 		},
 	}
 	local := domain.OnlineAccountInfo{
-		Mode: domain.AccountModeBinanceTestnet,
+		Environment: domain.EnvironmentDemo,
 		Futures: domain.FuturesWallet{
 			Positions: []domain.FuturesPosition{
 				withPosition("ETHUSDT", "BOTH", -0.021, 2328.08476, 2328.08476, 0, im20x, notional*0.004, 2100),
@@ -517,7 +517,7 @@ func TestCompare_LeverageAwarePositionInitialMarginUsesConfiguredLeverage(t *tes
 func TestCompare_HedgeModePositionsKeyedBySymbolAndSide(t *testing.T) {
 	// Same symbol, different sides — MUST be treated as two distinct positions.
 	exchange := domain.OnlineAccountInfo{
-		Mode: domain.AccountModeBinanceTestnet,
+		Environment: domain.EnvironmentDemo,
 		Futures: domain.FuturesWallet{
 			Positions: []domain.FuturesPosition{
 				withPosition("BTCUSDT", "LONG", 0.1, 45000, 45000, 0, 450, 90, 40000),
@@ -560,7 +560,7 @@ func TestCompare_PostCloseTransient_SurfacesAsQtyDiffNotStructural(t *testing.T)
 	// stepSize = 0.001, tolerance multiplier = default 0.5 (config).
 	// So a 0.0001 residual is well within step tolerance → should pass.
 	exchange := domain.OnlineAccountInfo{
-		Mode: domain.AccountModeBinanceTestnet,
+		Environment: domain.EnvironmentDemo,
 		Futures: domain.FuturesWallet{
 			Positions: []domain.FuturesPosition{
 				// Still reporting a tiny residual — propagation lag.
@@ -570,7 +570,7 @@ func TestCompare_PostCloseTransient_SurfacesAsQtyDiffNotStructural(t *testing.T)
 		},
 	}
 	local := domain.OnlineAccountInfo{
-		Mode: domain.AccountModeBinanceTestnet,
+		Environment: domain.EnvironmentDemo,
 		Futures: domain.FuturesWallet{
 			// Already closed (qty=0) but still carried in the position map.
 			Positions: []domain.FuturesPosition{
@@ -615,7 +615,7 @@ func TestCompare_PostCloseTransient_LargeResidualStillQtyDiff(t *testing.T) {
 	// to blow through the step tolerance. It MUST still be a position_qty
 	// hard fail — NOT a structural .exists fail.
 	exchange := domain.OnlineAccountInfo{
-		Mode: domain.AccountModeBinanceTestnet,
+		Environment: domain.EnvironmentDemo,
 		Futures: domain.FuturesWallet{
 			Positions: []domain.FuturesPosition{
 				withPosition("BTCUSDT", "BOTH", 0.05, 45000.0, 45000.0, 0, 0, 0, 40000.0),
@@ -624,7 +624,7 @@ func TestCompare_PostCloseTransient_LargeResidualStillQtyDiff(t *testing.T) {
 		},
 	}
 	local := domain.OnlineAccountInfo{
-		Mode: domain.AccountModeBinanceTestnet,
+		Environment: domain.EnvironmentDemo,
 		Futures: domain.FuturesWallet{
 			Positions: []domain.FuturesPosition{
 				withPosition("BTCUSDT", "BOTH", 0.0, 45000.0, 45000.0, 0, 0, 0, 0),
@@ -662,7 +662,7 @@ func TestCompare_ExchangeStaleZeroRow_LocalAbsent_NoDiff(t *testing.T) {
 	// If local has already dropped the key from its dict, both sides are
 	// effectively flat and we must produce NO diff (no structural, no qty).
 	exchange := domain.OnlineAccountInfo{
-		Mode: domain.AccountModeBinanceTestnet,
+		Environment: domain.EnvironmentDemo,
 		Futures: domain.FuturesWallet{
 			Positions: []domain.FuturesPosition{
 				// Stale qty=0 row — closed on exchange, still reported.
@@ -672,7 +672,7 @@ func TestCompare_ExchangeStaleZeroRow_LocalAbsent_NoDiff(t *testing.T) {
 		},
 	}
 	local := domain.OnlineAccountInfo{
-		Mode: domain.AccountModeBinanceTestnet,
+		Environment: domain.EnvironmentDemo,
 		Futures: domain.FuturesWallet{
 			Positions: []domain.FuturesPosition{}, // cleaned up
 		},
@@ -698,7 +698,7 @@ func TestCompare_GenuineStructuralMissing_StillHardFails(t *testing.T) {
 	// case. Exchange has a live position, local has no trace of the symbol.
 	// This is genuinely "absent on local" and must still be Hard-Fail .exists.
 	exchange := domain.OnlineAccountInfo{
-		Mode: domain.AccountModeBinanceTestnet,
+		Environment: domain.EnvironmentDemo,
 		Futures: domain.FuturesWallet{
 			Positions: []domain.FuturesPosition{
 				withPosition("ETHUSDT", "BOTH", 1.5, 2500.0, 2500.0, 0, 375, 75, 2200.0),
@@ -707,8 +707,8 @@ func TestCompare_GenuineStructuralMissing_StillHardFails(t *testing.T) {
 		},
 	}
 	local := domain.OnlineAccountInfo{
-		Mode:    domain.AccountModeBinanceTestnet,
-		Futures: domain.FuturesWallet{}, // totally absent
+		Environment: domain.EnvironmentDemo,
+		Futures:     domain.FuturesWallet{}, // totally absent
 	}
 	res := Compare(local, exchange, testThresholds())
 

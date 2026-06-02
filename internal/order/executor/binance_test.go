@@ -9,9 +9,9 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/hushine-tech/core-service/internal/order/accountmeta"
 	"github.com/hushine-tech/golang-lib/middleware/httpclient"
 	elog "github.com/hushine-tech/golang-lib/pkg/log"
-	"github.com/hushine-tech/core-service/internal/order/accountmeta"
 )
 
 type noopExtAPILogger struct{}

@@ -104,13 +104,13 @@ type Bundle struct {
 	PositionDisplay []*float64
 }
 
-// ComputeDisplay derives spot/futures breakdown aligned with how total_value is produced for each mode.
+// ComputeDisplay derives spot/futures breakdown aligned with how total_value is produced for each environment.
 func ComputeDisplay(info domain.OnlineAccountInfo) Bundle {
 	se := SpotEstimatedExchangeAligned(info.Spot)
 	var fe float64
 
-	switch info.Mode {
-	case domain.AccountModeBinanceLive, domain.AccountModeBinanceTestnet:
+	switch info.Environment {
+	case domain.EnvironmentDemo, domain.EnvironmentLive:
 		fe = info.Futures.MarginBalance
 		if fe == 0 {
 			fe = info.Futures.TotalMarginBalance

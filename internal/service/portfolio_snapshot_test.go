@@ -103,7 +103,7 @@ func TestGetPortfolioSnapshotReturnsVenueArray(t *testing.T) {
 			{Symbol: "ETHUSDT", PositionSide: "BOTH", Qty: 0.2, MarkPrice: 2000},
 		},
 		OnlineInfo: &domain.OnlineAccountInfo{
-			Mode:             domain.AccountModeBinanceTestnet,
+			Environment:      domain.EnvironmentDemo,
 			WalletBalance:    900,
 			AvailableBalance: 800,
 			Futures: domain.FuturesWallet{
@@ -134,7 +134,7 @@ func TestGetPortfolioSnapshotReturnsVenueArray(t *testing.T) {
 	registry := adapter.NewRegistry()
 	registry.Register(adapter.Route{Exchange: domain.ExchangeBinance, Environment: domain.EnvironmentDemo, Market: domain.MarketPerpetualFutures}, snapshotFactory{reader: reader})
 	repo := &stubRepo{
-		account: domain.Account{AccountID: accountID, UserID: serviceTestUserID, Environment: domain.EnvironmentDemo, Mode: domain.AccountModeBinanceTestnet},
+		account: domain.Account{AccountID: accountID, UserID: serviceTestUserID, Environment: domain.EnvironmentDemo},
 		venues: []domain.Venue{{
 			VenueID:        venueID,
 			UserID:         serviceTestUserID,
@@ -178,11 +178,10 @@ func TestBacktestPortfolioSnapshotIncludesBoundSimulatedVenue(t *testing.T) {
 			AccountID:   accountID,
 			UserID:      serviceTestUserID,
 			Environment: domain.EnvironmentBacktest,
-			Mode:        domain.AccountModeBacktest,
 		},
 		state: domain.OnlineAccountInfo{
 			AccountID:        accountID,
-			Mode:             domain.AccountModeBacktest,
+			Environment:      domain.EnvironmentBacktest,
 			TotalValue:       1500,
 			WalletBalance:    1000,
 			AvailableBalance: 900,
@@ -224,7 +223,7 @@ func TestBacktestPortfolioSnapshotIncludesBoundSimulatedVenue(t *testing.T) {
 	if venue.GetWalletBalance() != 1000 || venue.GetAvailableBalance() != 900 {
 		t.Fatalf("venue balances = wallet %v available %v, want 1000/900", venue.GetWalletBalance(), venue.GetAvailableBalance())
 	}
-	if venue.GetWallet() == nil || venue.GetWallet().GetMode() != int32(domain.AccountModeBacktest) {
+	if venue.GetWallet() == nil || venue.GetWallet().GetEnvironment() != int32(domain.EnvironmentBacktest) {
 		t.Fatalf("venue wallet = %+v, want backtest account wallet state", venue.GetWallet())
 	}
 	if venue.GetWallet().GetSpot().GetFree() != 0 || venue.GetWallet().GetSpot().GetLocked() != 0 {
@@ -252,7 +251,7 @@ func TestUpdatePortfolioSnapshotReadsVenueThroughRegistry(t *testing.T) {
 	registry := adapter.NewRegistry()
 	registry.Register(adapter.Route{Exchange: domain.ExchangeBinance, Environment: domain.EnvironmentDemo, Market: domain.MarketPerpetualFutures}, snapshotFactory{reader: reader})
 	repo := &stubRepo{
-		account: domain.Account{AccountID: accountID, UserID: serviceTestUserID, Environment: domain.EnvironmentDemo, Mode: domain.AccountModeBinanceTestnet},
+		account: domain.Account{AccountID: accountID, UserID: serviceTestUserID, Environment: domain.EnvironmentDemo},
 		venues: []domain.Venue{{
 			VenueID:        venueID,
 			UserID:         serviceTestUserID,
@@ -296,7 +295,7 @@ func TestOldOnlineAccountInfoMainPathIsRemoved(t *testing.T) {
 	registry := adapter.NewRegistry()
 	registry.Register(adapter.Route{Exchange: domain.ExchangeBinance, Environment: domain.EnvironmentDemo, Market: domain.MarketPerpetualFutures}, snapshotFactory{reader: reader})
 	repo := &stubRepo{
-		account: domain.Account{AccountID: accountID, UserID: serviceTestUserID, Environment: domain.EnvironmentDemo, Mode: domain.AccountModeBinanceTestnet},
+		account: domain.Account{AccountID: accountID, UserID: serviceTestUserID, Environment: domain.EnvironmentDemo},
 		venues: []domain.Venue{{
 			VenueID:        venueID,
 			UserID:         serviceTestUserID,

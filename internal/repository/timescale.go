@@ -349,7 +349,6 @@ func scanAccount(s interface {
 	}
 	a.Environment = domain.Environment(env)
 	a.Status = domain.AccountStatus(status)
-	a.Mode = modeFromEnvironment(a.Environment)
 	if stateUpdatedAt.Valid {
 		t := stateUpdatedAt.Time
 		a.StateUpdatedAt = &t
@@ -388,36 +387,9 @@ type reconciliationAccountDiffJSON struct {
 }
 
 func normalizeAccountEnvironment(a domain.Account) domain.Environment {
-	if a.Environment != 0 {
+	switch a.Environment {
+	case domain.EnvironmentDemo, domain.EnvironmentLive:
 		return a.Environment
-	}
-	switch a.Mode {
-	case domain.AccountModeBinanceTestnet:
-		return domain.EnvironmentDemo
-	case domain.AccountModeBinanceLive:
-		return domain.EnvironmentLive
-	default:
-		return domain.EnvironmentBacktest
-	}
-}
-
-func modeFromEnvironment(env domain.Environment) domain.AccountMode {
-	switch env {
-	case domain.EnvironmentDemo:
-		return domain.AccountModeBinanceTestnet
-	case domain.EnvironmentLive:
-		return domain.AccountModeBinanceLive
-	default:
-		return domain.AccountModeBacktest
-	}
-}
-
-func sessionEnvironmentFromMode(mode int) domain.Environment {
-	switch domain.AccountMode(mode) {
-	case domain.AccountModeBinanceTestnet:
-		return domain.EnvironmentDemo
-	case domain.AccountModeBinanceLive:
-		return domain.EnvironmentLive
 	default:
 		return domain.EnvironmentBacktest
 	}
@@ -873,7 +845,7 @@ func (r *TimescaleRepository) GetAccountState(ctx context.Context, accountID int
 		}
 		return domain.OnlineAccountInfo{}, err
 	}
-	info.Mode = modeFromEnvironment(domain.Environment(env))
+	info.Environment = domain.Environment(env)
 	if stateUpdatedAt.Valid {
 		info.UpdatedAt = stateUpdatedAt.Time
 	}
@@ -1045,13 +1017,13 @@ func normalizeRuntimeProfile(profile string) string {
 	return profile
 }
 
-func normalizeSessionType(mode int, sessionType string) string {
+func normalizeSessionType(env domain.Environment, sessionType string) string {
 	sessionType = strings.TrimSpace(sessionType)
 	if sessionType != "" {
 		return sessionType
 	}
-	if mode == int(domain.AccountModeBinanceTestnet) {
-		return "testnet"
+	if env == domain.EnvironmentDemo {
+		return "demo"
 	}
 	return "backtest"
 }
@@ -1122,8 +1094,8 @@ func (r *TimescaleRepository) SaveSession(ctx context.Context, s domain.Strategy
 	defer tx.Rollback() //nolint:errcheck
 
 	env := s.Environment
-	if env == 0 {
-		env = sessionEnvironmentFromMode(s.Mode)
+	if env != domain.EnvironmentDemo && env != domain.EnvironmentLive {
+		env = domain.EnvironmentBacktest
 	}
 	statusCode := sessionStatusCode(s.Status)
 	var strategyID any
@@ -1156,7 +1128,7 @@ func (r *TimescaleRepository) SaveSession(ctx context.Context, s domain.Strategy
 		s.StartTimeMs, s.EndTimeMs, s.BarsProcessed, s.Error,
 		s.ErrorCode, s.ErrorMessage, errorDetailJSON,
 		s.RuntimeID, s.RuntimeSource, s.RuntimeName,
-		normalizeSessionType(s.Mode, s.SessionType), normalizeRuntimeVersion(s.RuntimeVersion), s.SessionName,
+		normalizeSessionType(env, s.SessionType), normalizeRuntimeVersion(s.RuntimeVersion), s.SessionName,
 		startedAt, completedAt, s.AccountID)
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -1264,8 +1236,8 @@ func (r *TimescaleRepository) ListSessionsPage(ctx context.Context, filter Sessi
 		args = append(args, filter.StrategyID)
 		where += fmt.Sprintf(" AND strategy_id = $%d", len(args))
 	}
-	if filter.ModeSet {
-		args = append(args, int16(sessionEnvironmentFromMode(filter.Mode)))
+	if filter.EnvironmentSet {
+		args = append(args, int16(filter.Environment))
 		where += fmt.Sprintf(" AND environment = $%d", len(args))
 	}
 	if strings.TrimSpace(filter.Status) != "" {
@@ -1450,7 +1422,6 @@ func scanSession(s interface{ Scan(...any) error }) (domain.StrategySession, err
 		return domain.StrategySession{}, err
 	}
 	sess.Environment = domain.Environment(env)
-	sess.Mode = int(modeFromEnvironment(sess.Environment))
 	sess.Status = sessionStatusText(statusCode)
 	if strategyID.Valid {
 		sess.StrategyID = strategyID.Int64
@@ -1496,7 +1467,7 @@ func scanSession(s interface{ Scan(...any) error }) (domain.StrategySession, err
 	if errorDetailJSON.Valid {
 		sess.ErrorDetailJSON = errorDetailJSON.String
 	}
-	sess.SessionType = normalizeSessionType(sess.Mode, sess.SessionType)
+	sess.SessionType = normalizeSessionType(sess.Environment, sess.SessionType)
 	sess.RuntimeVersion = normalizeRuntimeVersion(sess.RuntimeVersion)
 	return sess, nil
 }
@@ -1696,7 +1667,10 @@ func (r *TimescaleRepository) SaveReconciliationRun(ctx context.Context, run dom
 	if runTime.IsZero() {
 		runTime = time.Now().UTC()
 	}
-	env := sessionEnvironmentFromMode(int(run.Mode))
+	env := run.Environment
+	if env != domain.EnvironmentDemo && env != domain.EnvironmentLive {
+		env = domain.EnvironmentBacktest
+	}
 
 	_, err = r.sqlExec.ExecContext(ctx, `
 		INSERT INTO reconciliation_runs
@@ -1780,7 +1754,7 @@ func (r *TimescaleRepository) ListReconciliationRuns(
 		); err != nil {
 			return nil, 0, false, fmt.Errorf("scan reconciliation run: %w", err)
 		}
-		run.Mode = modeFromEnvironment(domain.Environment(env))
+		run.Environment = domain.Environment(env)
 		run.SnapshotReason = domain.SnapshotReason(reason)
 		run.RunType = domain.ReconciliationRunType(runType)
 		var accountDiff reconciliationAccountDiffJSON

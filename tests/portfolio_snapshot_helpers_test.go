@@ -68,7 +68,7 @@ func (r *testPortfolioSnapshotReader) ReadPortfolioSnapshot(_ context.Context, r
 		AccountID:        req.AccountID,
 		VenueID:          req.VenueID,
 		Exchange:         domain.ExchangeBinance,
-		Environment:      infoEnvironment(info.Mode),
+		Environment:      info.Environment,
 		Market:           domain.MarketPerpetualFutures,
 		TotalValue:       info.TotalValue,
 		WalletBalance:    info.WalletBalance,
@@ -82,15 +82,4 @@ func newBinancePerpSnapshotRegistry(reader adapter.AccountSnapshotReader, env do
 	registry := adapter.NewRegistry()
 	registry.Register(adapter.Route{Exchange: domain.ExchangeBinance, Environment: env, Market: domain.MarketPerpetualFutures}, testPortfolioSnapshotFactory{reader: reader})
 	return registry
-}
-
-func infoEnvironment(mode domain.AccountMode) domain.Environment {
-	switch mode {
-	case domain.AccountModeBinanceLive:
-		return domain.EnvironmentLive
-	case domain.AccountModeBinanceTestnet:
-		return domain.EnvironmentDemo
-	default:
-		return domain.EnvironmentBacktest
-	}
 }

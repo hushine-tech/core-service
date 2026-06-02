@@ -90,7 +90,7 @@ func runBacktest(ctx context.Context, cli accountv1.AccountServiceClient, accoun
 		os.Exit(1)
 	}
 	w := g1.GetWallet()
-	fmt.Printf("futures.wallet_balance=%.2f mode=%d\n", w.GetFutures().GetWalletBalance(), w.GetMode())
+	fmt.Printf("futures.wallet_balance=%.2f environment=%d\n", w.GetFutures().GetWalletBalance(), w.GetEnvironment())
 
 	fmt.Println("=== backtest: UpdateAccountWalletState (push) ===")
 	u, err := cli.UpdateAccountWalletState(ctx, &accountv1.UpdateAccountWalletStateRequest{
@@ -134,7 +134,7 @@ func runLive(ctx context.Context, cli accountv1.AccountServiceClient, accountID,
 		os.Exit(1)
 	}
 	w := g1.GetWallet()
-	fmt.Printf("futures.wallet_balance=%.2f (expect mock 8888.5) mode=%d\n", w.GetFutures().GetWalletBalance(), w.GetMode())
+	fmt.Printf("futures.wallet_balance=%.2f (expect mock 8888.5) environment=%d\n", w.GetFutures().GetWalletBalance(), w.GetEnvironment())
 
 	fmt.Println("=== live: UpdateAccountWalletState (request ignored; expect mock values) ===")
 	u, err := cli.UpdateAccountWalletState(ctx, &accountv1.UpdateAccountWalletStateRequest{

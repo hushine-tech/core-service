@@ -26,8 +26,8 @@ type SessionListFilter struct {
 	UserID            int64
 	RuntimeID         string
 	StrategyID        int64
-	Mode              int
-	ModeSet           bool
+	Environment       domain.Environment
+	EnvironmentSet    bool
 	Status            string
 	SessionIDContains string
 	StartedAfterMs    int64

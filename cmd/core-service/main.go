@@ -102,12 +102,12 @@ func main() {
 	if cfg.Exchange.MockBinance {
 		mock := exchange.NewIntegrationMockFetcher()
 		fetchers[exchange.ExchangeTarget{Provider: exchange.ProviderBinance, Environment: exchange.EnvLive}] = mock
-		fetchers[exchange.ExchangeTarget{Provider: exchange.ProviderBinance, Environment: exchange.EnvTestnet}] = mock
+		fetchers[exchange.ExchangeTarget{Provider: exchange.ProviderBinance, Environment: exchange.EnvDemo}] = mock
 		logger.Info(ctx, "system", "mock_binance=true: using mock exchange fetcher (no real Binance)")
 	} else {
 		fetchers[exchange.ExchangeTarget{Provider: exchange.ProviderBinance, Environment: exchange.EnvLive}] = exchange.NewBinanceLiveAdapter(logger.Instance())
-		fetchers[exchange.ExchangeTarget{Provider: exchange.ProviderBinance, Environment: exchange.EnvTestnet}] = exchange.NewBinanceTestnetAdapter(logger.Instance())
-		logger.Info(ctx, "system", "binance live+testnet adapters initialized (per-account credentials from DB)")
+		fetchers[exchange.ExchangeTarget{Provider: exchange.ProviderBinance, Environment: exchange.EnvDemo}] = exchange.NewBinanceTestnetAdapter(logger.Instance())
+		logger.Info(ctx, "system", "binance live+demo adapters initialized (per-account credentials from DB)")
 	}
 
 	router := exchange.NewAdapterRouter(fetchers, repo.GetAccountState)
@@ -139,7 +139,7 @@ func main() {
 	// so this is safe to wire unconditionally.
 	reconciler := reconciliation.NewService(cfg.Exchange.Reconciliation, repo)
 	if cfg.Exchange.Reconciliation.Enabled {
-		logger.Info(ctx, "system", "reconciliation enabled: async shadow compare will run on mode=1/2 UpdateAccountWalletState")
+		logger.Info(ctx, "system", "reconciliation enabled: async shadow compare will run on demo/live UpdateAccountWalletState")
 	}
 
 	// ── Notification management ──────────────────────────────────────────────

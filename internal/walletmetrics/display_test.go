@@ -20,9 +20,9 @@ func TestSpotEstimatedExchangeAligned_pricedAsset(t *testing.T) {
 
 func TestComputeDisplay_binanceLive_matchesTotal(t *testing.T) {
 	info := domain.OnlineAccountInfo{
-		Mode:       domain.AccountModeBinanceLive,
-		TotalValue: 9020,
-		Spot:       domain.SpotWallet{Free: 100, Locked: 10},
+		Environment: domain.EnvironmentLive,
+		TotalValue:  9020,
+		Spot:        domain.SpotWallet{Free: 100, Locked: 10},
 		Futures: domain.FuturesWallet{
 			WalletBalance: 8910,
 		},
@@ -41,9 +41,9 @@ func TestComputeDisplay_binanceLive_matchesTotal(t *testing.T) {
 
 func TestComputeDisplay_isolatedFlat(t *testing.T) {
 	info := domain.OnlineAccountInfo{
-		Mode:       domain.AccountModeBacktest,
-		TotalValue: 2000,
-		Spot:       domain.SpotWallet{Free: 1000, Locked: 0},
+		Environment: domain.EnvironmentBacktest,
+		TotalValue:  2000,
+		Spot:        domain.SpotWallet{Free: 1000, Locked: 0},
 		Futures: domain.FuturesWallet{
 			MarginMode:   "isolated",
 			PositionMode: "one_way",
@@ -63,9 +63,9 @@ func TestComputeDisplay_isolatedFlat(t *testing.T) {
 
 func TestComputeDisplay_isolatedOpen(t *testing.T) {
 	info := domain.OnlineAccountInfo{
-		Mode:       domain.AccountModeBacktest,
-		TotalValue: 1500,
-		Spot:       domain.SpotWallet{},
+		Environment: domain.EnvironmentBacktest,
+		TotalValue:  1500,
+		Spot:        domain.SpotWallet{},
 		Futures: domain.FuturesWallet{
 			MarginMode:   "isolated",
 			PositionMode: "one_way",
@@ -90,9 +90,9 @@ func TestComputeDisplay_isolatedOpen(t *testing.T) {
 
 func TestComputeDisplay_crossWithPositions(t *testing.T) {
 	info := domain.OnlineAccountInfo{
-		Mode:       domain.AccountModeBacktest,
-		TotalValue: 10050,
-		Spot:       domain.SpotWallet{Free: 50},
+		Environment: domain.EnvironmentBacktest,
+		TotalValue:  10050,
+		Spot:        domain.SpotWallet{Free: 50},
 		Futures: domain.FuturesWallet{
 			MarginMode:         "cross",
 			PositionMode:       "one_way",

@@ -1074,7 +1074,7 @@ func TestListAndGetAccountsReturnDescription(t *testing.T) {
 		UserID:      serviceTestUserID,
 		Name:        "testnet",
 		Description: "Binance testnet account",
-		Mode:        domain.AccountModeBinanceTestnet,
+		Environment: domain.EnvironmentDemo,
 		CreatedAt:   time.Now().UTC(),
 	}}
 	svc := NewAccountGRPCService(repo, nil, nil, nil)
@@ -1103,7 +1103,7 @@ func TestGetAccountMeta_success(t *testing.T) {
 	repo := &stubRepo{account: domain.Account{
 		AccountID:      1,
 		UserID:         serviceTestUserID,
-		Mode:           domain.AccountModeBinanceLive,
+		Environment:    domain.EnvironmentLive,
 		MarginMode:     "isolated",
 		PositionMode:   "hedge",
 		APIKey:         "key-abc",
@@ -1120,8 +1120,8 @@ func TestGetAccountMeta_success(t *testing.T) {
 	if resp.GetAccountId() != 1 {
 		t.Errorf("account_id: got %d", resp.GetAccountId())
 	}
-	if resp.GetMode() != 1 {
-		t.Errorf("mode: got %d", resp.GetMode())
+	if resp.GetEnvironment() != 2 {
+		t.Errorf("environment: got %d", resp.GetEnvironment())
 	}
 	if resp.GetMarginMode() != "isolated" {
 		t.Errorf("margin_mode: got %q", resp.GetMarginMode())
@@ -1191,18 +1191,18 @@ func TestListReconciliationRuns_success(t *testing.T) {
 				UserID:         serviceTestUserID,
 				SessionID:      "sess-1",
 				StrategyID:     202,
-				Mode:           domain.AccountModeBinanceTestnet,
+				Environment:    domain.EnvironmentDemo,
 				SnapshotReason: domain.SnapshotReasonPeriodicSample,
 				RunType:        domain.ReconciliationRunSampled,
 				LocalSnapshot: domain.OnlineAccountInfo{
-					AccountID:  101,
-					Mode:       domain.AccountModeBinanceTestnet,
-					TotalValue: 1000,
+					AccountID:   101,
+					Environment: domain.EnvironmentDemo,
+					TotalValue:  1000,
 				},
 				ExchangeSnapshot: domain.OnlineAccountInfo{
-					AccountID:  101,
-					Mode:       domain.AccountModeBinanceTestnet,
-					TotalValue: 1000.5,
+					AccountID:   101,
+					Environment: domain.EnvironmentDemo,
+					TotalValue:  1000.5,
 				},
 				FieldDiffs: []domain.FieldDiff{{
 					Field:     "futures.wallet_balance",
@@ -1297,7 +1297,7 @@ func makeReconciliationRuns(n int) []domain.ReconciliationRun {
 			UserID:         serviceTestUserID,
 			SessionID:      "sess-pagination",
 			StrategyID:     202,
-			Mode:           domain.AccountModeBinanceTestnet,
+			Environment:    domain.EnvironmentDemo,
 			SnapshotReason: domain.SnapshotReasonPeriodicSample,
 			RunType:        domain.ReconciliationRunSampled,
 			HardPass:       true,

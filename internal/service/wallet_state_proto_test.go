@@ -8,7 +8,7 @@ import (
 
 func TestToProtoAccountWalletState_liveDisplayMetrics(t *testing.T) {
 	info := domain.OnlineAccountInfo{
-		Mode:             domain.AccountModeBinanceLive,
+		Environment:      domain.EnvironmentLive,
 		TotalValue:       9040,
 		WalletBalance:    8910,
 		AvailableBalance: 8000,
@@ -59,8 +59,8 @@ func TestToProtoAccountWalletState_liveDisplayMetrics(t *testing.T) {
 
 func TestToProtoAccountWalletState_DefaultsEmptyFuturesMarginMode(t *testing.T) {
 	info := domain.OnlineAccountInfo{
-		Mode:       domain.AccountModeBinanceTestnet,
-		TotalValue: 5000,
+		Environment: domain.EnvironmentDemo,
+		TotalValue:  5000,
 		Futures: domain.FuturesWallet{
 			WalletBalance:    5000,
 			MarginBalance:    5000,

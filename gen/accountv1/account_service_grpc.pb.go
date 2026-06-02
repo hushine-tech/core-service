@@ -96,7 +96,7 @@ type AccountServiceClient interface {
 	ArchiveVenue(ctx context.Context, in *ArchiveVenueRequest, opts ...grpc.CallOption) (*ArchiveVenueResponse, error)
 	PreflightStrategySession(ctx context.Context, in *PreflightStrategySessionRequest, opts ...grpc.CallOption) (*PreflightStrategySessionResponse, error)
 	GetVenueRouteMeta(ctx context.Context, in *GetVenueRouteMetaRequest, opts ...grpc.CallOption) (*GetVenueRouteMetaResponse, error)
-	// Latest wallet state: mode=0 reads DB; mode=1/2 fetches from Binance (live/testnet) per account registration.
+	// Latest wallet state: backtest reads DB; demo/live fetch from exchange venues per account registration.
 	GetOnlineAccountInfo(ctx context.Context, in *GetOnlineAccountInfoRequest, opts ...grpc.CallOption) (*GetOnlineAccountInfoResponse, error)
 	// Phase 2 canonical portfolio snapshot API. It reads active account venues
 	// through the exchange capability registry and returns account-level summary
@@ -106,9 +106,9 @@ type AccountServiceClient interface {
 	// accounts read from active venues; backtest accounts read local state.
 	UpdatePortfolioSnapshot(ctx context.Context, in *UpdatePortfolioSnapshotRequest, opts ...grpc.CallOption) (*UpdatePortfolioSnapshotResponse, error)
 	// Bidirectional wallet sync. Routing uses only account_id: look up the account's registered
-	// mode (backtest vs live/testnet). strategy-service does not send a mode.
+	// environment and venues. strategy-service does not send routing hints.
 	// Backtest: request wallet is authoritative — persisted and returned.
-	// Live/testnet: exchange is authoritative — request wallet is ignored for persistence; fetched state is stored and returned.
+	// Demo/live: exchange is authoritative — request wallet is ignored for persistence; fetched state is stored and returned.
 	UpdateAccountWalletState(ctx context.Context, in *UpdateAccountWalletStateRequest, opts ...grpc.CallOption) (*UpdateAccountWalletStateResponse, error)
 	// Cached tradable symbols for portal pickers (Binance public exchangeInfo). market: "spot" | "usdm_futures".
 	ListSymbols(ctx context.Context, in *ListSymbolsRequest, opts ...grpc.CallOption) (*ListSymbolsResponse, error)
@@ -665,7 +665,7 @@ type AccountServiceServer interface {
 	ArchiveVenue(context.Context, *ArchiveVenueRequest) (*ArchiveVenueResponse, error)
 	PreflightStrategySession(context.Context, *PreflightStrategySessionRequest) (*PreflightStrategySessionResponse, error)
 	GetVenueRouteMeta(context.Context, *GetVenueRouteMetaRequest) (*GetVenueRouteMetaResponse, error)
-	// Latest wallet state: mode=0 reads DB; mode=1/2 fetches from Binance (live/testnet) per account registration.
+	// Latest wallet state: backtest reads DB; demo/live fetch from exchange venues per account registration.
 	GetOnlineAccountInfo(context.Context, *GetOnlineAccountInfoRequest) (*GetOnlineAccountInfoResponse, error)
 	// Phase 2 canonical portfolio snapshot API. It reads active account venues
 	// through the exchange capability registry and returns account-level summary
@@ -675,9 +675,9 @@ type AccountServiceServer interface {
 	// accounts read from active venues; backtest accounts read local state.
 	UpdatePortfolioSnapshot(context.Context, *UpdatePortfolioSnapshotRequest) (*UpdatePortfolioSnapshotResponse, error)
 	// Bidirectional wallet sync. Routing uses only account_id: look up the account's registered
-	// mode (backtest vs live/testnet). strategy-service does not send a mode.
+	// environment and venues. strategy-service does not send routing hints.
 	// Backtest: request wallet is authoritative — persisted and returned.
-	// Live/testnet: exchange is authoritative — request wallet is ignored for persistence; fetched state is stored and returned.
+	// Demo/live: exchange is authoritative — request wallet is ignored for persistence; fetched state is stored and returned.
 	UpdateAccountWalletState(context.Context, *UpdateAccountWalletStateRequest) (*UpdateAccountWalletStateResponse, error)
 	// Cached tradable symbols for portal pickers (Binance public exchangeInfo). market: "spot" | "usdm_futures".
 	ListSymbols(context.Context, *ListSymbolsRequest) (*ListSymbolsResponse, error)

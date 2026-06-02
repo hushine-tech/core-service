@@ -75,8 +75,8 @@ func (s *Service) LaunchAsync(task Task) {
 	if !s.Enabled() {
 		return
 	}
-	// mode=0 backtest has no external oracle → nothing to compare against.
-	if task.Account.Mode == domain.AccountModeBacktest {
+	// Backtest has no external oracle → nothing to compare against.
+	if task.Account.Environment == domain.EnvironmentBacktest {
 		return
 	}
 	// Non-compare snapshot reasons (InitialSeed, ReconciliationLocal/Exchange)
@@ -144,7 +144,7 @@ func (s *Service) runIsolated(task Task) {
 		UserID:           task.Account.UserID,
 		SessionID:        task.SessionID,
 		StrategyID:       task.StrategyID,
-		Mode:             task.Account.Mode,
+		Environment:      task.Account.Environment,
 		SnapshotReason:   task.SnapshotReason,
 		RunType:          runType,
 		ExchangeSnapshot: task.Exchange,

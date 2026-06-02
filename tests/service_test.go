@@ -31,18 +31,18 @@ func setupService(t *testing.T) (*service.AccountGRPCService, *mockRepo, int64) 
 	ctx := context.Background()
 
 	id, err := repo.CreateAccount(ctx, domain.Account{
-		UserID:    testsUserID,
-		Name:      "test-backtest",
-		Mode:      domain.AccountModeBacktest,
-		CreatedAt: time.Now(),
+		UserID:      testsUserID,
+		Name:        "test-backtest",
+		Environment: domain.EnvironmentBacktest,
+		CreatedAt:   time.Now(),
 	})
 	if err != nil {
 		t.Fatalf("create account: %v", err)
 	}
 
 	_ = repo.UpdateAccountState(ctx, domain.OnlineAccountInfo{
-		AccountID: id,
-		Mode:      domain.AccountModeBacktest,
+		AccountID:   id,
+		Environment: domain.EnvironmentBacktest,
 		Futures: domain.FuturesWallet{
 			MarginMode:         "cross",
 			PositionMode:       "one_way",
@@ -108,8 +108,8 @@ func TestGetOnlineAccountInfo_Backtest(t *testing.T) {
 	if w.GetFutures().GetWalletBalance() != 10000 {
 		t.Fatalf("unexpected futures.wallet_balance: %f", w.GetFutures().GetWalletBalance())
 	}
-	if w.GetMode() != 0 {
-		t.Fatalf("expected mode=0 (backtest), got %d", w.GetMode())
+	if w.GetEnvironment() != int32(domain.EnvironmentBacktest) {
+		t.Fatalf("expected environment=0 (backtest), got %d", w.GetEnvironment())
 	}
 }
 
@@ -120,7 +120,6 @@ func TestGetOnlineAccountInfo_TestnetFetchesExchangeAndRefreshesStoredState(t *t
 		UserID:      testsUserID,
 		Name:        "testnet",
 		Environment: domain.EnvironmentDemo,
-		Mode:        domain.AccountModeBinanceTestnet,
 		CreatedAt:   time.Now().UTC(),
 	})
 	if err != nil {
@@ -128,8 +127,8 @@ func TestGetOnlineAccountInfo_TestnetFetchesExchangeAndRefreshesStoredState(t *t
 	}
 	credManager := seedBinancePerpVenue(t, repo, accountID, domain.EnvironmentDemo, "test-key", "test-secret")
 	_ = repo.UpdateAccountState(ctx, domain.OnlineAccountInfo{
-		AccountID: accountID,
-		Mode:      domain.AccountModeBinanceTestnet,
+		AccountID:   accountID,
+		Environment: domain.EnvironmentDemo,
 		Futures: domain.FuturesWallet{
 			MarginMode:       "cross",
 			PositionMode:     "one_way",
@@ -173,8 +172,8 @@ func TestGetOnlineAccountInfo_TestnetFetchesExchangeAndRefreshesStoredState(t *t
 		t.Fatalf("GetOnlineAccountInfo: %v", err)
 	}
 	wallet := resp.GetWallet()
-	if wallet.GetMode() != int32(domain.AccountModeBinanceTestnet) {
-		t.Fatalf("expected mode=2, got %d", wallet.GetMode())
+	if wallet.GetEnvironment() != int32(domain.EnvironmentDemo) {
+		t.Fatalf("expected environment=1, got %d", wallet.GetEnvironment())
 	}
 	if got := wallet.GetFutures().GetWalletBalance(); got != 4321 {
 		t.Fatalf("expected exchange wallet balance, got %f", got)
@@ -260,7 +259,6 @@ func TestGetOnlineAccountInfo_Live_NoAdapter(t *testing.T) {
 		UserID:      testsUserID,
 		Name:        "live",
 		Environment: domain.EnvironmentLive,
-		Mode:        domain.AccountModeBinanceLive,
 		CreatedAt:   time.Now(),
 	})
 	if err != nil {
@@ -385,7 +383,6 @@ func TestUpdateAccountWalletState_Live_NoAdapter(t *testing.T) {
 		UserID:      testsUserID,
 		Name:        "live",
 		Environment: domain.EnvironmentLive,
-		Mode:        domain.AccountModeBinanceLive,
 		CreatedAt:   time.Now(),
 	})
 	if err != nil {

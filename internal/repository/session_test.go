@@ -39,7 +39,6 @@ func TestUpdateSessionFinishedPersistsBarsAndCompletion(t *testing.T) {
 		AccountID:      accountID,
 		UserID:         user.ID,
 		Environment:    domain.EnvironmentBacktest,
-		Mode:           int(domain.AccountModeBacktest),
 		Status:         "running",
 		Interval:       "1m",
 		StartTimeMs:    &startMs,

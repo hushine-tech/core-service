@@ -11,7 +11,7 @@ import (
 //
 // Callers MUST pass the full domain.Account, not just accountID. The adapter
 // needs per-account credentials (api_key / api_secret) and per-account routing
-// hints (mode).
+// hints (environment).
 type OnlineInfoFetcher interface {
 	FetchOnlineAccountInfo(ctx context.Context, account domain.Account) (domain.OnlineAccountInfo, error)
 }
@@ -20,7 +20,7 @@ type OnlineInfoFetcher interface {
 type ExchangeProvider string
 
 const (
-	ProviderLocal   ExchangeProvider = "local"   // mode=0 backtest, data from DB
+	ProviderLocal   ExchangeProvider = "local" // backtest, data from DB
 	ProviderBinance ExchangeProvider = "binance"
 )
 
@@ -28,9 +28,9 @@ const (
 type ExchangeEnvironment string
 
 const (
-	EnvNone    ExchangeEnvironment = ""        // local / backtest
-	EnvLive    ExchangeEnvironment = "live"
-	EnvTestnet ExchangeEnvironment = "testnet"
+	EnvNone ExchangeEnvironment = "" // local / backtest
+	EnvLive ExchangeEnvironment = "live"
+	EnvDemo ExchangeEnvironment = "demo"
 )
 
 // ExchangeTarget is the decoded routing intent for an account.
@@ -39,21 +39,17 @@ type ExchangeTarget struct {
 	Environment ExchangeEnvironment
 }
 
-// ResolveTarget decodes AccountMode into (provider, environment).
-//
-// This is the single place where mode semantics is interpreted. Future
-// OKX / other-provider modes only need to extend this table; service/grpc
-// and adapter wiring stay unchanged.
-func ResolveTarget(mode domain.AccountMode) (ExchangeTarget, error) {
-	switch mode {
-	case domain.AccountModeBacktest:
+// ResolveTarget decodes account environment into (provider, environment).
+func ResolveTarget(env domain.Environment) (ExchangeTarget, error) {
+	switch env {
+	case domain.EnvironmentBacktest:
 		return ExchangeTarget{Provider: ProviderLocal, Environment: EnvNone}, nil
-	case domain.AccountModeBinanceLive:
+	case domain.EnvironmentDemo:
+		return ExchangeTarget{Provider: ProviderBinance, Environment: EnvDemo}, nil
+	case domain.EnvironmentLive:
 		return ExchangeTarget{Provider: ProviderBinance, Environment: EnvLive}, nil
-	case domain.AccountModeBinanceTestnet:
-		return ExchangeTarget{Provider: ProviderBinance, Environment: EnvTestnet}, nil
 	default:
-		return ExchangeTarget{}, fmt.Errorf("unsupported account mode: %d", mode)
+		return ExchangeTarget{}, fmt.Errorf("unsupported account environment: %d", env)
 	}
 }
 
@@ -71,7 +67,7 @@ type AdapterRouter struct {
 // fetchers. The fetchers map key is ExchangeTarget; a nil value means the
 // corresponding route is not configured and will fail explicitly at call time.
 //
-// getFromDB is used for mode=0 (backtest) to read the persisted wallet state.
+// getFromDB is used for backtest to read the persisted wallet state.
 func NewAdapterRouter(
 	fetchers map[ExchangeTarget]OnlineInfoFetcher,
 	getFromDB func(ctx context.Context, accountID int64) (domain.OnlineAccountInfo, error),
@@ -85,17 +81,17 @@ func NewAdapterRouter(
 	}
 }
 
-// GetOnlineInfo returns the online account info according to account.Mode.
+// GetOnlineInfo returns the online account info according to account.Environment.
 //
 // Behavior per target:
 //   - local/backtest: read current state from DB; no credential / external call
 //   - exchange-backed: delegate to the registered fetcher, passing the full
 //     account (so the fetcher can use per-account api_key/api_secret)
 //
-// Unsupported or unconfigured modes return an explicit error — never a
+// Unsupported or unconfigured environments return an explicit error — never a
 // silent fallback to a different target.
 func (r *AdapterRouter) GetOnlineInfo(ctx context.Context, account domain.Account) (domain.OnlineAccountInfo, error) {
-	target, err := ResolveTarget(account.Mode)
+	target, err := ResolveTarget(account.Environment)
 	if err != nil {
 		return domain.OnlineAccountInfo{}, err
 	}
@@ -105,15 +101,15 @@ func (r *AdapterRouter) GetOnlineInfo(ctx context.Context, account domain.Accoun
 		if err != nil {
 			return domain.OnlineAccountInfo{}, fmt.Errorf("backtest: fetch from db: %w", err)
 		}
-		info.Mode = domain.AccountModeBacktest
+		info.Environment = domain.EnvironmentBacktest
 		return info, nil
 	}
 
 	fetcher := r.fetchers[target]
 	if fetcher == nil {
 		return domain.OnlineAccountInfo{}, fmt.Errorf(
-			"exchange adapter not configured: provider=%s env=%s (mode=%d)",
-			target.Provider, target.Environment, account.Mode,
+			"exchange adapter not configured: provider=%s env=%s",
+			target.Provider, target.Environment,
 		)
 	}
 
@@ -124,6 +120,6 @@ func (r *AdapterRouter) GetOnlineInfo(ctx context.Context, account domain.Accoun
 	if err != nil {
 		return domain.OnlineAccountInfo{}, fmt.Errorf("%s %s: %w", target.Provider, target.Environment, err)
 	}
-	info.Mode = account.Mode
+	info.Environment = account.Environment
 	return info, nil
 }

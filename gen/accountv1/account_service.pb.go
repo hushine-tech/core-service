@@ -3275,10 +3275,10 @@ type AccountWalletState struct {
 	Futures    *FuturesWallet         `protobuf:"bytes,1,opt,name=futures,proto3" json:"futures,omitempty"`
 	Spot       *SpotWallet            `protobuf:"bytes,2,opt,name=spot,proto3" json:"spot,omitempty"`
 	TotalValue float64                `protobuf:"fixed64,3,opt,name=total_value,json=totalValue,proto3" json:"total_value,omitempty"`
-	// Server-side account mode (0=backtest, 1=live, 2=testnet). Informational; strategy-service may ignore.
-	Mode      int32                  `protobuf:"varint,6,opt,name=mode,proto3" json:"mode,omitempty"`
-	UpdatedAt *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
-	// Display aggregates: for Binance live/testnet, futures_position_equity matches futures.margin_balance
+	// Server-side account environment (0=backtest, 1=demo, 2=live).
+	Environment int32                  `protobuf:"varint,6,opt,name=environment,proto3" json:"environment,omitempty"`
+	UpdatedAt   *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	// Display aggregates: for Binance demo/live, futures_position_equity matches futures.margin_balance
 	// and spot_estimated_value matches the exchange adapter spot sum so spot + futures ≈ total_value.
 	SpotEstimatedValue    float64 `protobuf:"fixed64,8,opt,name=spot_estimated_value,json=spotEstimatedValue,proto3" json:"spot_estimated_value,omitempty"`
 	FuturesPositionEquity float64 `protobuf:"fixed64,9,opt,name=futures_position_equity,json=futuresPositionEquity,proto3" json:"futures_position_equity,omitempty"`
@@ -3338,9 +3338,9 @@ func (x *AccountWalletState) GetTotalValue() float64 {
 	return 0
 }
 
-func (x *AccountWalletState) GetMode() int32 {
+func (x *AccountWalletState) GetEnvironment() int32 {
 	if x != nil {
-		return x.Mode
+		return x.Environment
 	}
 	return 0
 }
@@ -4295,7 +4295,7 @@ func (x *GetAccountMetaRequest) GetAccountId() int64 {
 type GetAccountMetaResponse struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	AccountId      int64                  `protobuf:"varint,1,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
-	Mode           int32                  `protobuf:"varint,2,opt,name=mode,proto3" json:"mode,omitempty"`                                    // 0=backtest, 1=live, 2=testnet
+	Environment    int32                  `protobuf:"varint,2,opt,name=environment,proto3" json:"environment,omitempty"`                      // 0=backtest, 1=demo, 2=live
 	MarginMode     string                 `protobuf:"bytes,3,opt,name=margin_mode,json=marginMode,proto3" json:"margin_mode,omitempty"`       // "cross" / "isolated"
 	PositionMode   string                 `protobuf:"bytes,4,opt,name=position_mode,json=positionMode,proto3" json:"position_mode,omitempty"` // "one_way" / "hedge"
 	ApiKey         string                 `protobuf:"bytes,5,opt,name=api_key,json=apiKey,proto3" json:"api_key,omitempty"`
@@ -4344,9 +4344,9 @@ func (x *GetAccountMetaResponse) GetAccountId() int64 {
 	return 0
 }
 
-func (x *GetAccountMetaResponse) GetMode() int32 {
+func (x *GetAccountMetaResponse) GetEnvironment() int32 {
 	if x != nil {
-		return x.Mode
+		return x.Environment
 	}
 	return 0
 }
@@ -5649,7 +5649,7 @@ type StrategySessionEntry struct {
 	SessionId       string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
 	AccountId       int64                  `protobuf:"varint,2,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
 	StrategyId      int64                  `protobuf:"varint,3,opt,name=strategy_id,json=strategyId,proto3" json:"strategy_id,omitempty"`
-	Mode            int32                  `protobuf:"varint,4,opt,name=mode,proto3" json:"mode,omitempty"`
+	Environment     int32                  `protobuf:"varint,4,opt,name=environment,proto3" json:"environment,omitempty"`
 	Status          string                 `protobuf:"bytes,5,opt,name=status,proto3" json:"status,omitempty"`
 	Interval        string                 `protobuf:"bytes,6,opt,name=interval,proto3" json:"interval,omitempty"`
 	StartTimeMs     int64                  `protobuf:"varint,7,opt,name=start_time_ms,json=startTimeMs,proto3" json:"start_time_ms,omitempty"`
@@ -5724,9 +5724,9 @@ func (x *StrategySessionEntry) GetStrategyId() int64 {
 	return 0
 }
 
-func (x *StrategySessionEntry) GetMode() int32 {
+func (x *StrategySessionEntry) GetEnvironment() int32 {
 	if x != nil {
-		return x.Mode
+		return x.Environment
 	}
 	return 0
 }
@@ -5869,7 +5869,7 @@ type SaveSessionRequest struct {
 	SessionId      string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
 	AccountId      int64                  `protobuf:"varint,2,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
 	StrategyId     int64                  `protobuf:"varint,3,opt,name=strategy_id,json=strategyId,proto3" json:"strategy_id,omitempty"`
-	Mode           int32                  `protobuf:"varint,4,opt,name=mode,proto3" json:"mode,omitempty"`
+	Environment    int32                  `protobuf:"varint,4,opt,name=environment,proto3" json:"environment,omitempty"`
 	Interval       string                 `protobuf:"bytes,5,opt,name=interval,proto3" json:"interval,omitempty"`
 	StartTimeMs    int64                  `protobuf:"varint,6,opt,name=start_time_ms,json=startTimeMs,proto3" json:"start_time_ms,omitempty"`
 	EndTimeMs      int64                  `protobuf:"varint,7,opt,name=end_time_ms,json=endTimeMs,proto3" json:"end_time_ms,omitempty"`
@@ -5935,9 +5935,9 @@ func (x *SaveSessionRequest) GetStrategyId() int64 {
 	return 0
 }
 
-func (x *SaveSessionRequest) GetMode() int32 {
+func (x *SaveSessionRequest) GetEnvironment() int32 {
 	if x != nil {
-		return x.Mode
+		return x.Environment
 	}
 	return 0
 }
@@ -6264,8 +6264,8 @@ type ListSessionsRequest struct {
 	Offset            int32  `protobuf:"varint,3,opt,name=offset,proto3" json:"offset,omitempty"`
 	RuntimeId         string `protobuf:"bytes,4,opt,name=runtime_id,json=runtimeId,proto3" json:"runtime_id,omitempty"`
 	StrategyId        int64  `protobuf:"varint,5,opt,name=strategy_id,json=strategyId,proto3" json:"strategy_id,omitempty"`
-	Mode              int32  `protobuf:"varint,6,opt,name=mode,proto3" json:"mode,omitempty"`
-	ModeSet           bool   `protobuf:"varint,7,opt,name=mode_set,json=modeSet,proto3" json:"mode_set,omitempty"`
+	Environment       int32  `protobuf:"varint,6,opt,name=environment,proto3" json:"environment,omitempty"`
+	EnvironmentSet    bool   `protobuf:"varint,7,opt,name=environment_set,json=environmentSet,proto3" json:"environment_set,omitempty"`
 	Status            string `protobuf:"bytes,8,opt,name=status,proto3" json:"status,omitempty"`
 	SessionIdContains string `protobuf:"bytes,9,opt,name=session_id_contains,json=sessionIdContains,proto3" json:"session_id_contains,omitempty"`
 	StartedAfterMs    int64  `protobuf:"varint,10,opt,name=started_after_ms,json=startedAfterMs,proto3" json:"started_after_ms,omitempty"`
@@ -6340,16 +6340,16 @@ func (x *ListSessionsRequest) GetStrategyId() int64 {
 	return 0
 }
 
-func (x *ListSessionsRequest) GetMode() int32 {
+func (x *ListSessionsRequest) GetEnvironment() int32 {
 	if x != nil {
-		return x.Mode
+		return x.Environment
 	}
 	return 0
 }
 
-func (x *ListSessionsRequest) GetModeSet() bool {
+func (x *ListSessionsRequest) GetEnvironmentSet() bool {
 	if x != nil {
-		return x.ModeSet
+		return x.EnvironmentSet
 	}
 	return false
 }
@@ -7146,7 +7146,7 @@ type ReconciliationRunEntry struct {
 	SessionId            string                 `protobuf:"bytes,5,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
 	SnapshotReason       int32                  `protobuf:"varint,6,opt,name=snapshot_reason,json=snapshotReason,proto3" json:"snapshot_reason,omitempty"`
 	RunType              string                 `protobuf:"bytes,7,opt,name=run_type,json=runType,proto3" json:"run_type,omitempty"`
-	Mode                 int32                  `protobuf:"varint,8,opt,name=mode,proto3" json:"mode,omitempty"`
+	Environment          int32                  `protobuf:"varint,8,opt,name=environment,proto3" json:"environment,omitempty"`
 	HardPass             bool                   `protobuf:"varint,9,opt,name=hard_pass,json=hardPass,proto3" json:"hard_pass,omitempty"`
 	SoftPass             bool                   `protobuf:"varint,10,opt,name=soft_pass,json=softPass,proto3" json:"soft_pass,omitempty"`
 	FieldDiffs           []*FieldDiffEntry      `protobuf:"bytes,11,rep,name=field_diffs,json=fieldDiffs,proto3" json:"field_diffs,omitempty"`
@@ -7236,9 +7236,9 @@ func (x *ReconciliationRunEntry) GetRunType() string {
 	return ""
 }
 
-func (x *ReconciliationRunEntry) GetMode() int32 {
+func (x *ReconciliationRunEntry) GetEnvironment() int32 {
 	if x != nil {
-		return x.Mode
+		return x.Environment
 	}
 	return 0
 }
@@ -8533,13 +8533,13 @@ const file_account_service_proto_rawDesc = "" +
 	"session_id\x18\n" +
 	" \x01(\tR\tsessionIdJ\x04\b\x02\x10\x03\"Z\n" +
 	" UpdateAccountWalletStateResponse\x126\n" +
-	"\x06wallet\x18\x01 \x01(\v2\x1e.account.v1.AccountWalletStateR\x06wallet\"\x84\x03\n" +
+	"\x06wallet\x18\x01 \x01(\v2\x1e.account.v1.AccountWalletStateR\x06wallet\"\x92\x03\n" +
 	"\x12AccountWalletState\x123\n" +
 	"\afutures\x18\x01 \x01(\v2\x19.account.v1.FuturesWalletR\afutures\x12*\n" +
 	"\x04spot\x18\x02 \x01(\v2\x16.account.v1.SpotWalletR\x04spot\x12\x1f\n" +
 	"\vtotal_value\x18\x03 \x01(\x01R\n" +
-	"totalValue\x12\x12\n" +
-	"\x04mode\x18\x06 \x01(\x05R\x04mode\x129\n" +
+	"totalValue\x12 \n" +
+	"\venvironment\x18\x06 \x01(\x05R\venvironment\x129\n" +
 	"\n" +
 	"updated_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x120\n" +
 	"\x14spot_estimated_value\x18\b \x01(\x01R\x12spotEstimatedValue\x126\n" +
@@ -8640,11 +8640,11 @@ const file_account_service_proto_rawDesc = "" +
 	"\x05stale\x18\x02 \x01(\bR\x05stale\"6\n" +
 	"\x15GetAccountMetaRequest\x12\x1d\n" +
 	"\n" +
-	"account_id\x18\x01 \x01(\x03R\taccountId\"\xaf\x02\n" +
+	"account_id\x18\x01 \x01(\x03R\taccountId\"\xbd\x02\n" +
 	"\x16GetAccountMetaResponse\x12\x1d\n" +
 	"\n" +
-	"account_id\x18\x01 \x01(\x03R\taccountId\x12\x12\n" +
-	"\x04mode\x18\x02 \x01(\x05R\x04mode\x12\x1f\n" +
+	"account_id\x18\x01 \x01(\x03R\taccountId\x12 \n" +
+	"\venvironment\x18\x02 \x01(\x05R\venvironment\x12\x1f\n" +
 	"\vmargin_mode\x18\x03 \x01(\tR\n" +
 	"marginMode\x12#\n" +
 	"\rposition_mode\x18\x04 \x01(\tR\fpositionMode\x12\x17\n" +
@@ -8752,15 +8752,15 @@ const file_account_service_proto_rawDesc = "" +
 	"\x04name\x18\x03 \x01(\tR\x04name\x12\x18\n" +
 	"\aversion\x18\x04 \x01(\tR\aversion\x12'\n" +
 	"\x0fruntime_version\x18\x05 \x01(\tR\x0eruntimeVersion\x12'\n" +
-	"\x0fruntime_profile\x18\x06 \x01(\tR\x0eruntimeProfile\"\xd4\x06\n" +
+	"\x0fruntime_profile\x18\x06 \x01(\tR\x0eruntimeProfile\"\xe2\x06\n" +
 	"\x14StrategySessionEntry\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x1d\n" +
 	"\n" +
 	"account_id\x18\x02 \x01(\x03R\taccountId\x12\x1f\n" +
 	"\vstrategy_id\x18\x03 \x01(\x03R\n" +
-	"strategyId\x12\x12\n" +
-	"\x04mode\x18\x04 \x01(\x05R\x04mode\x12\x16\n" +
+	"strategyId\x12 \n" +
+	"\venvironment\x18\x04 \x01(\x05R\venvironment\x12\x16\n" +
 	"\x06status\x18\x05 \x01(\tR\x06status\x12\x1a\n" +
 	"\binterval\x18\x06 \x01(\tR\binterval\x12\"\n" +
 	"\rstart_time_ms\x18\a \x01(\x03R\vstartTimeMs\x12\x1e\n" +
@@ -8784,15 +8784,15 @@ const file_account_service_proto_rawDesc = "" +
 	"\n" +
 	"error_code\x18\x15 \x01(\tR\terrorCode\x12#\n" +
 	"\rerror_message\x18\x16 \x01(\tR\ferrorMessage\x12*\n" +
-	"\x11error_detail_json\x18\x17 \x01(\tR\x0ferrorDetailJson\"\xd8\x03\n" +
+	"\x11error_detail_json\x18\x17 \x01(\tR\x0ferrorDetailJson\"\xe6\x03\n" +
 	"\x12SaveSessionRequest\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x1d\n" +
 	"\n" +
 	"account_id\x18\x02 \x01(\x03R\taccountId\x12\x1f\n" +
 	"\vstrategy_id\x18\x03 \x01(\x03R\n" +
-	"strategyId\x12\x12\n" +
-	"\x04mode\x18\x04 \x01(\x05R\x04mode\x12\x1a\n" +
+	"strategyId\x12 \n" +
+	"\venvironment\x18\x04 \x01(\x05R\venvironment\x12\x1a\n" +
 	"\binterval\x18\x05 \x01(\tR\binterval\x12\"\n" +
 	"\rstart_time_ms\x18\x06 \x01(\x03R\vstartTimeMs\x12\x1e\n" +
 	"\vend_time_ms\x18\a \x01(\x03R\tendTimeMs\x12\x1d\n" +
@@ -8820,7 +8820,7 @@ const file_account_service_proto_rawDesc = "" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x17\n" +
 	"\auser_id\x18d \x01(\x03R\x06userId\"P\n" +
 	"\x12GetSessionResponse\x12:\n" +
-	"\asession\x18\x01 \x01(\v2 .account.v1.StrategySessionEntryR\asession\"\x88\x03\n" +
+	"\asession\x18\x01 \x01(\v2 .account.v1.StrategySessionEntryR\asession\"\xa4\x03\n" +
 	"\x13ListSessionsRequest\x12\x1d\n" +
 	"\n" +
 	"account_id\x18\x01 \x01(\x03R\taccountId\x12\x14\n" +
@@ -8829,9 +8829,9 @@ const file_account_service_proto_rawDesc = "" +
 	"\n" +
 	"runtime_id\x18\x04 \x01(\tR\truntimeId\x12\x1f\n" +
 	"\vstrategy_id\x18\x05 \x01(\x03R\n" +
-	"strategyId\x12\x12\n" +
-	"\x04mode\x18\x06 \x01(\x05R\x04mode\x12\x19\n" +
-	"\bmode_set\x18\a \x01(\bR\amodeSet\x12\x16\n" +
+	"strategyId\x12 \n" +
+	"\venvironment\x18\x06 \x01(\x05R\venvironment\x12'\n" +
+	"\x0fenvironment_set\x18\a \x01(\bR\x0eenvironmentSet\x12\x16\n" +
 	"\x06status\x18\b \x01(\tR\x06status\x12.\n" +
 	"\x13session_id_contains\x18\t \x01(\tR\x11sessionIdContains\x12(\n" +
 	"\x10started_after_ms\x18\n" +
@@ -8901,7 +8901,7 @@ const file_account_service_proto_rawDesc = "" +
 	"\n" +
 	"total_runs\x18\x01 \x01(\x03R\ttotalRuns\x12$\n" +
 	"\x0ehard_fail_runs\x18\x02 \x01(\x03R\fhardFailRuns\x12$\n" +
-	"\x0esoft_fail_runs\x18\x03 \x01(\x03R\fsoftFailRuns\"\xb6\x04\n" +
+	"\x0esoft_fail_runs\x18\x03 \x01(\x03R\fsoftFailRuns\"\xc4\x04\n" +
 	"\x16ReconciliationRunEntry\x12.\n" +
 	"\x04time\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\x04time\x12\x15\n" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12\x1d\n" +
@@ -8912,8 +8912,8 @@ const file_account_service_proto_rawDesc = "" +
 	"\n" +
 	"session_id\x18\x05 \x01(\tR\tsessionId\x12'\n" +
 	"\x0fsnapshot_reason\x18\x06 \x01(\x05R\x0esnapshotReason\x12\x19\n" +
-	"\brun_type\x18\a \x01(\tR\arunType\x12\x12\n" +
-	"\x04mode\x18\b \x01(\x05R\x04mode\x12\x1b\n" +
+	"\brun_type\x18\a \x01(\tR\arunType\x12 \n" +
+	"\venvironment\x18\b \x01(\x05R\venvironment\x12\x1b\n" +
 	"\thard_pass\x18\t \x01(\bR\bhardPass\x12\x1b\n" +
 	"\tsoft_pass\x18\n" +
 	" \x01(\bR\bsoftPass\x12;\n" +

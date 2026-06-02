@@ -17,10 +17,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hushine-tech/golang-lib/middleware/httpclient"
-	elog "github.com/hushine-tech/golang-lib/pkg/log"
 	"github.com/hushine-tech/core-service/internal/domain"
 	"github.com/hushine-tech/core-service/internal/logger"
+	"github.com/hushine-tech/golang-lib/middleware/httpclient"
+	elog "github.com/hushine-tech/golang-lib/pkg/log"
 )
 
 const (
@@ -66,7 +66,7 @@ func NewBinanceLiveAdapter(logger elog.Logger) *BinanceAdapter {
 
 // NewBinanceTestnetAdapter is a convenience constructor for the testnet environment.
 func NewBinanceTestnetAdapter(logger elog.Logger) *BinanceAdapter {
-	return NewBinanceAdapter(EnvTestnet, BinanceTestnetBaseURL, BinanceSpotTestnetURL, logger, "binance_testnet")
+	return NewBinanceAdapter(EnvDemo, BinanceTestnetBaseURL, BinanceSpotTestnetURL, logger, "binance_demo")
 }
 
 // FetchOnlineAccountInfo implements OnlineInfoFetcher.

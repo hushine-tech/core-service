@@ -49,16 +49,16 @@ func baseCfg() config.ReconciliationConfig {
 
 func simpleAccount() domain.Account {
 	return domain.Account{
-		AccountID: 42,
-		UserID:    7,
-		Mode:      domain.AccountModeBinanceTestnet,
+		AccountID:   42,
+		UserID:      7,
+		Environment: domain.EnvironmentDemo,
 	}
 }
 
 func identicalSnapshot() domain.OnlineAccountInfo {
 	return domain.OnlineAccountInfo{
-		AccountID: 42,
-		Mode:      domain.AccountModeBinanceTestnet,
+		AccountID:   42,
+		Environment: domain.EnvironmentDemo,
 		Futures: domain.FuturesWallet{
 			WalletBalance: 10000,
 		},
@@ -213,7 +213,7 @@ func TestLaunchAsync_Mode0IsSkipped(t *testing.T) {
 	s := NewService(baseCfg(), repo)
 
 	acc := simpleAccount()
-	acc.Mode = domain.AccountModeBacktest
+	acc.Environment = domain.EnvironmentBacktest
 
 	s.LaunchAsync(Task{
 		Account:        acc,

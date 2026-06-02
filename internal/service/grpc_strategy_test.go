@@ -122,7 +122,7 @@ func (r *sessionStubRepo) ListSessionsPage(ctx context.Context, filter repositor
 		if filter.StrategyID > 0 && s.StrategyID != filter.StrategyID {
 			continue
 		}
-		if filter.ModeSet && s.Mode != filter.Mode {
+		if filter.EnvironmentSet && s.Environment != filter.Environment {
 			continue
 		}
 		if filter.Status != "" && s.Status != filter.Status {
@@ -633,7 +633,7 @@ func TestSaveGetListSessionCarriesRuntimeName(t *testing.T) {
 		SessionId:     "sess-1",
 		AccountId:     42,
 		StrategyId:    7,
-		Mode:          2,
+		Environment:   2,
 		Interval:      "1m",
 		RuntimeId:     "rt-hosted-1",
 		RuntimeSource: "hosted",
@@ -695,7 +695,7 @@ func TestSaveSessionAllowsDebuggingWithoutStrategy(t *testing.T) {
 		SessionId:      "debug-session-1",
 		AccountId:      42,
 		StrategyId:     0,
-		Mode:           0,
+		Environment:    0,
 		Interval:       "1m",
 		RuntimeId:      "rt-debug-1",
 		RuntimeSource:  "self_hosted",
@@ -737,7 +737,7 @@ func TestSaveSessionRejectsBacktestWithoutStrategy(t *testing.T) {
 		SessionId:   "bad-session-1",
 		AccountId:   42,
 		StrategyId:  0,
-		Mode:        0,
+		Environment: 0,
 		RuntimeId:   "rt-executor-1",
 		SessionType: "backtest",
 	})
@@ -882,9 +882,9 @@ func TestUpdateSessionRejectsTerminalSessionMutation(t *testing.T) {
 func TestUpdateAccountWalletStateRejectsTerminalSession(t *testing.T) {
 	repo := newSessionStubRepo()
 	repo.account = domain.Account{
-		AccountID: 42,
-		UserID:    strategyTestUserID,
-		Mode:      domain.AccountModeBacktest,
+		AccountID:   42,
+		UserID:      strategyTestUserID,
+		Environment: domain.EnvironmentBacktest,
 	}
 	svc := NewAccountGRPCService(repo, nil, nil, nil)
 	_, err := svc.SaveSession(context.Background(), &accountv1.SaveSessionRequest{

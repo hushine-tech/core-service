@@ -457,7 +457,7 @@ func (m *mockRepo) ListSessionsPage(ctx context.Context, filter repository.Sessi
 		if filter.StrategyID > 0 && s.StrategyID != filter.StrategyID {
 			continue
 		}
-		if filter.ModeSet && s.Mode != filter.Mode {
+		if filter.EnvironmentSet && s.Environment != filter.Environment {
 			continue
 		}
 		if filter.Status != "" && s.Status != filter.Status {
@@ -615,7 +615,7 @@ func TestMockRepoCreateAndGet(t *testing.T) {
 	repo := newMockRepo()
 	ctx := context.Background()
 
-	id, err := repo.CreateAccount(ctx, domain.Account{Name: "test", UserID: 1, Mode: domain.AccountModeBacktest, CreatedAt: time.Now()})
+	id, err := repo.CreateAccount(ctx, domain.Account{Name: "test", UserID: 1, Environment: domain.EnvironmentBacktest, CreatedAt: time.Now()})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -636,14 +636,14 @@ func TestMockRepoUpdateAndGetState(t *testing.T) {
 	repo := newMockRepo()
 	ctx := context.Background()
 
-	id, err := repo.CreateAccount(ctx, domain.Account{Name: "bt", UserID: 1, Mode: domain.AccountModeBacktest, CreatedAt: time.Now()})
+	id, err := repo.CreateAccount(ctx, domain.Account{Name: "bt", UserID: 1, Environment: domain.EnvironmentBacktest, CreatedAt: time.Now()})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
 
 	info := domain.OnlineAccountInfo{
 		AccountID:     id,
-		Mode:          domain.AccountModeBacktest,
+		Environment:   domain.EnvironmentBacktest,
 		WalletBalance: 10000,
 		UpdatedAt:     time.Now(),
 	}
@@ -664,7 +664,7 @@ func TestMockRepoSaveSnapshot(t *testing.T) {
 	repo := newMockRepo()
 	ctx := context.Background()
 
-	id, _ := repo.CreateAccount(ctx, domain.Account{Name: "bt", UserID: 1, Mode: domain.AccountModeBacktest, CreatedAt: time.Now()})
+	id, _ := repo.CreateAccount(ctx, domain.Account{Name: "bt", UserID: 1, Environment: domain.EnvironmentBacktest, CreatedAt: time.Now()})
 	_ = repo.UpdateAccountState(ctx, domain.OnlineAccountInfo{AccountID: id, WalletBalance: 5000, UpdatedAt: time.Now()})
 
 	if err := repo.SaveSnapshot(ctx, id, domain.SnapshotReasonOrderFill, 0, ""); err != nil {

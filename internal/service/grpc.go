@@ -36,7 +36,7 @@ const (
 	defaultRuntimeProfile = "platform-python-3.13"
 	sessionTypeBacktest   = "backtest"
 	sessionTypeDebugging  = "debugging"
-	sessionTypeTestnet    = "testnet"
+	sessionTypeDemo       = "demo"
 )
 
 type AccountGRPCService struct {
@@ -151,17 +151,6 @@ func normalizeVenueModes(market domain.Market, rawMargin, rawPosition int32) (do
 	return margin, position, nil
 }
 
-func accountModeFromEnvironment(env domain.Environment) domain.AccountMode {
-	switch env {
-	case domain.EnvironmentDemo:
-		return domain.AccountModeBinanceTestnet
-	case domain.EnvironmentLive:
-		return domain.AccountModeBinanceLive
-	default:
-		return domain.AccountModeBacktest
-	}
-}
-
 func marginModeText(mode domain.MarginMode) string {
 	switch mode {
 	case domain.MarginModeCross:
@@ -198,7 +187,7 @@ func apiSecretFromCredentialJSON(raw string) (string, error) {
 }
 
 func (s *AccountGRPCService) accountForExchangeFetch(ctx context.Context, account domain.Account) (domain.Account, error) {
-	if account.Mode == domain.AccountModeBacktest {
+	if environmentFromAccount(account) == domain.EnvironmentBacktest {
 		return account, nil
 	}
 	meta, err := s.repo.ResolveVenueRouteMeta(ctx, account.AccountID, domain.ExchangeBinance, domain.MarketPerpetualFutures)
@@ -224,7 +213,6 @@ func (s *AccountGRPCService) accountForExchangeFetch(ctx context.Context, accoun
 	}
 	account.UserID = meta.UserID
 	account.Environment = meta.Environment
-	account.Mode = accountModeFromEnvironment(meta.Environment)
 	account.APIKey = meta.APIKey
 	account.APISecret = apiSecret
 	account.MarginMode = marginModeText(meta.MarginMode)
@@ -257,14 +245,9 @@ func (s *AccountGRPCService) ensureVenueCanAttachAccount(ctx context.Context, us
 }
 
 func environmentFromAccount(account domain.Account) domain.Environment {
-	if account.Environment == domain.EnvironmentDemo || account.Environment == domain.EnvironmentLive {
+	switch account.Environment {
+	case domain.EnvironmentDemo, domain.EnvironmentLive:
 		return account.Environment
-	}
-	switch account.Mode {
-	case domain.AccountModeBinanceLive:
-		return domain.EnvironmentLive
-	case domain.AccountModeBinanceTestnet:
-		return domain.EnvironmentDemo
 	default:
 		return domain.EnvironmentBacktest
 	}
@@ -626,7 +609,6 @@ func (s *AccountGRPCService) CreateAccount(ctx context.Context, req *accountv1.C
 		Description:    strings.TrimSpace(req.GetDescription()),
 		Environment:    env,
 		Status:         domain.AccountStatusActive,
-		Mode:           accountModeFromEnvironment(env),
 		MarginMode:     "cross",
 		PositionMode:   "one_way",
 		SlippageBps:    req.GetSlippageBps(),
@@ -650,8 +632,8 @@ func (s *AccountGRPCService) CreateAccount(ctx context.Context, req *accountv1.C
 	if env == domain.EnvironmentBacktest && req.GetInitialBalance() > 0 {
 		totalValue := req.GetInitialBalance()
 		info := domain.OnlineAccountInfo{
-			AccountID: newID,
-			Mode:      account.Mode,
+			AccountID:   newID,
+			Environment: env,
 			Futures: domain.FuturesWallet{
 				MarginMode:         account.MarginMode,
 				PositionMode:       account.PositionMode,
@@ -905,7 +887,6 @@ func (s *AccountGRPCService) GetVenueOnlineInfo(ctx context.Context, req *accoun
 		AccountID:      accountID,
 		UserID:         venue.UserID,
 		Environment:    venue.Environment,
-		Mode:           accountModeFromEnvironment(venue.Environment),
 		APIKey:         venue.APIKey,
 		APISecret:      apiSecret,
 		MarginMode:     marginModeText(venue.MarginMode),
@@ -1175,7 +1156,6 @@ func (s *AccountGRPCService) savePreflightFailedSession(
 		UserID:          account.UserID,
 		StrategyID:      req.GetStrategyId(),
 		Environment:     env,
-		Mode:            int(accountModeFromEnvironment(env)),
 		Status:          domain.SessionStatusPreflightFailed,
 		Error:           firstIssue.GetMessage(),
 		ErrorCode:       firstIssue.GetCode(),
@@ -1292,7 +1272,7 @@ func toProtoVenue(v domain.Venue) *accountv1.VenueEntry {
 	return out
 }
 
-// GetOnlineAccountInfo returns wallet state: backtest from accounts table; live/testnet from exchange (then updates accounts table).
+// GetOnlineAccountInfo returns wallet state: backtest from accounts table; demo/live from exchange (then updates accounts table).
 // 不再写快照——快照由独立的事件触发。
 func (s *AccountGRPCService) GetOnlineAccountInfo(ctx context.Context, req *accountv1.GetOnlineAccountInfoRequest) (*accountv1.GetOnlineAccountInfoResponse, error) {
 	if err := requireUserID(req.GetUserId()); err != nil {
@@ -1364,7 +1344,7 @@ func (s *AccountGRPCService) UpdatePortfolioSnapshot(ctx context.Context, req *a
 }
 
 func (s *AccountGRPCService) readPortfolioSnapshot(ctx context.Context, account domain.Account) (adapter.PortfolioSnapshot, error) {
-	if account.Mode == domain.AccountModeBacktest || account.Environment == domain.EnvironmentBacktest {
+	if environmentFromAccount(account) == domain.EnvironmentBacktest {
 		info, err := s.repo.GetAccountState(ctx, account.AccountID)
 		if err != nil {
 			return adapter.PortfolioSnapshot{}, status.Errorf(codes.Unavailable, "read backtest portfolio snapshot: %v", err)
@@ -1551,7 +1531,7 @@ func futuresPortfolioSnapshotFromOnlineInfoForVenue(info domain.OnlineAccountInf
 	}
 	venueInfo := domain.OnlineAccountInfo{
 		AccountID:        account.AccountID,
-		Mode:             account.Mode,
+		Environment:      venue.Environment,
 		Futures:          futures,
 		TotalValue:       totalValue,
 		WalletBalance:    walletBalance,
@@ -1625,7 +1605,7 @@ func spotPortfolioSnapshotFromOnlineInfoForVenue(info domain.OnlineAccountInfo, 
 	}
 	venueInfo := domain.OnlineAccountInfo{
 		AccountID:        account.AccountID,
-		Mode:             account.Mode,
+		Environment:      venue.Environment,
 		Spot:             spot,
 		TotalValue:       totalValue,
 		WalletBalance:    walletBalance,
@@ -1652,7 +1632,7 @@ func onlineInfoFromPortfolioSnapshot(snapshot adapter.PortfolioSnapshot, account
 	if snapshot.OnlineInfo != nil {
 		info := *snapshot.OnlineInfo
 		info.AccountID = account.AccountID
-		info.Mode = account.Mode
+		info.Environment = environmentFromAccount(account)
 		if info.UpdatedAt.IsZero() {
 			info.UpdatedAt = snapshot.UpdatedAt
 		}
@@ -1679,7 +1659,7 @@ func onlineInfoFromPortfolioSnapshot(snapshot adapter.PortfolioSnapshot, account
 	}
 	return domain.OnlineAccountInfo{
 		AccountID:        account.AccountID,
-		Mode:             account.Mode,
+		Environment:      environmentFromAccount(account),
 		Futures:          futures,
 		TotalValue:       snapshot.TotalValue,
 		WalletBalance:    snapshot.WalletBalance,
@@ -1694,7 +1674,7 @@ func mergePortfolioOnlineInfo(current *domain.OnlineAccountInfo, next *domain.On
 	}
 	merged := *next
 	merged.AccountID = account.AccountID
-	merged.Mode = account.Mode
+	merged.Environment = environmentFromAccount(account)
 	if current == nil {
 		return &merged
 	}
@@ -1714,7 +1694,6 @@ func toProtoPortfolioSnapshot(snapshot adapter.PortfolioSnapshot) *accountv1.Por
 		AccountID:   snapshot.AccountID,
 		UserID:      snapshot.UserID,
 		Environment: snapshot.Environment,
-		Mode:        accountModeFromEnvironment(snapshot.Environment),
 	}))
 	out := &accountv1.PortfolioSnapshot{
 		AccountId:        snapshot.AccountID,
@@ -1740,7 +1719,6 @@ func toProtoVenueSnapshot(snapshot adapter.PortfolioSnapshot) *accountv1.VenueSn
 		AccountID:   snapshot.AccountID,
 		UserID:      snapshot.UserID,
 		Environment: snapshot.Environment,
-		Mode:        accountModeFromEnvironment(snapshot.Environment),
 	}))
 	out := &accountv1.VenueSnapshot{
 		VenueId:          snapshot.VenueID,
@@ -1777,7 +1755,7 @@ func toProtoVenueSnapshot(snapshot adapter.PortfolioSnapshot) *accountv1.VenueSn
 	return out
 }
 
-// UpdateAccountWalletState branches on the account's registered mode.
+// UpdateAccountWalletState branches on the account's registered environment.
 // snapshot_reason > 0 时额外写一条快照。
 func (s *AccountGRPCService) UpdateAccountWalletState(ctx context.Context, req *accountv1.UpdateAccountWalletStateRequest) (*accountv1.UpdateAccountWalletStateResponse, error) {
 	accountID := req.GetAccountId()
@@ -1797,11 +1775,12 @@ func (s *AccountGRPCService) UpdateAccountWalletState(ctx context.Context, req *
 		return nil, err
 	}
 
-	switch account.Mode {
-	case domain.AccountModeBacktest:
+	env := environmentFromAccount(account)
+	switch env {
+	case domain.EnvironmentBacktest:
 		info := domain.OnlineAccountInfo{
 			AccountID:        accountID,
-			Mode:             account.Mode,
+			Environment:      env,
 			TotalValue:       req.GetTotalValue(),
 			WalletBalance:    req.GetWalletBalance(),
 			AvailableBalance: req.GetAvailableBalance(),
@@ -1848,7 +1827,7 @@ func (s *AccountGRPCService) UpdateAccountWalletState(ctx context.Context, req *
 		}
 		return &accountv1.UpdateAccountWalletStateResponse{Wallet: toProtoAccountWalletState(saved)}, nil
 
-	case domain.AccountModeBinanceLive, domain.AccountModeBinanceTestnet:
+	case domain.EnvironmentDemo, domain.EnvironmentLive:
 		snapshot, err := s.readPortfolioSnapshot(ctx, account)
 		if err != nil {
 			return nil, err
@@ -1877,7 +1856,7 @@ func (s *AccountGRPCService) UpdateAccountWalletState(ctx context.Context, req *
 		if s.reconciler != nil && s.reconciler.Enabled() && (req.GetFutures() != nil || req.GetSpot() != nil) {
 			local := domain.OnlineAccountInfo{
 				AccountID:        accountID,
-				Mode:             account.Mode,
+				Environment:      env,
 				Futures:          fromProtoFuturesWallet(req.GetFutures()),
 				TotalValue:       req.GetTotalValue(),
 				WalletBalance:    req.GetWalletBalance(),
@@ -1901,7 +1880,7 @@ func (s *AccountGRPCService) UpdateAccountWalletState(ctx context.Context, req *
 		return &accountv1.UpdateAccountWalletStateResponse{Wallet: toProtoAccountWalletState(info)}, nil
 
 	default:
-		return nil, status.Errorf(codes.InvalidArgument, "unsupported account mode: %d", account.Mode)
+		return nil, status.Errorf(codes.InvalidArgument, "unsupported account environment: %d", env)
 	}
 }
 
@@ -1911,7 +1890,7 @@ func toProtoAccountWalletState(info domain.OnlineAccountInfo) *accountv1.Account
 		Futures:               toProtoFuturesWalletWithDisplay(info.Futures, disp.PositionDisplay),
 		Spot:                  toProtoSpotWallet(info.Spot),
 		TotalValue:            info.TotalValue,
-		Mode:                  int32(info.Mode),
+		Environment:           int32(info.Environment),
 		UpdatedAt:             timestamppb.New(info.UpdatedAt),
 		SpotEstimatedValue:    disp.SpotEstimated,
 		FuturesPositionEquity: disp.FuturesEquity,
@@ -2198,7 +2177,7 @@ func (s *AccountGRPCService) GetAccountMeta(ctx context.Context, req *accountv1.
 	}
 	return &accountv1.GetAccountMetaResponse{
 		AccountId:      account.AccountID,
-		Mode:           int32(account.Mode),
+		Environment:    int32(environmentFromAccount(account)),
 		MarginMode:     account.MarginMode,
 		PositionMode:   account.PositionMode,
 		ApiKey:         account.APIKey,
@@ -2465,11 +2444,10 @@ func toProtoStrategy(st domain.Strategy, includeCode bool) *accountv1.StrategyEn
 // ── Session RPC ─────────────────────────────────────────────────────────────
 
 func (s *AccountGRPCService) SaveSession(ctx context.Context, req *accountv1.SaveSessionRequest) (*accountv1.SaveSessionResponse, error) {
-	sessionType := normalizeServiceSessionType(int(req.GetMode()), req.GetSessionType())
 	if req.GetSessionId() == "" || req.GetAccountId() == 0 {
 		return nil, status.Error(codes.InvalidArgument, "session_id and account_id are required")
 	}
-	if req.GetStrategyId() == 0 && sessionType != sessionTypeDebugging {
+	if req.GetStrategyId() == 0 && strings.TrimSpace(req.GetSessionType()) != sessionTypeDebugging {
 		return nil, status.Error(codes.InvalidArgument, "strategy_id is required unless session_type=debugging")
 	}
 	if strings.TrimSpace(req.GetRuntimeId()) == "" {
@@ -2480,13 +2458,13 @@ func (s *AccountGRPCService) SaveSession(ctx context.Context, req *accountv1.Sav
 		return nil, mapRepoErr(err)
 	}
 	env := environmentFromAccount(account)
+	sessionType := normalizeServiceSessionType(env, req.GetSessionType())
 	sess := domain.StrategySession{
 		SessionID:      req.GetSessionId(),
 		AccountID:      req.GetAccountId(),
 		UserID:         account.UserID,
 		StrategyID:     req.GetStrategyId(),
 		Environment:    env,
-		Mode:           int(accountModeFromEnvironment(env)),
 		Status:         "running",
 		Interval:       req.GetInterval(),
 		RuntimeID:      req.GetRuntimeId(),
@@ -2563,8 +2541,8 @@ func (s *AccountGRPCService) ListSessions(ctx context.Context, req *accountv1.Li
 		UserID:            req.GetUserId(),
 		RuntimeID:         strings.TrimSpace(req.GetRuntimeId()),
 		StrategyID:        req.GetStrategyId(),
-		Mode:              int(req.GetMode()),
-		ModeSet:           req.GetModeSet(),
+		Environment:       domain.Environment(req.GetEnvironment()),
+		EnvironmentSet:    req.GetEnvironmentSet(),
 		Status:            strings.TrimSpace(req.GetStatus()),
 		SessionIDContains: strings.TrimSpace(req.GetSessionIdContains()),
 		StartedAfterMs:    req.GetStartedAfterMs(),
@@ -2705,7 +2683,7 @@ func (s *AccountGRPCService) ListReconciliationRuns(ctx context.Context, req *ac
 			SessionId:            run.SessionID,
 			SnapshotReason:       int32(run.SnapshotReason),
 			RunType:              string(run.RunType),
-			Mode:                 int32(run.Mode),
+			Environment:          int32(run.Environment),
 			HardPass:             run.HardPass,
 			SoftPass:             run.SoftPass,
 			LocalSnapshotJson:    string(localJSON),
@@ -2770,7 +2748,7 @@ func toProtoSession(s domain.StrategySession) *accountv1.StrategySessionEntry {
 		SessionId:       s.SessionID,
 		AccountId:       s.AccountID,
 		StrategyId:      s.StrategyID,
-		Mode:            int32(s.Mode),
+		Environment:     int32(s.Environment),
 		Status:          s.Status,
 		Interval:        s.Interval,
 		BarsProcessed:   int32(s.BarsProcessed),
@@ -2780,7 +2758,7 @@ func toProtoSession(s domain.StrategySession) *accountv1.StrategySessionEntry {
 		RuntimeId:       s.RuntimeID,
 		RuntimeSource:   s.RuntimeSource,
 		RuntimeName:     s.RuntimeName,
-		SessionType:     normalizeServiceSessionType(s.Mode, s.SessionType),
+		SessionType:     normalizeServiceSessionType(s.Environment, s.SessionType),
 		RuntimeVersion:  normalizeServiceRuntimeVersion(s.RuntimeVersion),
 		SessionName:     s.SessionName,
 		ErrorCode:       s.ErrorCode,
@@ -2818,13 +2796,13 @@ func normalizeServiceRuntimeProfile(profile string) string {
 	return profile
 }
 
-func normalizeServiceSessionType(mode int, sessionType string) string {
+func normalizeServiceSessionType(env domain.Environment, sessionType string) string {
 	sessionType = strings.TrimSpace(sessionType)
 	if sessionType != "" {
 		return sessionType
 	}
-	if mode == int(domain.AccountModeBinanceTestnet) {
-		return sessionTypeTestnet
+	if env == domain.EnvironmentDemo {
+		return sessionTypeDemo
 	}
 	return sessionTypeBacktest
 }

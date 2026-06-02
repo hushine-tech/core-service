@@ -158,7 +158,7 @@ func TestBinanceAdapter_FetchOnlineAccountInfo_MapsPhaseASnapshot(t *testing.T) 
 	})
 	defer server.Close()
 
-	adapter := NewBinanceAdapter(EnvTestnet, server.URL, server.URL, logger.Instance(), "binance_test")
+	adapter := NewBinanceAdapter(EnvDemo, server.URL, server.URL, logger.Instance(), "binance_test")
 	info, err := adapter.FetchOnlineAccountInfo(context.Background(), testExchangeAccount())
 	if err != nil {
 		t.Fatalf("FetchOnlineAccountInfo() error = %v", err)
@@ -287,7 +287,7 @@ func TestBinanceAdapter_FetchOnlineAccountInfo_CountsStablecoinSpotAssets(t *tes
 	})
 	defer server.Close()
 
-	adapter := NewBinanceAdapter(EnvTestnet, server.URL, server.URL, logger.Instance(), "binance_test")
+	adapter := NewBinanceAdapter(EnvDemo, server.URL, server.URL, logger.Instance(), "binance_test")
 	info, err := adapter.FetchOnlineAccountInfo(context.Background(), testExchangeAccount())
 	if err != nil {
 		t.Fatalf("FetchOnlineAccountInfo() error = %v", err)
@@ -374,7 +374,7 @@ func TestBinanceAdapter_FetchOnlineAccountInfo_UnpricedSpotAssetsDoNotBlockFetch
 	})
 	defer server.Close()
 
-	adapter := NewBinanceAdapter(EnvTestnet, server.URL, server.URL, logger.Instance(), "binance_test")
+	adapter := NewBinanceAdapter(EnvDemo, server.URL, server.URL, logger.Instance(), "binance_test")
 	info, err := adapter.FetchOnlineAccountInfo(context.Background(), testExchangeAccount())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -462,7 +462,7 @@ func TestBinanceAdapter_FetchOnlineAccountInfo_SpotFailureDoesNotBlockFuturesPha
 	})
 	defer server.Close()
 
-	adapter := NewBinanceAdapter(EnvTestnet, server.URL, server.URL, logger.Instance(), "binance_test")
+	adapter := NewBinanceAdapter(EnvDemo, server.URL, server.URL, logger.Instance(), "binance_test")
 	info, err := adapter.FetchOnlineAccountInfo(context.Background(), testExchangeAccount())
 	if err != nil {
 		t.Fatalf("FetchOnlineAccountInfo() error = %v", err)
@@ -549,7 +549,7 @@ func TestBinanceAdapter_FetchOnlineAccountInfo_RepeatedReadsRemainStable(t *test
 	})
 	defer server.Close()
 
-	adapter := NewBinanceAdapter(EnvTestnet, server.URL, server.URL, logger.Instance(), "binance_test")
+	adapter := NewBinanceAdapter(EnvDemo, server.URL, server.URL, logger.Instance(), "binance_test")
 	account := testExchangeAccount()
 
 	first, err := adapter.FetchOnlineAccountInfo(context.Background(), account)
@@ -622,7 +622,7 @@ func TestBinanceAdapter_FetchOnlineAccountInfo_OmitsRiskMetadataWhenNoOpenPositi
 	})
 	defer server.Close()
 
-	adapter := NewBinanceAdapter(EnvTestnet, server.URL, server.URL, logger.Instance(), "binance_test")
+	adapter := NewBinanceAdapter(EnvDemo, server.URL, server.URL, logger.Instance(), "binance_test")
 	info, err := adapter.FetchOnlineAccountInfo(context.Background(), testExchangeAccount())
 	if err != nil {
 		t.Fatalf("FetchOnlineAccountInfo() error = %v", err)
@@ -678,7 +678,7 @@ func TestBinanceAdapter_FetchPhaseAMetadata_ParsesSymbolRulesAndBrackets(t *test
 	})
 	defer server.Close()
 
-	adapter := NewBinanceAdapter(EnvTestnet, server.URL, server.URL, logger.Instance(), "binance_test")
+	adapter := NewBinanceAdapter(EnvDemo, server.URL, server.URL, logger.Instance(), "binance_test")
 	meta, err := adapter.fetchPhaseAMetadata(context.Background(), testExchangeAccount(), []string{"BTCUSDT"})
 	if err != nil {
 		t.Fatalf("fetchPhaseAMetadata() error = %v", err)
@@ -748,7 +748,7 @@ func TestBinanceAdapter_FetchPhaseAMetadata_BulkFallbackFiltersRequestedSymbols(
 	}))
 	defer server.Close()
 
-	adapter := NewBinanceAdapter(EnvTestnet, server.URL, server.URL, logger.Instance(), "binance_test")
+	adapter := NewBinanceAdapter(EnvDemo, server.URL, server.URL, logger.Instance(), "binance_test")
 	meta, err := adapter.fetchPhaseAMetadata(
 		context.Background(),
 		testExchangeAccount(),
@@ -827,7 +827,7 @@ func TestBinanceAdapter_FetchOnlineAccountInfo_MultiAssetsKeepsCanonicalPrimaryA
 	})
 	defer server.Close()
 
-	adapter := NewBinanceAdapter(EnvTestnet, server.URL, server.URL, logger.Instance(), "binance_test")
+	adapter := NewBinanceAdapter(EnvDemo, server.URL, server.URL, logger.Instance(), "binance_test")
 	info, err := adapter.FetchOnlineAccountInfo(context.Background(), testExchangeAccount())
 	if err != nil {
 		t.Fatalf("FetchOnlineAccountInfo() error = %v", err)
@@ -929,7 +929,7 @@ func TestBinanceAdapter_FetchOnlineAccountInfo_SingleAssetStillPublishesUSDDispl
 	})
 	defer server.Close()
 
-	adapter := NewBinanceAdapter(EnvTestnet, server.URL, server.URL, logger.Instance(), "binance_test")
+	adapter := NewBinanceAdapter(EnvDemo, server.URL, server.URL, logger.Instance(), "binance_test")
 	info, err := adapter.FetchOnlineAccountInfo(context.Background(), testExchangeAccount())
 	if err != nil {
 		t.Fatalf("FetchOnlineAccountInfo() error = %v", err)
@@ -979,7 +979,7 @@ func TestBinanceAdapter_signedGet_AppendsSignatureLast(t *testing.T) {
 	}))
 	defer server.Close()
 
-	adapter := NewBinanceAdapter(EnvTestnet, server.URL, server.URL, logger.Instance(), "binance_test")
+	adapter := NewBinanceAdapter(EnvDemo, server.URL, server.URL, logger.Instance(), "binance_test")
 	if _, err := adapter.signedGet(context.Background(), testExchangeAccount(), server.URL+"/fapi/v3/account", nil); err != nil {
 		t.Fatalf("signedGet() error = %v", err)
 	}
@@ -987,10 +987,10 @@ func TestBinanceAdapter_signedGet_AppendsSignatureLast(t *testing.T) {
 
 func testExchangeAccount() domain.Account {
 	return domain.Account{
-		AccountID: 42,
-		Mode:      domain.AccountModeBinanceTestnet,
-		APIKey:    "acct-key",
-		APISecret: "acct-secret",
+		AccountID:   42,
+		Environment: domain.EnvironmentDemo,
+		APIKey:      "acct-key",
+		APISecret:   "acct-secret",
 	}
 }
 

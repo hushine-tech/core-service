@@ -88,7 +88,7 @@ type createAccountRequest struct {
 	UserID         int64   `json:"user_id"`
 	Name           string  `json:"name"`
 	Description    string  `json:"description"`
-	Mode           int     `json:"mode"`
+	Environment    int     `json:"environment"`
 	APIKey         string  `json:"api_key"`
 	APISecret      string  `json:"api_secret"`
 	InitialBalance float64 `json:"initial_balance"`
@@ -129,7 +129,7 @@ func (h *Handler) createAccount(w http.ResponseWriter, r *http.Request) {
 		UserID:         req.UserID,
 		Name:           strings.TrimSpace(req.Name),
 		Description:    strings.TrimSpace(req.Description),
-		Mode:           domain.AccountMode(req.Mode),
+		Environment:    domain.Environment(req.Environment),
 		APIKey:         req.APIKey,
 		APISecret:      req.APISecret,
 		MarginMode:     marginMode,
@@ -148,7 +148,7 @@ func (h *Handler) createAccount(w http.ResponseWriter, r *http.Request) {
 	account.AccountID = newID
 
 	// 回测账号有初始余额：写入 accounts 表当前状态 + initial_seed 快照
-	if req.Mode == int(domain.AccountModeBacktest) && req.InitialBalance > 0 {
+	if domain.Environment(req.Environment) == domain.EnvironmentBacktest && req.InitialBalance > 0 {
 		totalValue := req.InitialBalance
 		spot := domain.SpotWallet{}
 		if req.InitialBalance > 0 {
@@ -156,8 +156,8 @@ func (h *Handler) createAccount(w http.ResponseWriter, r *http.Request) {
 			totalValue += req.InitialBalance
 		}
 		info := domain.OnlineAccountInfo{
-			AccountID: newID,
-			Mode:      account.Mode,
+			AccountID:   newID,
+			Environment: account.Environment,
 			Futures: domain.FuturesWallet{
 				MarginMode:         account.MarginMode,
 				PositionMode:       account.PositionMode,
@@ -188,7 +188,7 @@ func (h *Handler) createAccount(w http.ResponseWriter, r *http.Request) {
 		"user_id":     account.UserID,
 		"name":        account.Name,
 		"description": account.Description,
-		"mode":        int(account.Mode),
+		"environment": int(account.Environment),
 		"created_at":  account.CreatedAt,
 	})
 }
@@ -260,7 +260,7 @@ func (h *Handler) updateWallet(w http.ResponseWriter, r *http.Request, accountID
 
 	info := domain.OnlineAccountInfo{
 		AccountID:        accountID,
-		Mode:             account.Mode,
+		Environment:      account.Environment,
 		TotalValue:       req.TotalValue,
 		WalletBalance:    req.WalletBalance,
 		AvailableBalance: req.AvailableBalance,

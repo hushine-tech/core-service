@@ -188,17 +188,6 @@ type PreflightIssue struct {
 	Market   Market
 }
 
-// AccountMode defines the type and data source of an account.
-// 0 = backtest (virtual), 1 = Binance live, 2 = Binance testnet, 3 = other (future)
-type AccountMode int
-
-const (
-	AccountModeBacktest       AccountMode = 0
-	AccountModeBinanceLive    AccountMode = 1
-	AccountModeBinanceTestnet AccountMode = 2
-	AccountModeOther          AccountMode = 3
-)
-
 // SnapshotReason 表示快照写入的触发原因（存储为 SMALLINT）。
 type SnapshotReason int16
 
@@ -220,7 +209,6 @@ type StrategySession struct {
 	UserID          int64
 	StrategyID      int64
 	Environment     Environment
-	Mode            int    // 0=backtest, 1=live, 2=testnet
 	Status          string // running, stopping, recoverable, finished, stopped, failed, stop_failed, preflight_failed (completed = legacy)
 	Interval        string // "1m", "5m", etc.
 	StartTimeMs     *int64 // 回测参数（实盘为 nil）
@@ -233,7 +221,7 @@ type StrategySession struct {
 	RuntimeID       string // owning strategy-runtime; empty means legacy/unbound
 	RuntimeSource   string // hosted / self_hosted; snapshot at session creation
 	RuntimeName     string // runtime name snapshot at session creation
-	SessionType     string // backtest / debugging / testnet
+	SessionType     string // backtest / debugging / demo
 	RuntimeVersion  string
 	SessionName     string
 	StartedAt       time.Time
@@ -267,7 +255,6 @@ type Account struct {
 	Description    string        `json:"description"`
 	Environment    Environment   `json:"environment"`
 	Status         AccountStatus `json:"status"`
-	Mode           AccountMode   `json:"mode"`
 	APIKey         string        `json:"api_key,omitempty"`
 	APISecret      string        `json:"api_secret,omitempty"`
 	MarginMode     string        `json:"margin_mode"`
@@ -419,11 +406,11 @@ type AccountStrategy struct {
 }
 
 // OnlineAccountInfo is the unified account state returned to strategy-service.
-// For backtest (mode=0): sourced from DB (strategy_push updates).
-// For live/testnet (mode=1/2): sourced from Binance REST API.
+// For backtest: sourced from DB (strategy_push updates).
+// For demo/live: sourced from exchange venues.
 type OnlineAccountInfo struct {
 	AccountID        int64         `json:"account_id"`
-	Mode             AccountMode   `json:"mode"`
+	Environment      Environment   `json:"environment"`
 	Futures          FuturesWallet `json:"futures"`
 	Spot             SpotWallet    `json:"spot"`
 	TotalValue       float64       `json:"total_value"`
@@ -480,7 +467,7 @@ type ReconciliationRun struct {
 	UserID           int64
 	SessionID        string // empty when not triggered by a session
 	StrategyID       int64  // 0 when not triggered by a strategy
-	Mode             AccountMode
+	Environment      Environment
 	SnapshotReason   SnapshotReason
 	RunType          ReconciliationRunType
 	ExchangeSnapshot OnlineAccountInfo // canonical
@@ -492,7 +479,7 @@ type ReconciliationRun struct {
 }
 
 // RunTypeFromReason derives the ReconciliationRunType from a SnapshotReason.
-// Unknown / mode=0 reasons return an empty RunType; the compare goroutine
+// Unknown / backtest-only reasons return an empty RunType; the compare goroutine
 // should skip them.
 func RunTypeFromReason(reason SnapshotReason) ReconciliationRunType {
 	switch reason {

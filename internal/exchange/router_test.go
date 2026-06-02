@@ -13,11 +13,11 @@ import (
 // --- fakeFetcher: in-memory OnlineInfoFetcher for router tests ---
 
 type fakeFetcher struct {
-	fetched        domain.Account
-	calls          int
-	returnErr      error
-	requireCreds   bool
-	fixedTotal     float64
+	fetched      domain.Account
+	calls        int
+	returnErr    error
+	requireCreds bool
+	fixedTotal   float64
 }
 
 func (f *fakeFetcher) FetchOnlineAccountInfo(_ context.Context, account domain.Account) (domain.OnlineAccountInfo, error) {
@@ -38,7 +38,7 @@ func (f *fakeFetcher) FetchOnlineAccountInfo(_ context.Context, account domain.A
 // ResolveTarget unit tests --------------------------------------------------
 
 func TestResolveTarget_Backtest(t *testing.T) {
-	target, err := ResolveTarget(domain.AccountModeBacktest)
+	target, err := ResolveTarget(domain.EnvironmentBacktest)
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -48,7 +48,7 @@ func TestResolveTarget_Backtest(t *testing.T) {
 }
 
 func TestResolveTarget_BinanceLive(t *testing.T) {
-	target, err := ResolveTarget(domain.AccountModeBinanceLive)
+	target, err := ResolveTarget(domain.EnvironmentLive)
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -58,17 +58,17 @@ func TestResolveTarget_BinanceLive(t *testing.T) {
 }
 
 func TestResolveTarget_BinanceTestnet(t *testing.T) {
-	target, err := ResolveTarget(domain.AccountModeBinanceTestnet)
+	target, err := ResolveTarget(domain.EnvironmentDemo)
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
-	if target.Provider != ProviderBinance || target.Environment != EnvTestnet {
+	if target.Provider != ProviderBinance || target.Environment != EnvDemo {
 		t.Fatalf("unexpected target: %+v", target)
 	}
 }
 
 func TestResolveTarget_UnsupportedFailsExplicitly(t *testing.T) {
-	_, err := ResolveTarget(domain.AccountMode(99))
+	_, err := ResolveTarget(domain.Environment(99))
 	if err == nil {
 		t.Fatal("expected error for unsupported mode")
 	}
@@ -89,14 +89,14 @@ func TestRouter_Backtest_ReadsFromDBAndSetsMode(t *testing.T) {
 	}
 	r := NewAdapterRouter(nil, getFromDB)
 	info, err := r.GetOnlineInfo(context.Background(), domain.Account{
-		AccountID: 7,
-		Mode:      domain.AccountModeBacktest,
+		AccountID:   7,
+		Environment: domain.EnvironmentBacktest,
 	})
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
-	if info.Mode != domain.AccountModeBacktest {
-		t.Fatalf("expected backtest mode stamped, got %d", info.Mode)
+	if info.Environment != domain.EnvironmentBacktest {
+		t.Fatalf("expected backtest mode stamped, got %d", info.Environment)
 	}
 	if info.TotalValue != 12345 {
 		t.Fatalf("expected DB value passthrough, got %v", info.TotalValue)
@@ -107,15 +107,15 @@ func TestRouter_BinanceTestnet_UsesAccountCredentials(t *testing.T) {
 	fake := &fakeFetcher{requireCreds: true, fixedTotal: 9999}
 	r := NewAdapterRouter(
 		map[ExchangeTarget]OnlineInfoFetcher{
-			{Provider: ProviderBinance, Environment: EnvTestnet}: fake,
+			{Provider: ProviderBinance, Environment: EnvDemo}: fake,
 		},
 		nil,
 	)
 	info, err := r.GetOnlineInfo(context.Background(), domain.Account{
-		AccountID: 42,
-		Mode:      domain.AccountModeBinanceTestnet,
-		APIKey:    "acct-key",
-		APISecret: "acct-secret",
+		AccountID:   42,
+		Environment: domain.EnvironmentDemo,
+		APIKey:      "acct-key",
+		APISecret:   "acct-secret",
 	})
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
@@ -126,8 +126,8 @@ func TestRouter_BinanceTestnet_UsesAccountCredentials(t *testing.T) {
 	if fake.fetched.APIKey != "acct-key" || fake.fetched.APISecret != "acct-secret" {
 		t.Fatalf("adapter did not receive per-account credentials: %+v", fake.fetched)
 	}
-	if info.Mode != domain.AccountModeBinanceTestnet {
-		t.Fatalf("expected testnet mode stamped, got %d", info.Mode)
+	if info.Environment != domain.EnvironmentDemo {
+		t.Fatalf("expected testnet mode stamped, got %d", info.Environment)
 	}
 	if info.TotalValue != 9999 {
 		t.Fatalf("expected fake value passthrough, got %v", info.TotalValue)
@@ -138,15 +138,15 @@ func TestRouter_BinanceLive_AdapterNotConfiguredFailsExplicitly(t *testing.T) {
 	// only testnet registered
 	r := NewAdapterRouter(
 		map[ExchangeTarget]OnlineInfoFetcher{
-			{Provider: ProviderBinance, Environment: EnvTestnet}: &fakeFetcher{},
+			{Provider: ProviderBinance, Environment: EnvDemo}: &fakeFetcher{},
 		},
 		nil,
 	)
 	_, err := r.GetOnlineInfo(context.Background(), domain.Account{
-		AccountID: 1,
-		Mode:      domain.AccountModeBinanceLive,
-		APIKey:    "x",
-		APISecret: "y",
+		AccountID:   1,
+		Environment: domain.EnvironmentLive,
+		APIKey:      "x",
+		APISecret:   "y",
 	})
 	if err == nil {
 		t.Fatal("expected error when live adapter is missing")
@@ -167,8 +167,8 @@ func TestRouter_UnsupportedModeDoesNotFallback(t *testing.T) {
 		},
 	)
 	_, err := r.GetOnlineInfo(context.Background(), domain.Account{
-		AccountID: 1,
-		Mode:      domain.AccountMode(99),
+		AccountID:   1,
+		Environment: domain.Environment(99),
 	})
 	if err == nil {
 		t.Fatal("expected error for unsupported mode")
@@ -179,15 +179,15 @@ func TestRouter_AdapterErrorBubblesWithContext(t *testing.T) {
 	cause := errors.New("binance 500")
 	r := NewAdapterRouter(
 		map[ExchangeTarget]OnlineInfoFetcher{
-			{Provider: ProviderBinance, Environment: EnvTestnet}: &fakeFetcher{returnErr: cause},
+			{Provider: ProviderBinance, Environment: EnvDemo}: &fakeFetcher{returnErr: cause},
 		},
 		nil,
 	)
 	_, err := r.GetOnlineInfo(context.Background(), domain.Account{
-		AccountID: 1,
-		Mode:      domain.AccountModeBinanceTestnet,
-		APIKey:    "k",
-		APISecret: "s",
+		AccountID:   1,
+		Environment: domain.EnvironmentDemo,
+		APIKey:      "k",
+		APISecret:   "s",
 	})
 	if err == nil {
 		t.Fatal("expected bubbled error")
@@ -195,7 +195,7 @@ func TestRouter_AdapterErrorBubblesWithContext(t *testing.T) {
 	if !strings.Contains(err.Error(), "binance 500") {
 		t.Fatalf("expected underlying cause in error chain, got %v", err)
 	}
-	if !strings.Contains(err.Error(), "testnet") {
+	if !strings.Contains(err.Error(), "demo") {
 		t.Fatalf("expected provider/env in error context, got %v", err)
 	}
 }
@@ -205,13 +205,13 @@ func TestRouter_MissingCredentialsReportedByAdapter(t *testing.T) {
 	fake := &fakeFetcher{requireCreds: true}
 	r := NewAdapterRouter(
 		map[ExchangeTarget]OnlineInfoFetcher{
-			{Provider: ProviderBinance, Environment: EnvTestnet}: fake,
+			{Provider: ProviderBinance, Environment: EnvDemo}: fake,
 		},
 		nil,
 	)
 	_, err := r.GetOnlineInfo(context.Background(), domain.Account{
-		AccountID: 1,
-		Mode:      domain.AccountModeBinanceTestnet,
+		AccountID:   1,
+		Environment: domain.EnvironmentDemo,
 		// APIKey / APISecret left empty
 	})
 	if err == nil {

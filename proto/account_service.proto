@@ -37,7 +37,7 @@ service AccountService {
   rpc PreflightStrategySession(PreflightStrategySessionRequest) returns (PreflightStrategySessionResponse);
   rpc GetVenueRouteMeta(GetVenueRouteMetaRequest) returns (GetVenueRouteMetaResponse);
 
-  // Latest wallet state: mode=0 reads DB; mode=1/2 fetches from Binance (live/testnet) per account registration.
+  // Latest wallet state: backtest reads DB; demo/live fetch from exchange venues per account registration.
   rpc GetOnlineAccountInfo(GetOnlineAccountInfoRequest) returns (GetOnlineAccountInfoResponse);
 
   // Phase 2 canonical portfolio snapshot API. It reads active account venues
@@ -50,9 +50,9 @@ service AccountService {
   rpc UpdatePortfolioSnapshot(UpdatePortfolioSnapshotRequest) returns (UpdatePortfolioSnapshotResponse);
 
   // Bidirectional wallet sync. Routing uses only account_id: look up the account's registered
-  // mode (backtest vs live/testnet). strategy-service does not send a mode.
+  // environment and venues. strategy-service does not send routing hints.
   // Backtest: request wallet is authoritative — persisted and returned.
-  // Live/testnet: exchange is authoritative — request wallet is ignored for persistence; fetched state is stored and returned.
+  // Demo/live: exchange is authoritative — request wallet is ignored for persistence; fetched state is stored and returned.
   rpc UpdateAccountWalletState(UpdateAccountWalletStateRequest) returns (UpdateAccountWalletStateResponse);
 
   // Cached tradable symbols for portal pickers (Binance public exchangeInfo). market: "spot" | "usdm_futures".
@@ -483,7 +483,7 @@ message PositionEntry {
 
 message UpdateAccountWalletStateRequest {
   int64 account_id = 1;
-  reserved 2; // removed: mode was previously sent by clients; now derived server-side from account registry
+  reserved 2; // removed: clients no longer send routing profile; now derived server-side from account registry
   FuturesWallet futures = 3;
   SpotWallet spot = 4;
   double total_value = 5;
@@ -507,10 +507,10 @@ message AccountWalletState {
   FuturesWallet futures = 1;
   SpotWallet spot = 2;
   double total_value = 3;
-  // Server-side account mode (0=backtest, 1=live, 2=testnet). Informational; strategy-service may ignore.
-  int32 mode = 6;
+  // Server-side account environment (0=backtest, 1=demo, 2=live).
+  int32 environment = 6;
   google.protobuf.Timestamp updated_at = 7;
-  // Display aggregates: for Binance live/testnet, futures_position_equity matches futures.margin_balance
+  // Display aggregates: for Binance demo/live, futures_position_equity matches futures.margin_balance
   // and spot_estimated_value matches the exchange adapter spot sum so spot + futures ≈ total_value.
   double spot_estimated_value = 8;
   double futures_position_equity = 9;
@@ -630,7 +630,7 @@ message GetAccountMetaRequest {
 // Full account config returned to the internal order module (internal use only — contains API credentials).
 message GetAccountMetaResponse {
   int64 account_id = 1;
-  int32 mode = 2;            // 0=backtest, 1=live, 2=testnet
+  int32 environment = 2;     // 0=backtest, 1=demo, 2=live
   string margin_mode = 3;    // "cross" / "isolated"
   string position_mode = 4;  // "one_way" / "hedge"
   string api_key = 5;
@@ -769,7 +769,7 @@ message StrategySessionEntry {
   string session_id = 1;
   int64 account_id = 2;
   int64 strategy_id = 3;
-  int32 mode = 4;
+  int32 environment = 4;
   string status = 5;
   string interval = 6;
   int64 start_time_ms = 7;
@@ -795,7 +795,7 @@ message SaveSessionRequest {
   string session_id = 1;
   int64 account_id = 2;
   int64 strategy_id = 3;
-  int32 mode = 4;
+  int32 environment = 4;
   string interval = 5;
   int64 start_time_ms = 6;
   int64 end_time_ms = 7;
@@ -836,8 +836,8 @@ message ListSessionsRequest {
   int32 offset = 3;
   string runtime_id = 4;
   int64 strategy_id = 5;
-  int32 mode = 6;
-  bool mode_set = 7;
+  int32 environment = 6;
+  bool environment_set = 7;
   string status = 8;
   string session_id_contains = 9;
   int64 started_after_ms = 10;
@@ -932,7 +932,7 @@ message ReconciliationRunEntry {
   string session_id = 5;
   int32 snapshot_reason = 6;
   string run_type = 7;
-  int32 mode = 8;
+  int32 environment = 8;
   bool hard_pass = 9;
   bool soft_pass = 10;
   repeated FieldDiffEntry field_diffs = 11;

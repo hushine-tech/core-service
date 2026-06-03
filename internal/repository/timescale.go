@@ -225,6 +225,9 @@ func (r *TimescaleRepository) CreateAccount(ctx context.Context, a domain.Accoun
 		a.UserID, a.Name, a.Description, int16(env), int16(status), a.SlippageBps, a.DefaultFeeRate, createdAt,
 	).Scan(&newID)
 	if err != nil {
+		if isUniqueViolation(err) {
+			return 0, ErrConflict
+		}
 		return 0, err
 	}
 	return newID, nil
@@ -423,7 +426,14 @@ func (r *TimescaleRepository) CreateVenue(ctx context.Context, venue domain.Venu
 		venue.UserID, venue.AccountID, int16(venue.Exchange), int16(venue.Market), int16(venue.Environment), int16(status),
 		venue.DisplayName, venue.Description, venue.APIKey, venue.CredentialInfo, keyVersion,
 		venue.CredentialFingerprint, int16(venue.MarginMode), int16(venue.PositionMode))
-	return scanVenue(row)
+	created, err := scanVenue(row)
+	if err != nil {
+		if isUniqueViolation(err) {
+			return domain.Venue{}, ErrConflict
+		}
+		return domain.Venue{}, err
+	}
+	return created, nil
 }
 
 func (r *TimescaleRepository) GetVenue(ctx context.Context, venueID, userID int64) (domain.Venue, error) {
@@ -532,6 +542,9 @@ func (r *TimescaleRepository) BindVenue(ctx context.Context, userID, accountID, 
 	if err := insertVenueEvent(ctx, tx, venueID, &accountID, userID, 1, reason); err != nil {
 		return domain.Venue{}, err
 	}
+	if _, err := tx.ExecContext(ctx, `UPDATE venue_wallet_states SET account_id = $1 WHERE venue_id = $2`, accountID, venueID); err != nil {
+		return domain.Venue{}, err
+	}
 	if err := tx.Commit(); err != nil {
 		return domain.Venue{}, err
 	}
@@ -569,6 +582,9 @@ func (r *TimescaleRepository) ReleaseVenue(ctx context.Context, userID, venueID 
 	if err := insertVenueEvent(ctx, tx, venueID, oldAccountID, userID, 2, reason); err != nil {
 		return domain.Venue{}, err
 	}
+	if _, err := tx.ExecContext(ctx, `UPDATE venue_wallet_states SET account_id = NULL WHERE venue_id = $1`, venueID); err != nil {
+		return domain.Venue{}, err
+	}
 	if err := tx.Commit(); err != nil {
 		return domain.Venue{}, err
 	}
@@ -599,6 +615,9 @@ func (r *TimescaleRepository) ArchiveVenue(ctx context.Context, userID, venueID 
 		return err
 	}
 	if err := insertVenueEvent(ctx, tx, venueID, venue.AccountID, userID, 3, reason); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM venue_wallet_states WHERE venue_id = $1`, venueID); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -853,6 +872,90 @@ func (r *TimescaleRepository) GetAccountState(ctx context.Context, accountID int
 		var snapshot accountSnapshotJSON
 		if err := json.Unmarshal(snapshotRaw, &snapshot); err != nil {
 			return domain.OnlineAccountInfo{}, fmt.Errorf("unmarshal snapshot: %w", err)
+		}
+		info.Futures = snapshot.Futures
+		info.Spot = snapshot.Spot
+	}
+	return info, nil
+}
+
+// UpsertVenueWalletState writes the current wallet state for a bound venue.
+func (r *TimescaleRepository) UpsertVenueWalletState(ctx context.Context, venue domain.Venue, info domain.OnlineAccountInfo) error {
+	snapshotJSON, err := json.Marshal(accountSnapshotJSON{Futures: info.Futures, Spot: info.Spot})
+	if err != nil {
+		return fmt.Errorf("marshal venue wallet state: %w", err)
+	}
+	updatedAt := info.UpdatedAt
+	if updatedAt.IsZero() {
+		updatedAt = time.Now().UTC()
+	}
+	var accountID any
+	if venue.AccountID != nil {
+		accountID = *venue.AccountID
+		if info.AccountID == 0 {
+			info.AccountID = *venue.AccountID
+		}
+	}
+	info.Environment = venue.Environment
+	_, err = r.sqlExec.ExecContext(ctx, `
+		INSERT INTO venue_wallet_states (
+			venue_id, account_id, user_id, exchange, environment, market,
+			total_value, wallet_balance, available_balance, snapshot_json, updated_at
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		ON CONFLICT (venue_id) DO UPDATE SET
+			account_id = EXCLUDED.account_id,
+			user_id = EXCLUDED.user_id,
+			exchange = EXCLUDED.exchange,
+			environment = EXCLUDED.environment,
+			market = EXCLUDED.market,
+			total_value = EXCLUDED.total_value,
+			wallet_balance = EXCLUDED.wallet_balance,
+			available_balance = EXCLUDED.available_balance,
+			snapshot_json = EXCLUDED.snapshot_json,
+			updated_at = EXCLUDED.updated_at`,
+		venue.VenueID, accountID, venue.UserID, int16(venue.Exchange), int16(venue.Environment), int16(venue.Market),
+		info.TotalValue, info.WalletBalance, info.AvailableBalance, snapshotJSON, updatedAt)
+	return err
+}
+
+// GetVenueWalletState reads the current wallet state for one venue.
+func (r *TimescaleRepository) GetVenueWalletState(ctx context.Context, venueID, userID int64) (domain.OnlineAccountInfo, error) {
+	query := `
+		SELECT account_id, environment, snapshot_json,
+		       total_value, wallet_balance, available_balance, updated_at
+		FROM venue_wallet_states
+		WHERE venue_id = $1`
+	args := []any{venueID}
+	if userID > 0 {
+		query += " AND user_id = $2"
+		args = append(args, userID)
+	}
+	row := r.db.QueryRowContext(ctx, query, args...)
+
+	var info domain.OnlineAccountInfo
+	var accountID sql.NullInt64
+	var env int16
+	var snapshotRaw []byte
+	if err := row.Scan(
+		&accountID, &env,
+		&snapshotRaw,
+		&info.TotalValue, &info.WalletBalance, &info.AvailableBalance,
+		&info.UpdatedAt,
+	); err != nil {
+		if err == sql.ErrNoRows {
+			return domain.OnlineAccountInfo{}, ErrNotFound
+		}
+		return domain.OnlineAccountInfo{}, err
+	}
+	if accountID.Valid {
+		info.AccountID = accountID.Int64
+	}
+	info.Environment = domain.Environment(env)
+	if len(snapshotRaw) > 0 {
+		var snapshot accountSnapshotJSON
+		if err := json.Unmarshal(snapshotRaw, &snapshot); err != nil {
+			return domain.OnlineAccountInfo{}, fmt.Errorf("unmarshal venue wallet state: %w", err)
 		}
 		info.Futures = snapshot.Futures
 		info.Spot = snapshot.Spot
@@ -1583,7 +1686,7 @@ func (r *TimescaleRepository) GetActiveStrategy(ctx context.Context, accountID i
 // SaveSnapshot reads the current wallet state from accounts table and writes a snapshot row.
 // Reason > 0 indicates an event-driven snapshot; reason = 0 is used for initial_seed.
 // strategyID=0 means no strategy (manual or system-triggered snapshot).
-func (r *TimescaleRepository) SaveSnapshot(ctx context.Context, accountID int64, reason domain.SnapshotReason, strategyID int64, sessionID string) error {
+func (r *TimescaleRepository) SaveSnapshot(ctx context.Context, accountID int64, reason domain.SnapshotReason, strategyID int64, sessionID string, snapshotTime time.Time) error {
 	// Read current state from accounts table
 	info, err := r.GetAccountState(ctx, accountID)
 	if err != nil {
@@ -1604,7 +1707,10 @@ func (r *TimescaleRepository) SaveSnapshot(ctx context.Context, accountID int64,
 		sessID = &sessionID
 	}
 
-	recordedAt := time.Now().UTC()
+	recordedAt := snapshotTime.UTC()
+	if recordedAt.IsZero() {
+		recordedAt = time.Now().UTC()
+	}
 	res, err := r.sqlExec.ExecContext(ctx, `
 		INSERT INTO account_snapshots
 			(time, account_id, user_id, environment, total_value, wallet_balance, available_balance, snapshot_reason, strategy_id, session_id, snapshot_json)

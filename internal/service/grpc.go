@@ -17,6 +17,7 @@ import (
 	"github.com/hushine-tech/core-service/internal/notification"
 	"github.com/hushine-tech/core-service/internal/reconciliation"
 	"github.com/hushine-tech/core-service/internal/repository"
+	"github.com/hushine-tech/core-service/internal/venuekeys"
 	"github.com/hushine-tech/core-service/internal/walletmetrics"
 	"golang.org/x/crypto/bcrypt"
 	"google.golang.org/grpc/codes"
@@ -30,6 +31,8 @@ var (
 	reValidVersion    = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
 	reValidUsername   = regexp.MustCompile(`^[a-z0-9_-]{3,32}$`)
 )
+
+var newBacktestVenueAPIKey = venuekeys.NewBacktestAPIKey
 
 const (
 	defaultRuntimeVersion = "1.0.0"
@@ -93,6 +96,17 @@ func requireUserID(userID int64) error {
 		return status.Error(codes.InvalidArgument, "user_id is required")
 	}
 	return nil
+}
+
+func requestTimestampOrZero(value *timestamppb.Timestamp) time.Time {
+	if value == nil || value.CheckValid() != nil {
+		return time.Time{}
+	}
+	out := value.AsTime().UTC()
+	if out.IsZero() {
+		return time.Time{}
+	}
+	return out
 }
 
 func validateEnvironment(raw int32) (domain.Environment, error) {
@@ -599,6 +613,9 @@ func (s *AccountGRPCService) CreateAccount(ctx context.Context, req *accountv1.C
 	if err != nil {
 		return nil, err
 	}
+	if req.GetInitialBalance() != 0 {
+		return nil, status.Error(codes.InvalidArgument, "account initial_balance is deprecated; configure venue state instead")
+	}
 	feeRate := req.GetDefaultFeeRate()
 	if feeRate == 0 {
 		feeRate = 0.0004
@@ -616,43 +633,26 @@ func (s *AccountGRPCService) CreateAccount(ctx context.Context, req *accountv1.C
 		CreatedAt:      time.Now().UTC(),
 	}
 
+	var defaultBacktestVenues []domain.Venue
+	if env == domain.EnvironmentBacktest {
+		defaultBacktestVenues, err = prepareDefaultBacktestVenues(req.GetUserId())
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	newID, err := s.repo.CreateAccount(ctx, account)
 	if err != nil {
+		if errors.Is(err, repository.ErrConflict) {
+			return nil, status.Errorf(codes.AlreadyExists, "account %q already exists", name)
+		}
 		return nil, status.Errorf(codes.Internal, "create account: %v", err)
 	}
 	account.AccountID = newID
 
 	if env == domain.EnvironmentBacktest {
-		if err := s.createDefaultBacktestVenues(ctx, req.GetUserId(), newID); err != nil {
+		if err := s.createDefaultBacktestVenues(ctx, account, defaultBacktestVenues); err != nil {
 			return nil, status.Errorf(codes.Internal, "create default venues: %v", err)
-		}
-	}
-
-	// 回测账号有初始余额：写入 accounts 表当前状态 + initial_seed 快照
-	if env == domain.EnvironmentBacktest && req.GetInitialBalance() > 0 {
-		totalValue := req.GetInitialBalance()
-		info := domain.OnlineAccountInfo{
-			AccountID:   newID,
-			Environment: env,
-			Futures: domain.FuturesWallet{
-				MarginMode:         account.MarginMode,
-				PositionMode:       account.PositionMode,
-				InitialBalance:     req.GetInitialBalance(),
-				WalletBalance:      req.GetInitialBalance(),
-				AvailableBalance:   req.GetInitialBalance(),
-				TotalMarginBalance: req.GetInitialBalance(),
-				MarginBalance:      req.GetInitialBalance(),
-			},
-			TotalValue:       totalValue,
-			WalletBalance:    req.GetInitialBalance(),
-			AvailableBalance: req.GetInitialBalance(),
-			UpdatedAt:        time.Now().UTC(),
-		}
-		if err := s.repo.UpdateAccountState(ctx, info); err != nil {
-			return nil, status.Errorf(codes.Internal, "init wallet state: %v", err)
-		}
-		if err := s.repo.SaveSnapshot(ctx, newID, domain.SnapshotReasonInitialSeed, 0, ""); err != nil {
-			return nil, status.Errorf(codes.Internal, "init snapshot: %v", err)
 		}
 	}
 
@@ -666,26 +666,39 @@ func (s *AccountGRPCService) CreateAccount(ctx context.Context, req *accountv1.C
 	}, nil
 }
 
-func (s *AccountGRPCService) createDefaultBacktestVenues(ctx context.Context, userID, accountID int64) error {
+func prepareDefaultBacktestVenues(userID int64) ([]domain.Venue, error) {
 	now := time.Now().UTC()
-	defaults := []domain.Venue{
-		{
-			UserID:       userID,
-			AccountID:    &accountID,
-			Exchange:     domain.ExchangeBinance,
-			Market:       domain.MarketPerpetualFutures,
-			Environment:  domain.EnvironmentBacktest,
-			Status:       domain.VenueStatusActive,
-			DisplayName:  "Simulated Binance Perpetual Futures",
-			Description:  "default simulated venue",
-			MarginMode:   domain.MarginModeCross,
-			PositionMode: domain.PositionModeOneWay,
-			CreatedAt:    now,
-			UpdatedAt:    now,
-		},
+	apiKey, err := newBacktestVenueAPIKey()
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "generate backtest venue key: %v", err)
 	}
-	for _, venue := range defaults {
-		if _, err := s.repo.CreateVenue(ctx, venue); err != nil {
+	return []domain.Venue{
+		{
+			UserID:               userID,
+			Exchange:             domain.ExchangeBinance,
+			Market:               domain.MarketPerpetualFutures,
+			Environment:          domain.EnvironmentBacktest,
+			Status:               domain.VenueStatusActive,
+			DisplayName:          "Simulated Binance Perpetual Futures",
+			Description:          "default simulated venue",
+			APIKey:               apiKey,
+			CredentialKeyVersion: "synthetic",
+			MarginMode:           domain.MarginModeCross,
+			PositionMode:         domain.PositionModeOneWay,
+			CreatedAt:            now,
+			UpdatedAt:            now,
+		},
+	}, nil
+}
+
+func (s *AccountGRPCService) createDefaultBacktestVenues(ctx context.Context, account domain.Account, venues []domain.Venue) error {
+	for _, venue := range venues {
+		venue.AccountID = &account.AccountID
+		created, err := s.repo.CreateVenue(ctx, venue)
+		if err != nil {
+			return err
+		}
+		if err := s.ensureBacktestVenueWalletState(ctx, account, created); err != nil {
 			return err
 		}
 	}
@@ -770,7 +783,17 @@ func (s *AccountGRPCService) CreateVenue(ctx context.Context, req *accountv1.Cre
 	encryptedCredential := ""
 	credentialKeyVersion := ""
 	apiKey := strings.TrimSpace(req.GetApiKey())
-	if env != domain.EnvironmentBacktest {
+	credentialFingerprint := ""
+	if env == domain.EnvironmentBacktest {
+		if apiKey != "" || credentialJSON != "" {
+			return nil, status.Error(codes.InvalidArgument, "backtest venue credentials are generated by core-service")
+		}
+		apiKey, err = newBacktestVenueAPIKey()
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "generate backtest venue key: %v", err)
+		}
+		credentialKeyVersion = "synthetic"
+	} else {
 		if s.creds == nil {
 			return nil, status.Error(codes.FailedPrecondition, "credential manager is not configured")
 		}
@@ -785,6 +808,7 @@ func (s *AccountGRPCService) CreateVenue(ctx context.Context, req *accountv1.Cre
 			return nil, status.Errorf(codes.InvalidArgument, "encrypt credential: %v", err)
 		}
 		credentialKeyVersion = s.creds.KeyVersion()
+		credentialFingerprint = credential.Fingerprint(apiKey)
 	}
 	var accountID *int64
 	if req.GetAccountId() > 0 {
@@ -804,14 +828,30 @@ func (s *AccountGRPCService) CreateVenue(ctx context.Context, req *accountv1.Cre
 		APIKey:                apiKey,
 		CredentialInfo:        encryptedCredential,
 		CredentialKeyVersion:  credentialKeyVersion,
-		CredentialFingerprint: credential.Fingerprint(apiKey),
+		CredentialFingerprint: credentialFingerprint,
 		MarginMode:            marginMode,
 		PositionMode:          positionMode,
 		CreatedAt:             now,
 		UpdatedAt:             now,
 	})
 	if err != nil {
+		if errors.Is(err, repository.ErrConflict) {
+			return nil, status.Error(codes.AlreadyExists, "venue already exists for account route or api key scope")
+		}
 		return nil, mapRepoErr(err)
+	}
+	if env == domain.EnvironmentBacktest {
+		account := domain.Account{UserID: req.GetUserId(), Environment: domain.EnvironmentBacktest}
+		if accountID != nil {
+			account, err = s.repo.GetAccount(ctx, *accountID, req.GetUserId())
+			if err != nil {
+				return nil, mapRepoErr(err)
+			}
+		}
+		info := backtestVenueOnlineInfoFromCreateRequest(req, account, venue)
+		if err := s.upsertBacktestVenueWalletState(ctx, account, venue, info); err != nil {
+			return nil, status.Errorf(codes.Internal, "initialize backtest venue wallet state: %v", err)
+		}
 	}
 	return &accountv1.CreateVenueResponse{Venue: toProtoVenue(venue)}, nil
 }
@@ -860,7 +900,32 @@ func (s *AccountGRPCService) GetVenueOnlineInfo(ctx context.Context, req *accoun
 		return nil, status.Error(codes.FailedPrecondition, "venue is not active")
 	}
 	if venue.Environment == domain.EnvironmentBacktest {
-		return nil, status.Error(codes.FailedPrecondition, "backtest venue has no exchange wallet")
+		account := domain.Account{UserID: req.GetUserId(), Environment: domain.EnvironmentBacktest}
+		if venue.AccountID != nil {
+			account, err = s.repo.GetAccount(ctx, *venue.AccountID, req.GetUserId())
+			if err != nil {
+				return nil, mapRepoErr(err)
+			}
+		}
+		info, err := s.repo.GetVenueWalletState(ctx, venue.VenueID, req.GetUserId())
+		if err != nil {
+			if errors.Is(err, repository.ErrNotFound) {
+				if err := s.ensureBacktestVenueWalletState(ctx, account, venue); err != nil {
+					return nil, status.Errorf(codes.Internal, "initialize backtest venue wallet state: %v", err)
+				}
+				info, err = s.repo.GetVenueWalletState(ctx, venue.VenueID, req.GetUserId())
+				if err != nil {
+					return nil, status.Errorf(codes.Unavailable, "read backtest venue wallet state: %v", err)
+				}
+			} else {
+				return nil, status.Errorf(codes.Unavailable, "read backtest venue wallet state: %v", err)
+			}
+		}
+		info = ensureBacktestVenueOnlineInfoDefaults(info, account, venue)
+		return &accountv1.GetVenueOnlineInfoResponse{
+			Venue:  toProtoVenue(venue),
+			Wallet: toProtoAccountWalletState(info),
+		}, nil
 	}
 	if venue.Exchange != domain.ExchangeBinance || venue.Market != domain.MarketPerpetualFutures {
 		return nil, status.Errorf(codes.FailedPrecondition, "venue wallet fetch unsupported for exchange=%d market=%d", venue.Exchange, venue.Market)
@@ -917,6 +982,15 @@ func (s *AccountGRPCService) BindVenue(ctx context.Context, req *accountv1.BindV
 	venue, err := s.repo.BindVenue(ctx, req.GetUserId(), req.GetAccountId(), req.GetVenueId(), strings.TrimSpace(req.GetReason()))
 	if err != nil {
 		return nil, mapRepoErr(err)
+	}
+	if venue.Environment == domain.EnvironmentBacktest {
+		account, err := s.repo.GetAccount(ctx, req.GetAccountId(), req.GetUserId())
+		if err != nil {
+			return nil, mapRepoErr(err)
+		}
+		if err := s.attachBacktestVenueWalletState(ctx, account, venue); err != nil {
+			return nil, status.Errorf(codes.Internal, "initialize backtest venue wallet state: %v", err)
+		}
 	}
 	return &accountv1.BindVenueResponse{Venue: toProtoVenue(venue)}, nil
 }
@@ -1336,7 +1410,7 @@ func (s *AccountGRPCService) UpdatePortfolioSnapshot(ctx context.Context, req *a
 		return nil, status.Errorf(codes.Unavailable, "update account state: %v", err)
 	}
 	if reason := domain.SnapshotReason(req.GetSnapshotReason()); reason > 0 {
-		if err := s.repo.SaveSnapshot(ctx, accountID, reason, req.GetStrategyId(), req.GetSessionId()); err != nil {
+		if err := s.repo.SaveSnapshot(ctx, accountID, reason, req.GetStrategyId(), req.GetSessionId(), requestTimestampOrZero(req.GetSnapshotTime())); err != nil {
 			return nil, status.Errorf(codes.Unavailable, "save snapshot: %v", err)
 		}
 	}
@@ -1345,17 +1419,47 @@ func (s *AccountGRPCService) UpdatePortfolioSnapshot(ctx context.Context, req *a
 
 func (s *AccountGRPCService) readPortfolioSnapshot(ctx context.Context, account domain.Account) (adapter.PortfolioSnapshot, error) {
 	if environmentFromAccount(account) == domain.EnvironmentBacktest {
-		info, err := s.repo.GetAccountState(ctx, account.AccountID)
-		if err != nil {
-			return adapter.PortfolioSnapshot{}, status.Errorf(codes.Unavailable, "read backtest portfolio snapshot: %v", err)
-		}
-		snapshot := portfolioSnapshotFromOnlineInfo(info, account)
 		venues, err := s.repo.ListActiveAccountVenues(ctx, account.UserID, account.AccountID)
 		if err != nil {
 			return adapter.PortfolioSnapshot{}, mapRepoErr(err)
 		}
+		if len(venues) == 0 {
+			return adapter.PortfolioSnapshot{}, status.Error(codes.FailedPrecondition, "account has no active venue")
+		}
+		snapshot := adapter.PortfolioSnapshot{
+			UserID:      account.UserID,
+			AccountID:   account.AccountID,
+			Environment: environmentFromAccount(account),
+			UpdatedAt:   time.Now().UTC(),
+		}
 		for _, venue := range venues {
-			snapshot.VenueSnapshots = append(snapshot.VenueSnapshots, portfolioSnapshotFromOnlineInfoForVenue(info, account, venue))
+			info, err := s.repo.GetVenueWalletState(ctx, venue.VenueID, account.UserID)
+			if err != nil {
+				if errors.Is(err, repository.ErrNotFound) {
+					return adapter.PortfolioSnapshot{}, status.Errorf(codes.FailedPrecondition, "backtest venue wallet state is missing for venue_id=%d", venue.VenueID)
+				}
+				return adapter.PortfolioSnapshot{}, status.Errorf(codes.Unavailable, "read backtest venue wallet state: %v", err)
+			}
+			info = ensureBacktestVenueOnlineInfoDefaults(info, account, venue)
+			venueSnapshot := portfolioSnapshotFromOnlineInfoForVenue(info, account, venue)
+			snapshot.TotalValue += venueSnapshot.TotalValue
+			snapshot.WalletBalance += venueSnapshot.WalletBalance
+			snapshot.AvailableBalance += venueSnapshot.AvailableBalance
+			snapshot.Balances = append(snapshot.Balances, venueSnapshot.Balances...)
+			snapshot.Positions = append(snapshot.Positions, venueSnapshot.Positions...)
+			snapshot.OnlineInfo = mergePortfolioOnlineInfo(snapshot.OnlineInfo, venueSnapshot.OnlineInfo, account)
+			if venueSnapshot.UpdatedAt.After(snapshot.UpdatedAt) {
+				snapshot.UpdatedAt = venueSnapshot.UpdatedAt
+			}
+			snapshot.VenueSnapshots = append(snapshot.VenueSnapshots, venueSnapshot)
+		}
+		if snapshot.OnlineInfo == nil {
+			info := domain.OnlineAccountInfo{
+				AccountID:   account.AccountID,
+				Environment: environmentFromAccount(account),
+				UpdatedAt:   snapshot.UpdatedAt,
+			}
+			snapshot.OnlineInfo = &info
 		}
 		return snapshot, nil
 	}
@@ -1421,6 +1525,235 @@ func (s *AccountGRPCService) readPortfolioSnapshot(ctx context.Context, account 
 		out.VenueSnapshots = append(out.VenueSnapshots, venueSnapshot)
 	}
 	return out, nil
+}
+
+func (s *AccountGRPCService) ensureBacktestVenueWalletState(ctx context.Context, account domain.Account, venue domain.Venue) error {
+	if environmentFromAccount(account) != domain.EnvironmentBacktest || venue.Environment != domain.EnvironmentBacktest {
+		return nil
+	}
+	info := defaultBacktestVenueOnlineInfo(account, venue)
+	return s.upsertBacktestVenueWalletState(ctx, account, venue, info)
+}
+
+func (s *AccountGRPCService) upsertBacktestVenueWalletState(ctx context.Context, account domain.Account, venue domain.Venue, info domain.OnlineAccountInfo) error {
+	if environmentFromAccount(account) != domain.EnvironmentBacktest || venue.Environment != domain.EnvironmentBacktest {
+		return nil
+	}
+	info = ensureBacktestVenueOnlineInfoDefaults(info, account, venue)
+	return s.repo.UpsertVenueWalletState(ctx, venue, info)
+}
+
+func (s *AccountGRPCService) attachBacktestVenueWalletState(ctx context.Context, account domain.Account, venue domain.Venue) error {
+	if environmentFromAccount(account) != domain.EnvironmentBacktest || venue.Environment != domain.EnvironmentBacktest {
+		return nil
+	}
+	info, err := s.repo.GetVenueWalletState(ctx, venue.VenueID, account.UserID)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return s.ensureBacktestVenueWalletState(ctx, account, venue)
+		}
+		return err
+	}
+	info.AccountID = account.AccountID
+	info = ensureBacktestVenueOnlineInfoDefaults(info, account, venue)
+	return s.repo.UpsertVenueWalletState(ctx, venue, info)
+}
+
+func backtestVenueOnlineInfoFromCreateRequest(req *accountv1.CreateVenueRequest, account domain.Account, venue domain.Venue) domain.OnlineAccountInfo {
+	info := domain.OnlineAccountInfo{
+		AccountID:        account.AccountID,
+		Environment:      venue.Environment,
+		TotalValue:       req.GetTotalValue(),
+		WalletBalance:    req.GetWalletBalance(),
+		AvailableBalance: req.GetAvailableBalance(),
+		UpdatedAt:        time.Now().UTC(),
+	}
+	if f := req.GetFutures(); f != nil {
+		info.Futures = fromProtoFuturesWallet(f)
+	}
+	if sp := req.GetSpot(); sp != nil {
+		info.Spot = fromProtoSpotWallet(sp)
+	}
+	return ensureBacktestVenueOnlineInfoDefaults(info, account, venue)
+}
+
+func (s *AccountGRPCService) updateBacktestVenueWalletStates(ctx context.Context, account domain.Account, info domain.OnlineAccountInfo, hasFutures bool, hasSpot bool) error {
+	venues, err := s.repo.ListActiveAccountVenues(ctx, account.UserID, account.AccountID)
+	if err != nil {
+		return mapRepoErr(err)
+	}
+	if len(venues) == 0 {
+		return status.Error(codes.FailedPrecondition, "account has no active venue")
+	}
+	wrote := false
+	for _, venue := range venues {
+		if venue.Environment != domain.EnvironmentBacktest {
+			continue
+		}
+		switch venue.Market {
+		case domain.MarketPerpetualFutures, domain.MarketDeliveryFutures:
+			if hasFutures || (!hasFutures && !hasSpot) {
+				venueInfo := info
+				venueInfo.Spot = domain.SpotWallet{}
+				if hasFutures {
+					venueInfo = futuresOnlyBacktestVenueInfo(venueInfo)
+				}
+				venueInfo = ensureBacktestVenueOnlineInfoDefaults(venueInfo, account, venue)
+				if err := s.repo.UpsertVenueWalletState(ctx, venue, venueInfo); err != nil {
+					return status.Errorf(codes.Unavailable, "update backtest venue wallet state: %v", err)
+				}
+				wrote = true
+			}
+		case domain.MarketSpot:
+			if hasSpot {
+				venueInfo := info
+				venueInfo.Futures = domain.FuturesWallet{}
+				venueInfo = spotOnlyBacktestVenueInfo(venueInfo)
+				venueInfo = ensureBacktestVenueOnlineInfoDefaults(venueInfo, account, venue)
+				if err := s.repo.UpsertVenueWalletState(ctx, venue, venueInfo); err != nil {
+					return status.Errorf(codes.Unavailable, "update backtest venue wallet state: %v", err)
+				}
+				wrote = true
+			}
+		}
+	}
+	if !wrote {
+		return status.Error(codes.FailedPrecondition, "account has no active venue for wallet payload")
+	}
+	return nil
+}
+
+func futuresOnlyBacktestVenueInfo(info domain.OnlineAccountInfo) domain.OnlineAccountInfo {
+	value := futuresWalletBootstrapValue(info.Futures)
+	info.TotalValue = value
+	info.WalletBalance = value
+	info.AvailableBalance = value
+	if info.Futures.WalletBalance != 0 {
+		info.WalletBalance = info.Futures.WalletBalance
+	}
+	if info.Futures.AvailableBalance != 0 {
+		info.AvailableBalance = info.Futures.AvailableBalance
+	}
+	return info
+}
+
+func spotOnlyBacktestVenueInfo(info domain.OnlineAccountInfo) domain.OnlineAccountInfo {
+	value := spotWalletBootstrapValue(info.Spot)
+	info.TotalValue = value
+	info.WalletBalance = value
+	info.AvailableBalance = info.Spot.Free
+	return info
+}
+
+func futuresWalletBootstrapValue(f domain.FuturesWallet) float64 {
+	if f.MarginBalance != 0 {
+		return f.MarginBalance
+	}
+	if f.WalletBalance != 0 {
+		return f.WalletBalance
+	}
+	if f.InitialBalance != 0 {
+		return f.InitialBalance
+	}
+	var total float64
+	for _, p := range f.Positions {
+		total += p.InitialBalance
+	}
+	return total
+}
+
+func spotWalletBootstrapValue(s domain.SpotWallet) float64 {
+	total := s.Free + s.Locked
+	for _, asset := range s.Assets {
+		price := asset.AvgEntryPrice
+		if asset.Price != nil {
+			price = *asset.Price
+		}
+		if price > 0 {
+			total += (asset.Qty + asset.Locked) * price
+		}
+	}
+	return total
+}
+
+func defaultBacktestVenueOnlineInfo(account domain.Account, venue domain.Venue) domain.OnlineAccountInfo {
+	return ensureBacktestVenueOnlineInfoDefaults(domain.OnlineAccountInfo{
+		AccountID:        account.AccountID,
+		Environment:      venue.Environment,
+		TotalValue:       0,
+		WalletBalance:    0,
+		AvailableBalance: 0,
+		UpdatedAt:        time.Now().UTC(),
+	}, account, venue)
+}
+
+func ensureBacktestVenueOnlineInfoDefaults(info domain.OnlineAccountInfo, account domain.Account, venue domain.Venue) domain.OnlineAccountInfo {
+	if venue.AccountID != nil {
+		info.AccountID = *venue.AccountID
+	} else {
+		info.AccountID = account.AccountID
+	}
+	info.Environment = venue.Environment
+	if info.UpdatedAt.IsZero() {
+		info.UpdatedAt = time.Now().UTC()
+	}
+	switch venue.Market {
+	case domain.MarketPerpetualFutures, domain.MarketDeliveryFutures:
+		if info.Futures.MarginMode == "" {
+			info.Futures.MarginMode = marginModeText(venue.MarginMode)
+		}
+		if info.Futures.MarginMode == "" {
+			info.Futures.MarginMode = account.MarginMode
+		}
+		if info.Futures.MarginMode == "" {
+			info.Futures.MarginMode = "cross"
+		}
+		if info.Futures.PositionMode == "" {
+			info.Futures.PositionMode = positionModeText(venue.PositionMode)
+		}
+		if info.Futures.PositionMode == "" {
+			info.Futures.PositionMode = account.PositionMode
+		}
+		if info.Futures.PositionMode == "" {
+			info.Futures.PositionMode = "one_way"
+		}
+		if info.Futures.WalletBalance == 0 && info.WalletBalance != 0 {
+			info.Futures.WalletBalance = info.WalletBalance
+		}
+		if info.Futures.AvailableBalance == 0 && info.AvailableBalance != 0 {
+			info.Futures.AvailableBalance = info.AvailableBalance
+		}
+		if info.Futures.UnrealizedPnl == 0 && info.Futures.TotalUnrealizedPnl != 0 {
+			info.Futures.UnrealizedPnl = info.Futures.TotalUnrealizedPnl
+		}
+		if info.Futures.MarginBalance == 0 {
+			info.Futures.MarginBalance = info.Futures.WalletBalance + info.Futures.UnrealizedPnl
+		}
+		if info.Futures.TotalMarginBalance == 0 {
+			info.Futures.TotalMarginBalance = info.Futures.MarginBalance
+		}
+		if info.WalletBalance == 0 && info.Futures.WalletBalance != 0 {
+			info.WalletBalance = info.Futures.WalletBalance
+		}
+		if info.AvailableBalance == 0 && info.Futures.AvailableBalance != 0 {
+			info.AvailableBalance = info.Futures.AvailableBalance
+		}
+		if info.TotalValue == 0 && info.Futures.MarginBalance != 0 {
+			info.TotalValue = info.Futures.MarginBalance
+		}
+	case domain.MarketSpot:
+		walletBalance := info.Spot.Free + info.Spot.Locked
+		if info.WalletBalance == 0 && walletBalance != 0 {
+			info.WalletBalance = walletBalance
+		}
+		if info.AvailableBalance == 0 && info.Spot.Free != 0 {
+			info.AvailableBalance = info.Spot.Free
+		}
+		if info.TotalValue == 0 && walletBalance != 0 {
+			info.TotalValue = walletBalance
+		}
+	}
+	return info
 }
 
 func (s *AccountGRPCService) parsedCredentialForVenue(ctx context.Context, venue domain.Venue, validator adapter.CredentialValidator) (adapter.ParsedCredential, error) {
@@ -1516,6 +1849,12 @@ func futuresPortfolioSnapshotFromOnlineInfoForVenue(info domain.OnlineAccountInf
 		info.UpdatedAt = time.Now().UTC()
 	}
 	futures := info.Futures
+	if futures.MarginMode == "" {
+		futures.MarginMode = marginModeText(venue.MarginMode)
+	}
+	if futures.PositionMode == "" {
+		futures.PositionMode = positionModeText(venue.PositionMode)
+	}
 	walletBalance := futures.WalletBalance
 	availableBalance := futures.AvailableBalance
 	marginBalance := futures.MarginBalance
@@ -1771,6 +2110,7 @@ func (s *AccountGRPCService) UpdateAccountWalletState(ctx context.Context, req *
 	snapshotReason := domain.SnapshotReason(req.GetSnapshotReason())
 	strategyID := req.GetStrategyId()
 	sessionID := req.GetSessionId()
+	snapshotTime := requestTimestampOrZero(req.GetSnapshotTime())
 	if err := s.requireActiveSessionForAccount(ctx, sessionID, accountID, strategyID, account.UserID); err != nil {
 		return nil, err
 	}
@@ -1778,13 +2118,17 @@ func (s *AccountGRPCService) UpdateAccountWalletState(ctx context.Context, req *
 	env := environmentFromAccount(account)
 	switch env {
 	case domain.EnvironmentBacktest:
+		updatedAt := snapshotTime
+		if updatedAt.IsZero() {
+			updatedAt = time.Now().UTC()
+		}
 		info := domain.OnlineAccountInfo{
 			AccountID:        accountID,
 			Environment:      env,
 			TotalValue:       req.GetTotalValue(),
 			WalletBalance:    req.GetWalletBalance(),
 			AvailableBalance: req.GetAvailableBalance(),
-			UpdatedAt:        time.Now().UTC(),
+			UpdatedAt:        updatedAt,
 		}
 		if f := req.GetFutures(); f != nil {
 			info.Futures = fromProtoFuturesWallet(f)
@@ -1813,11 +2157,14 @@ func (s *AccountGRPCService) UpdateAccountWalletState(ctx context.Context, req *
 		if sp := req.GetSpot(); sp != nil {
 			info.Spot = fromProtoSpotWallet(sp)
 		}
+		if err := s.updateBacktestVenueWalletStates(ctx, account, info, req.GetFutures() != nil, req.GetSpot() != nil); err != nil {
+			return nil, err
+		}
 		if err := s.repo.UpdateAccountState(ctx, info); err != nil {
 			return nil, status.Errorf(codes.Unavailable, "update account state: %v", err)
 		}
 		if snapshotReason > 0 {
-			if err := s.repo.SaveSnapshot(ctx, accountID, snapshotReason, strategyID, sessionID); err != nil {
+			if err := s.repo.SaveSnapshot(ctx, accountID, snapshotReason, strategyID, sessionID, snapshotTime); err != nil {
 				return nil, status.Errorf(codes.Unavailable, "save snapshot: %v", err)
 			}
 		}
@@ -1837,7 +2184,7 @@ func (s *AccountGRPCService) UpdateAccountWalletState(ctx context.Context, req *
 			return nil, status.Errorf(codes.Unavailable, "update account state: %v", err)
 		}
 		if snapshotReason > 0 {
-			if err := s.repo.SaveSnapshot(ctx, accountID, snapshotReason, strategyID, sessionID); err != nil {
+			if err := s.repo.SaveSnapshot(ctx, accountID, snapshotReason, strategyID, sessionID, snapshotTime); err != nil {
 				return nil, status.Errorf(codes.Unavailable, "save snapshot: %v", err)
 			}
 		}

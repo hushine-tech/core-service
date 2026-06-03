@@ -109,7 +109,7 @@ func TestPlaceOrderPublishesFailedNotification(t *testing.T) {
 	}
 }
 
-func TestPlaceOrderSkipsOrderNotificationForBacktestMode(t *testing.T) {
+func TestPlaceOrderSkipsOrderNotificationForBacktestEnvironment(t *testing.T) {
 	cases := []struct {
 		name   string
 		result executor.OrderResult
@@ -158,7 +158,7 @@ func TestPlaceOrderSkipsOrderNotificationForBacktestMode(t *testing.T) {
 				t.Fatalf("attempt status = %s, want %s", resp.GetAttemptStatus(), tc.want)
 			}
 			if len(pub.events) != 0 {
-				t.Fatalf("events = %+v, want none for backtest mode", pub.events)
+				t.Fatalf("events = %+v, want none for backtest environment", pub.events)
 			}
 		})
 	}

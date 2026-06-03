@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS reconciliation_runs (
     user_id           BIGINT           NOT NULL,
     session_id        TEXT             NULL,
     strategy_id       BIGINT           NULL,
-    mode              INTEGER          NOT NULL,   -- 1 live / 2 testnet
+    environment       INTEGER          NOT NULL,   -- 1 demo / 2 live
     snapshot_reason   SMALLINT         NOT NULL,   -- matches domain.SnapshotReason
     run_type          TEXT             NOT NULL,   -- checkpoint / event / sampled
     exchange_snapshot JSONB            NOT NULL,   -- canonical AccountWalletState

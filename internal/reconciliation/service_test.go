@@ -208,7 +208,7 @@ func TestLaunchAsync_DBErrorDoesNotPropagate(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 }
 
-func TestLaunchAsync_Mode0IsSkipped(t *testing.T) {
+func TestLaunchAsync_BacktestEnvironmentIsSkipped(t *testing.T) {
 	repo := &fakeRepo{}
 	s := NewService(baseCfg(), repo)
 
@@ -224,7 +224,7 @@ func TestLaunchAsync_Mode0IsSkipped(t *testing.T) {
 	})
 	time.Sleep(100 * time.Millisecond)
 	if repo.runCount() != 0 {
-		t.Errorf("mode=0 must NOT produce reconciliation runs; got %d", repo.runCount())
+		t.Errorf("backtest environment must NOT produce reconciliation runs; got %d", repo.runCount())
 	}
 }
 

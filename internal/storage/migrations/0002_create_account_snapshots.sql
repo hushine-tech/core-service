@@ -3,7 +3,7 @@ CREATE EXTENSION IF NOT EXISTS timescaledb;
 CREATE TABLE IF NOT EXISTS account_snapshots (
     time              TIMESTAMPTZ      NOT NULL,
     account_id        BIGINT           NOT NULL,
-    mode              INTEGER          NOT NULL DEFAULT 0,
+    environment       INTEGER          NOT NULL DEFAULT 0,
     futures_json      JSONB,
     spot_json         JSONB,
     total_value       DOUBLE PRECISION NOT NULL DEFAULT 0,

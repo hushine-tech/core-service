@@ -1,6 +1,7 @@
 CREATE EXTENSION IF NOT EXISTS timescaledb;
 
 DROP TABLE IF EXISTS session_venues CASCADE;
+DROP TABLE IF EXISTS venue_wallet_states CASCADE;
 DROP TABLE IF EXISTS venue_events CASCADE;
 DROP TABLE IF EXISTS reconciliation_runs CASCADE;
 DROP TABLE IF EXISTS account_snapshots CASCADE;
@@ -52,7 +53,7 @@ CREATE TABLE venues (
     status SMALLINT NOT NULL DEFAULT 1,
     display_name TEXT NOT NULL DEFAULT '',
     description TEXT NOT NULL DEFAULT '',
-    api_key TEXT NOT NULL DEFAULT '',
+    api_key TEXT NOT NULL,
     credential_info TEXT NOT NULL DEFAULT '',
     credential_key_version TEXT NOT NULL DEFAULT 'v1',
     credential_fingerprint TEXT NOT NULL DEFAULT '',
@@ -72,14 +73,29 @@ CREATE TABLE venues (
     CONSTRAINT chk_venues_spot_modes CHECK (
         market <> 1 OR (margin_mode = 0 AND position_mode = 0)
     ),
+    CONSTRAINT chk_venues_credentials_by_environment CHECK (
+        (
+            environment = 0
+            AND api_key ~ '^sim_btv_[0-9a-f]{32}$'
+            AND credential_info = ''
+            AND credential_key_version = 'synthetic'
+            AND credential_fingerprint = ''
+        )
+        OR
+        (
+            environment IN (1, 2)
+            AND api_key <> ''
+            AND credential_info <> ''
+            AND credential_key_version <> 'synthetic'
+        )
+    ),
     CONSTRAINT chk_venues_perp_modes CHECK (
         market <> 2 OR (margin_mode IN (1, 2) AND position_mode IN (1, 2))
     )
 );
 
 CREATE UNIQUE INDEX uidx_venues_api_key_scope
-    ON venues(exchange, environment, market, api_key)
-    WHERE api_key <> '';
+    ON venues(exchange, environment, market, api_key);
 
 CREATE UNIQUE INDEX uidx_venues_active_account_market
     ON venues(account_id, exchange, market)
@@ -98,6 +114,26 @@ CREATE TABLE venue_events (
 
 CREATE INDEX idx_venue_events_venue_time
     ON venue_events(venue_id, created_at DESC);
+
+CREATE TABLE venue_wallet_states (
+    venue_id BIGINT PRIMARY KEY REFERENCES venues(venue_id) ON DELETE CASCADE,
+    account_id BIGINT REFERENCES accounts(account_id) ON DELETE SET NULL,
+    user_id BIGINT NOT NULL,
+    exchange SMALLINT NOT NULL,
+    environment SMALLINT NOT NULL,
+    market SMALLINT NOT NULL,
+    total_value NUMERIC(38, 18) NOT NULL DEFAULT 0,
+    wallet_balance NUMERIC(38, 18) NOT NULL DEFAULT 0,
+    available_balance NUMERIC(38, 18) NOT NULL DEFAULT 0,
+    snapshot_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT chk_venue_wallet_states_exchange CHECK (exchange IN (1, 2)),
+    CONSTRAINT chk_venue_wallet_states_environment CHECK (environment IN (0, 1, 2)),
+    CONSTRAINT chk_venue_wallet_states_market CHECK (market IN (1, 2, 3))
+);
+
+CREATE INDEX idx_venue_wallet_states_account
+    ON venue_wallet_states(account_id, venue_id);
 
 CREATE TABLE strategy_sessions (
     session_id TEXT PRIMARY KEY,
@@ -143,7 +179,7 @@ CREATE TABLE session_venues (
     market SMALLINT NOT NULL,
     environment SMALLINT NOT NULL,
     display_name TEXT NOT NULL DEFAULT '',
-    api_key TEXT NOT NULL DEFAULT '',
+    api_key TEXT NOT NULL,
     credential_fingerprint TEXT NOT NULL DEFAULT '',
     margin_mode SMALLINT NOT NULL,
     position_mode SMALLINT NOT NULL,

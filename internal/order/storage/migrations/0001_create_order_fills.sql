@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS order_fills (
     fill_price    DOUBLE PRECISION NOT NULL,
     fee           DOUBLE PRECISION NOT NULL DEFAULT 0,
     status        TEXT             NOT NULL,
-    mode          INTEGER          NOT NULL DEFAULT 0,
+    environment   INTEGER          NOT NULL DEFAULT 0,
     error_message TEXT             NOT NULL DEFAULT '',
     strategy_id   BIGINT           NULL,
     market        VARCHAR(20)      NULL,

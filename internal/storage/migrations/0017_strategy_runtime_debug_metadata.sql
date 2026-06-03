@@ -10,7 +10,8 @@ ALTER TABLE strategy_sessions
 
 UPDATE strategy_sessions
 SET session_type = CASE
-    WHEN mode = 2 THEN 'testnet'
+    WHEN environment = 1 THEN 'demo'
+    WHEN environment = 2 THEN 'live'
     ELSE 'backtest'
 END
 WHERE session_type = '' OR session_type IS NULL;

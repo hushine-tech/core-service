@@ -12,7 +12,7 @@ import (
 	"github.com/hushine-tech/core-service/internal/order/lifecycle"
 )
 
-// MockExecutor simulates order fills for backtest mode.
+// MockExecutor simulates order fills for the backtest environment.
 // It applies a fixed slippage (in basis points) against the mark price or specified limit price.
 type MockExecutor struct{}
 

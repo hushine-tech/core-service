@@ -11,6 +11,8 @@ import (
 	"github.com/hushine-tech/core-service/internal/credential"
 	"github.com/hushine-tech/core-service/internal/domain"
 	"github.com/hushine-tech/core-service/internal/exchange/adapter"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func testPortfolioCredentialManager(t *testing.T) *credential.Manager {
@@ -179,20 +181,6 @@ func TestBacktestPortfolioSnapshotIncludesBoundSimulatedVenue(t *testing.T) {
 			UserID:      serviceTestUserID,
 			Environment: domain.EnvironmentBacktest,
 		},
-		state: domain.OnlineAccountInfo{
-			AccountID:        accountID,
-			Environment:      domain.EnvironmentBacktest,
-			TotalValue:       1500,
-			WalletBalance:    1000,
-			AvailableBalance: 900,
-			Futures: domain.FuturesWallet{
-				WalletBalance:    1000,
-				AvailableBalance: 900,
-				MarginBalance:    1000,
-			},
-			Spot:      domain.SpotWallet{Free: 500},
-			UpdatedAt: time.Unix(100, 0).UTC(),
-		},
 		venues: []domain.Venue{{
 			VenueID:     venueID,
 			UserID:      serviceTestUserID,
@@ -201,7 +189,103 @@ func TestBacktestPortfolioSnapshotIncludesBoundSimulatedVenue(t *testing.T) {
 			Environment: domain.EnvironmentBacktest,
 			Market:      domain.MarketPerpetualFutures,
 			Status:      domain.VenueStatusActive,
+		}, {
+			VenueID:     99,
+			UserID:      serviceTestUserID,
+			Exchange:    domain.ExchangeBinance,
+			Environment: domain.EnvironmentBacktest,
+			Market:      domain.MarketSpot,
+			Status:      domain.VenueStatusActive,
 		}},
+		venueStates: map[int64]domain.OnlineAccountInfo{
+			venueID: {
+				AccountID:        accountID,
+				Environment:      domain.EnvironmentBacktest,
+				TotalValue:       1500,
+				WalletBalance:    1000,
+				AvailableBalance: 900,
+				Futures: domain.FuturesWallet{
+					WalletBalance:    1000,
+					AvailableBalance: 900,
+					MarginBalance:    1000,
+				},
+				Spot:      domain.SpotWallet{Free: 500},
+				UpdatedAt: time.Unix(100, 0).UTC(),
+			},
+			99: {
+				Environment:      domain.EnvironmentBacktest,
+				TotalValue:       999999,
+				WalletBalance:    999999,
+				AvailableBalance: 999999,
+				Spot:             domain.SpotWallet{Free: 999999},
+				UpdatedAt:        time.Unix(101, 0).UTC(),
+			},
+		},
+	}
+	svc := NewAccountGRPCService(repo, nil, nil, nil)
+
+	resp, err := svc.GetPortfolioSnapshot(context.Background(), &accountv1.GetPortfolioSnapshotRequest{
+		AccountId: accountID,
+		UserId:    serviceTestUserID,
+	})
+	if err != nil {
+		t.Fatalf("GetPortfolioSnapshot() error = %v", err)
+	}
+	venues := resp.GetSnapshot().GetVenues()
+	if len(venues) != 1 {
+		t.Fatalf("len(venues) = %d, want 1", len(venues))
+	}
+	if resp.GetSnapshot().GetTotalValue() != 1000 {
+		t.Fatalf("portfolio total = %v, want only bound futures venue total 1000", resp.GetSnapshot().GetTotalValue())
+	}
+	venue := venues[0]
+	if venue.GetVenueId() != venueID || venue.GetExchange() != int32(domain.ExchangeBinance) || venue.GetMarket() != int32(domain.MarketPerpetualFutures) {
+		t.Fatalf("venue snapshot = %+v", venue)
+	}
+	if venue.GetWalletBalance() != 1000 || venue.GetAvailableBalance() != 900 {
+		t.Fatalf("venue balances = wallet %v available %v, want 1000/900", venue.GetWalletBalance(), venue.GetAvailableBalance())
+	}
+	if venue.GetWallet() == nil || venue.GetWallet().GetEnvironment() != int32(domain.EnvironmentBacktest) {
+		t.Fatalf("venue wallet = %+v, want backtest account wallet state", venue.GetWallet())
+	}
+	if venue.GetWallet().GetSpot().GetFree() != 0 || venue.GetWallet().GetSpot().GetLocked() != 0 {
+		t.Fatalf("futures venue snapshot must not carry spot wallet: %+v", venue.GetWallet().GetSpot())
+	}
+}
+
+func TestBacktestPortfolioSnapshotUsesPersistedVenueWalletDefaults(t *testing.T) {
+	accountID := int64(15)
+	venueID := int64(88)
+	repo := &stubRepo{
+		account: domain.Account{
+			AccountID:    accountID,
+			UserID:       serviceTestUserID,
+			Environment:  domain.EnvironmentBacktest,
+			MarginMode:   "cross",
+			PositionMode: "one_way",
+		},
+		venues: []domain.Venue{{
+			VenueID:      venueID,
+			UserID:       serviceTestUserID,
+			AccountID:    &accountID,
+			Exchange:     domain.ExchangeBinance,
+			Environment:  domain.EnvironmentBacktest,
+			Market:       domain.MarketPerpetualFutures,
+			Status:       domain.VenueStatusActive,
+			MarginMode:   domain.MarginModeCross,
+			PositionMode: domain.PositionModeOneWay,
+		}},
+		venueStates: map[int64]domain.OnlineAccountInfo{
+			venueID: {
+				AccountID:   accountID,
+				Environment: domain.EnvironmentBacktest,
+				Futures: domain.FuturesWallet{
+					MarginMode:   "cross",
+					PositionMode: "one_way",
+				},
+				UpdatedAt: time.Unix(100, 0).UTC(),
+			},
+		},
 	}
 	svc := NewAccountGRPCService(repo, nil, nil, nil)
 
@@ -217,17 +301,121 @@ func TestBacktestPortfolioSnapshotIncludesBoundSimulatedVenue(t *testing.T) {
 		t.Fatalf("len(venues) = %d, want 1", len(venues))
 	}
 	venue := venues[0]
-	if venue.GetVenueId() != venueID || venue.GetExchange() != int32(domain.ExchangeBinance) || venue.GetMarket() != int32(domain.MarketPerpetualFutures) {
-		t.Fatalf("venue snapshot = %+v", venue)
+	if venue.GetVenueId() != venueID || venue.GetWallet() == nil || venue.GetWallet().GetFutures() == nil {
+		t.Fatalf("venue snapshot = %+v, want full futures wallet", venue)
 	}
-	if venue.GetWalletBalance() != 1000 || venue.GetAvailableBalance() != 900 {
-		t.Fatalf("venue balances = wallet %v available %v, want 1000/900", venue.GetWalletBalance(), venue.GetAvailableBalance())
+	futures := venue.GetWallet().GetFutures()
+	if futures.GetMarginMode() != "cross" || futures.GetPositionMode() != "one_way" {
+		t.Fatalf("venue futures modes = %q/%q, want cross/one_way", futures.GetMarginMode(), futures.GetPositionMode())
 	}
-	if venue.GetWallet() == nil || venue.GetWallet().GetEnvironment() != int32(domain.EnvironmentBacktest) {
-		t.Fatalf("venue wallet = %+v, want backtest account wallet state", venue.GetWallet())
+	if venue.GetWalletBalance() != 0 || venue.GetAvailableBalance() != 0 || venue.GetTotalValue() != 0 {
+		t.Fatalf("venue balances = total:%v wallet:%v available:%v, want zero defaults",
+			venue.GetTotalValue(), venue.GetWalletBalance(), venue.GetAvailableBalance())
 	}
-	if venue.GetWallet().GetSpot().GetFree() != 0 || venue.GetWallet().GetSpot().GetLocked() != 0 {
-		t.Fatalf("futures venue snapshot must not carry spot wallet: %+v", venue.GetWallet().GetSpot())
+}
+
+func TestBacktestPortfolioSnapshotFailsWhenVenueWalletStateIsMissing(t *testing.T) {
+	accountID := int64(15)
+	venueID := int64(88)
+	repo := &stubRepo{
+		account: domain.Account{
+			AccountID:   accountID,
+			UserID:      serviceTestUserID,
+			Environment: domain.EnvironmentBacktest,
+		},
+		venues: []domain.Venue{{
+			VenueID:      venueID,
+			UserID:       serviceTestUserID,
+			AccountID:    &accountID,
+			Exchange:     domain.ExchangeBinance,
+			Environment:  domain.EnvironmentBacktest,
+			Market:       domain.MarketPerpetualFutures,
+			Status:       domain.VenueStatusActive,
+			MarginMode:   domain.MarginModeCross,
+			PositionMode: domain.PositionModeOneWay,
+		}},
+	}
+	svc := NewAccountGRPCService(repo, nil, nil, nil)
+
+	_, err := svc.GetPortfolioSnapshot(context.Background(), &accountv1.GetPortfolioSnapshotRequest{
+		AccountId: accountID,
+		UserId:    serviceTestUserID,
+	})
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("GetPortfolioSnapshot() code = %v, want FailedPrecondition (err=%v)", status.Code(err), err)
+	}
+}
+
+func TestBacktestPortfolioSnapshotFailsWithoutActiveVenue(t *testing.T) {
+	accountID := int64(15)
+	repo := &stubRepo{
+		account: domain.Account{
+			AccountID:   accountID,
+			UserID:      serviceTestUserID,
+			Environment: domain.EnvironmentBacktest,
+		},
+	}
+	svc := NewAccountGRPCService(repo, nil, nil, nil)
+
+	_, err := svc.GetPortfolioSnapshot(context.Background(), &accountv1.GetPortfolioSnapshotRequest{
+		AccountId: accountID,
+		UserId:    serviceTestUserID,
+	})
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("GetPortfolioSnapshot() code = %v, want FailedPrecondition (err=%v)", status.Code(err), err)
+	}
+}
+
+func TestGetVenueOnlineInfoBacktestReturnsPersistedVenueWalletState(t *testing.T) {
+	accountID := int64(15)
+	venueID := int64(88)
+	repo := &stubRepo{
+		account: domain.Account{
+			AccountID:   accountID,
+			UserID:      serviceTestUserID,
+			Environment: domain.EnvironmentBacktest,
+		},
+		venues: []domain.Venue{{
+			VenueID:      venueID,
+			UserID:       serviceTestUserID,
+			AccountID:    &accountID,
+			Exchange:     domain.ExchangeBinance,
+			Environment:  domain.EnvironmentBacktest,
+			Market:       domain.MarketPerpetualFutures,
+			Status:       domain.VenueStatusActive,
+			MarginMode:   domain.MarginModeCross,
+			PositionMode: domain.PositionModeOneWay,
+		}},
+		venueStates: map[int64]domain.OnlineAccountInfo{
+			venueID: {
+				AccountID:        accountID,
+				Environment:      domain.EnvironmentBacktest,
+				TotalValue:       1200,
+				WalletBalance:    1000,
+				AvailableBalance: 900,
+				Futures: domain.FuturesWallet{
+					MarginMode:       "cross",
+					PositionMode:     "one_way",
+					WalletBalance:    1000,
+					AvailableBalance: 900,
+					MarginBalance:    1000,
+				},
+				UpdatedAt: time.Unix(100, 0).UTC(),
+			},
+		},
+	}
+	svc := NewAccountGRPCService(repo, nil, nil, nil)
+
+	resp, err := svc.GetVenueOnlineInfo(context.Background(), &accountv1.GetVenueOnlineInfoRequest{
+		UserId:  serviceTestUserID,
+		VenueId: venueID,
+	})
+	if err != nil {
+		t.Fatalf("GetVenueOnlineInfo() error = %v", err)
+	}
+	wallet := resp.GetWallet()
+	if wallet.GetTotalValue() != 1200 || wallet.GetFutures().GetWalletBalance() != 1000 {
+		t.Fatalf("wallet = %+v, want persisted venue wallet", wallet)
 	}
 }
 
@@ -311,7 +499,7 @@ func TestOldOnlineAccountInfoMainPathIsRemoved(t *testing.T) {
 		}},
 	}
 	// Router is deliberately nil. The legacy RPC must be a compatibility
-	// wrapper over the portfolio snapshot path, not the old mode router path.
+	// wrapper over the portfolio snapshot path, not the old environment router path.
 	svc := NewAccountGRPCService(repo, nil, nil, nil, WithCredentialManager(mgr), WithExchangeRegistry(registry))
 
 	resp, err := svc.GetOnlineAccountInfo(context.Background(), &accountv1.GetOnlineAccountInfoRequest{AccountId: accountID, UserId: serviceTestUserID})

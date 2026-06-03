@@ -13,8 +13,10 @@ import (
 	"github.com/hushine-tech/core-service/internal/domain"
 	"github.com/hushine-tech/core-service/internal/exchange/adapter"
 	"github.com/hushine-tech/core-service/internal/repository"
+	"github.com/hushine-tech/core-service/internal/venuekeys"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const serviceTestUserID int64 = 7
@@ -23,11 +25,14 @@ const serviceTestUserID int64 = 7
 type stubRepo struct {
 	account              domain.Account
 	createdAccount       domain.Account
+	createAccountErr     error
 	venues               []domain.Venue
 	createdVenues        []domain.Venue
 	routeMeta            domain.VenueRouteMeta
 	activeSessionCount   int64
 	state                domain.OnlineAccountInfo
+	stateErr             error
+	venueStates          map[int64]domain.OnlineAccountInfo
 	reconciliationRuns   []domain.ReconciliationRun
 	sessionSnapshots     []domain.SnapshotRow
 	notificationSettings domain.NotificationSettings
@@ -35,6 +40,7 @@ type stubRepo struct {
 	notificationPlan     domain.NotificationPlan
 	deliveryStatus       string
 	deliveryError        string
+	snapshotTimes        []time.Time
 
 	// Captures last paging args seen on the two paginated list methods so
 	// tests can assert that the gRPC handlers forwarded limit/offset
@@ -112,6 +118,9 @@ func (s *stubRepo) GetUser(_ context.Context, userID int64) (domain.User, error)
 }
 
 func (s *stubRepo) CreateAccount(_ context.Context, account domain.Account) (int64, error) {
+	if s.createAccountErr != nil {
+		return 0, s.createAccountErr
+	}
 	s.createdAccount = account
 	return 1, nil
 }
@@ -272,9 +281,30 @@ func (s *stubRepo) UpdateAccountState(_ context.Context, info domain.OnlineAccou
 	return nil
 }
 func (s *stubRepo) GetAccountState(_ context.Context, _ int64) (domain.OnlineAccountInfo, error) {
+	if s.stateErr != nil {
+		return domain.OnlineAccountInfo{}, s.stateErr
+	}
 	return s.state, s.err
 }
-func (s *stubRepo) SaveSnapshot(_ context.Context, _ int64, _ domain.SnapshotReason, _ int64, _ string) error {
+func (s *stubRepo) UpsertVenueWalletState(_ context.Context, venue domain.Venue, info domain.OnlineAccountInfo) error {
+	if s.venueStates == nil {
+		s.venueStates = map[int64]domain.OnlineAccountInfo{}
+	}
+	s.venueStates[venue.VenueID] = info
+	return nil
+}
+func (s *stubRepo) GetVenueWalletState(_ context.Context, venueID int64, _ int64) (domain.OnlineAccountInfo, error) {
+	if s.venueStates == nil {
+		return domain.OnlineAccountInfo{}, repository.ErrNotFound
+	}
+	info, ok := s.venueStates[venueID]
+	if !ok {
+		return domain.OnlineAccountInfo{}, repository.ErrNotFound
+	}
+	return info, nil
+}
+func (s *stubRepo) SaveSnapshot(_ context.Context, _ int64, _ domain.SnapshotReason, _ int64, _ string, snapshotTime time.Time) error {
+	s.snapshotTimes = append(s.snapshotTimes, snapshotTime)
 	return nil
 }
 
@@ -496,11 +526,10 @@ func TestCreateBacktestAccountCreatesSimulatedPerpetualFuturesVenueOnly(t *testi
 	svc := NewAccountGRPCService(repo, nil, nil, nil)
 
 	resp, err := svc.CreateAccount(context.Background(), &accountv1.CreateAccountRequest{
-		UserId:         serviceTestUserID,
-		Name:           "backtest-main",
-		Environment:    int32(domain.EnvironmentBacktest),
-		InitialBalance: 1000,
-		Description:    "simulation",
+		UserId:      serviceTestUserID,
+		Name:        "backtest-main",
+		Environment: int32(domain.EnvironmentBacktest),
+		Description: "simulation",
 	})
 	if err != nil {
 		t.Fatalf("CreateAccount: %v", err)
@@ -526,8 +555,17 @@ func TestCreateBacktestAccountCreatesSimulatedPerpetualFuturesVenueOnly(t *testi
 		if venue.Environment != domain.EnvironmentBacktest || venue.Status != domain.VenueStatusActive {
 			t.Fatalf("venue env/status = %v/%v", venue.Environment, venue.Status)
 		}
-		if venue.CredentialInfo != "" || venue.APIKey != "" {
-			t.Fatalf("backtest venue stored credentials: api_key=%q credential_info=%q", venue.APIKey, venue.CredentialInfo)
+		if !venuekeys.IsBacktestAPIKey(venue.APIKey) {
+			t.Fatalf("backtest venue api_key = %q, want synthetic key", venue.APIKey)
+		}
+		if venue.CredentialInfo != "" {
+			t.Fatalf("backtest venue credential_info = %q, want empty", venue.CredentialInfo)
+		}
+		if venue.CredentialKeyVersion != "synthetic" {
+			t.Fatalf("backtest venue credential_key_version = %q, want synthetic", venue.CredentialKeyVersion)
+		}
+		if venue.CredentialFingerprint != "" {
+			t.Fatalf("backtest venue credential_fingerprint = %q, want empty", venue.CredentialFingerprint)
 		}
 	}
 	if _, ok := byMarket[domain.MarketPerpetualFutures]; !ok {
@@ -536,8 +574,83 @@ func TestCreateBacktestAccountCreatesSimulatedPerpetualFuturesVenueOnly(t *testi
 	if _, ok := byMarket[domain.MarketSpot]; ok {
 		t.Fatal("simulated spot venue should not be created until spot execution is supported")
 	}
-	if repo.state.Futures.InitialBalance != 1000 || repo.state.WalletBalance != 1000 {
-		t.Fatalf("initial state futures=%v wallet=%v", repo.state.Futures.InitialBalance, repo.state.WalletBalance)
+	if len(repo.venueStates) != 1 {
+		t.Fatalf("venue wallet states len = %d, want 1", len(repo.venueStates))
+	}
+	perpVenue := byMarket[domain.MarketPerpetualFutures]
+	state := repo.venueStates[perpVenue.VenueID]
+	if state.AccountID != resp.GetAccountId() || state.Environment != domain.EnvironmentBacktest {
+		t.Fatalf("venue wallet state = %+v, want backtest account %d", state, resp.GetAccountId())
+	}
+	if state.Futures.MarginMode != "cross" || state.Futures.PositionMode != "one_way" {
+		t.Fatalf("state futures modes = %q/%q, want cross/one_way", state.Futures.MarginMode, state.Futures.PositionMode)
+	}
+	if state.WalletBalance != 0 || state.AvailableBalance != 0 || state.TotalValue != 0 {
+		t.Fatalf("state balances = total:%v wallet:%v available:%v, want zero",
+			state.TotalValue, state.WalletBalance, state.AvailableBalance)
+	}
+}
+
+func TestCreateBacktestAccountSyntheticKeyFailureDoesNotPersistAccount(t *testing.T) {
+	original := newBacktestVenueAPIKey
+	newBacktestVenueAPIKey = func() (string, error) {
+		return "", errors.New("rng unavailable")
+	}
+	defer func() {
+		newBacktestVenueAPIKey = original
+	}()
+
+	repo := &stubRepo{}
+	svc := NewAccountGRPCService(repo, nil, nil, nil)
+
+	_, err := svc.CreateAccount(context.Background(), &accountv1.CreateAccountRequest{
+		UserId:      serviceTestUserID,
+		Name:        "backtest-main",
+		Environment: int32(domain.EnvironmentBacktest),
+		Description: "simulation",
+	})
+	if status.Code(err) != codes.Internal {
+		t.Fatalf("CreateAccount error = %v, want Internal", err)
+	}
+	if repo.createdAccount.Name != "" || len(repo.createdVenues) != 0 || repo.state.AccountID != 0 || len(repo.venueStates) != 0 {
+		t.Fatalf("synthetic key failure must not write state: account=%+v venues=%+v state=%+v venue_states=%+v",
+			repo.createdAccount, repo.createdVenues, repo.state, repo.venueStates)
+	}
+}
+
+func TestCreateAccountConflictReturnsAlreadyExists(t *testing.T) {
+	repo := &stubRepo{createAccountErr: repository.ErrConflict}
+	svc := NewAccountGRPCService(repo, nil, nil, nil)
+
+	_, err := svc.CreateAccount(context.Background(), &accountv1.CreateAccountRequest{
+		Name:        "duplicate",
+		Environment: int32(domain.EnvironmentDemo),
+		UserId:      serviceTestUserID,
+	})
+	if status.Code(err) != codes.AlreadyExists {
+		t.Fatalf("CreateAccount code = %v, want AlreadyExists (err=%v)", status.Code(err), err)
+	}
+	if !strings.Contains(status.Convert(err).Message(), "duplicate") {
+		t.Fatalf("CreateAccount message = %q, want account name", status.Convert(err).Message())
+	}
+}
+
+func TestCreateAccountRejectsAccountLevelInitialBalance(t *testing.T) {
+	repo := &stubRepo{}
+	svc := NewAccountGRPCService(repo, nil, nil, nil)
+
+	_, err := svc.CreateAccount(context.Background(), &accountv1.CreateAccountRequest{
+		UserId:         serviceTestUserID,
+		Name:           "backtest-main",
+		Environment:    int32(domain.EnvironmentBacktest),
+		InitialBalance: 1000,
+	})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("CreateAccount error = %v, want InvalidArgument", err)
+	}
+	if repo.createdAccount.Name != "" || len(repo.createdVenues) != 0 || repo.state.AccountID != 0 || len(repo.venueStates) != 0 {
+		t.Fatalf("deprecated account seed must not write state: account=%+v venues=%+v state=%+v venue_states=%+v",
+			repo.createdAccount, repo.createdVenues, repo.state, repo.venueStates)
 	}
 }
 
@@ -564,13 +677,19 @@ func TestCreateDemoVenueEncryptsCredentials(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateVenue: %v", err)
 	}
-	if resp.GetVenue().GetCredentialFingerprint() == "" {
-		t.Fatal("expected credential fingerprint")
+	expectedFingerprint := credential.Fingerprint("api-key-1")
+	if resp.GetVenue().GetCredentialFingerprint() != expectedFingerprint {
+		t.Fatalf("response credential_fingerprint = %q, want %q",
+			resp.GetVenue().GetCredentialFingerprint(), expectedFingerprint)
 	}
 	if len(repo.createdVenues) != 1 {
 		t.Fatalf("created venues len = %d, want 1", len(repo.createdVenues))
 	}
 	stored := repo.createdVenues[0]
+	if stored.CredentialFingerprint != expectedFingerprint {
+		t.Fatalf("stored credential_fingerprint = %q, want %q",
+			stored.CredentialFingerprint, expectedFingerprint)
+	}
 	if stored.CredentialInfo == "" || stored.CredentialInfo == `{"api_secret":"secret-1"}` {
 		t.Fatalf("credential_info was not encrypted: %q", stored.CredentialInfo)
 	}
@@ -583,6 +702,410 @@ func TestCreateDemoVenueEncryptsCredentials(t *testing.T) {
 	}
 	if stored.APIKey != "api-key-1" {
 		t.Fatalf("api_key = %q", stored.APIKey)
+	}
+}
+
+func TestCreateBacktestVenueRejectsCallerAPIKey(t *testing.T) {
+	repo := &stubRepo{}
+	svc := NewAccountGRPCService(repo, nil, nil, nil)
+
+	_, err := svc.CreateVenue(context.Background(), &accountv1.CreateVenueRequest{
+		UserId:       serviceTestUserID,
+		Environment:  int32(domain.EnvironmentBacktest),
+		Exchange:     int32(domain.ExchangeBinance),
+		Market:       int32(domain.MarketPerpetualFutures),
+		ApiKey:       "user-supplied-key",
+		MarginMode:   int32(domain.MarginModeCross),
+		PositionMode: int32(domain.PositionModeOneWay),
+	})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("CreateVenue error = %v, want InvalidArgument", err)
+	}
+	if len(repo.createdVenues) != 0 {
+		t.Fatalf("created venues len = %d, want 0", len(repo.createdVenues))
+	}
+}
+
+func TestCreateBacktestVenueRejectsCallerCredentialJSON(t *testing.T) {
+	repo := &stubRepo{}
+	svc := NewAccountGRPCService(repo, nil, nil, nil)
+
+	_, err := svc.CreateVenue(context.Background(), &accountv1.CreateVenueRequest{
+		UserId:         serviceTestUserID,
+		Environment:    int32(domain.EnvironmentBacktest),
+		Exchange:       int32(domain.ExchangeBinance),
+		Market:         int32(domain.MarketPerpetualFutures),
+		CredentialJson: `{}`,
+		MarginMode:     int32(domain.MarginModeCross),
+		PositionMode:   int32(domain.PositionModeOneWay),
+	})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("CreateVenue error = %v, want InvalidArgument", err)
+	}
+	if len(repo.createdVenues) != 0 {
+		t.Fatalf("created venues len = %d, want 0", len(repo.createdVenues))
+	}
+}
+
+func TestCreateBacktestVenueGeneratesSyntheticAPIKey(t *testing.T) {
+	accountID := int64(42)
+	repo := &stubRepo{account: domain.Account{
+		AccountID:   accountID,
+		UserID:      serviceTestUserID,
+		Environment: domain.EnvironmentBacktest,
+		Status:      domain.AccountStatusActive,
+	}}
+	svc := NewAccountGRPCService(repo, nil, nil, nil)
+
+	resp, err := svc.CreateVenue(context.Background(), &accountv1.CreateVenueRequest{
+		UserId:       serviceTestUserID,
+		AccountId:    accountID,
+		Environment:  int32(domain.EnvironmentBacktest),
+		Exchange:     int32(domain.ExchangeBinance),
+		Market:       int32(domain.MarketPerpetualFutures),
+		MarginMode:   int32(domain.MarginModeCross),
+		PositionMode: int32(domain.PositionModeOneWay),
+	})
+	if err != nil {
+		t.Fatalf("CreateVenue: %v", err)
+	}
+	if len(repo.createdVenues) != 1 {
+		t.Fatalf("created venues len = %d, want 1", len(repo.createdVenues))
+	}
+	stored := repo.createdVenues[0]
+	if !venuekeys.IsBacktestAPIKey(stored.APIKey) {
+		t.Fatalf("stored api_key = %q, want synthetic", stored.APIKey)
+	}
+	if resp.GetVenue().GetApiKey() != stored.APIKey {
+		t.Fatalf("response api_key = %q, want stored %q", resp.GetVenue().GetApiKey(), stored.APIKey)
+	}
+	if stored.CredentialInfo != "" || stored.CredentialKeyVersion != "synthetic" || stored.CredentialFingerprint != "" {
+		t.Fatalf("stored credential fields = info:%q version:%q fingerprint:%q",
+			stored.CredentialInfo, stored.CredentialKeyVersion, stored.CredentialFingerprint)
+	}
+}
+
+func TestCreateUnboundBacktestVenueInitializesWalletState(t *testing.T) {
+	repo := &stubRepo{}
+	svc := NewAccountGRPCService(repo, nil, nil, nil)
+
+	resp, err := svc.CreateVenue(context.Background(), &accountv1.CreateVenueRequest{
+		UserId:       serviceTestUserID,
+		Environment:  int32(domain.EnvironmentBacktest),
+		Exchange:     int32(domain.ExchangeBinance),
+		Market:       int32(domain.MarketPerpetualFutures),
+		MarginMode:   int32(domain.MarginModeCross),
+		PositionMode: int32(domain.PositionModeOneWay),
+	})
+	if err != nil {
+		t.Fatalf("CreateVenue: %v", err)
+	}
+	if resp.GetVenue().GetAccountId() != 0 {
+		t.Fatalf("response account_id = %d, want unbound", resp.GetVenue().GetAccountId())
+	}
+	if len(repo.createdVenues) != 1 {
+		t.Fatalf("created venues len = %d, want 1", len(repo.createdVenues))
+	}
+	if repo.createdVenues[0].AccountID != nil {
+		t.Fatalf("created venue account_id = %v, want nil", *repo.createdVenues[0].AccountID)
+	}
+	if len(repo.venueStates) != 1 {
+		t.Fatalf("venue wallet states len = %d, want 1", len(repo.venueStates))
+	}
+	state := repo.venueStates[repo.createdVenues[0].VenueID]
+	if state.AccountID != 0 {
+		t.Fatalf("wallet state account_id = %d, want 0 for unbound venue", state.AccountID)
+	}
+	if state.Futures.MarginMode != "cross" || state.Futures.PositionMode != "one_way" {
+		t.Fatalf("state futures modes = %q/%q, want cross/one_way", state.Futures.MarginMode, state.Futures.PositionMode)
+	}
+}
+
+func TestCreateBoundBacktestVenueInitializesWalletState(t *testing.T) {
+	accountID := int64(42)
+	repo := &stubRepo{
+		account: domain.Account{
+			AccountID:   accountID,
+			UserID:      serviceTestUserID,
+			Environment: domain.EnvironmentBacktest,
+			Status:      domain.AccountStatusActive,
+		},
+	}
+	svc := NewAccountGRPCService(repo, nil, nil, nil)
+
+	_, err := svc.CreateVenue(context.Background(), &accountv1.CreateVenueRequest{
+		UserId:       serviceTestUserID,
+		AccountId:    accountID,
+		Environment:  int32(domain.EnvironmentBacktest),
+		Exchange:     int32(domain.ExchangeBinance),
+		Market:       int32(domain.MarketPerpetualFutures),
+		MarginMode:   int32(domain.MarginModeCross),
+		PositionMode: int32(domain.PositionModeOneWay),
+	})
+	if err != nil {
+		t.Fatalf("CreateVenue: %v", err)
+	}
+	if len(repo.venueStates) != 1 {
+		t.Fatalf("venue wallet states len = %d, want 1", len(repo.venueStates))
+	}
+	venueID := repo.createdVenues[0].VenueID
+	state := repo.venueStates[venueID]
+	if state.AccountID != accountID || state.Environment != domain.EnvironmentBacktest {
+		t.Fatalf("state = %+v, want backtest account %d", state, accountID)
+	}
+	if state.Futures.MarginMode != "cross" || state.Futures.PositionMode != "one_way" {
+		t.Fatalf("state futures modes = %q/%q, want cross/one_way", state.Futures.MarginMode, state.Futures.PositionMode)
+	}
+}
+
+func TestCreateBacktestVenueUsesBootstrapWalletState(t *testing.T) {
+	repo := &stubRepo{}
+	svc := NewAccountGRPCService(repo, nil, nil, nil)
+
+	resp, err := svc.CreateVenue(context.Background(), &accountv1.CreateVenueRequest{
+		UserId:           serviceTestUserID,
+		Environment:      int32(domain.EnvironmentBacktest),
+		Exchange:         int32(domain.ExchangeBinance),
+		Market:           int32(domain.MarketPerpetualFutures),
+		MarginMode:       int32(domain.MarginModeCross),
+		PositionMode:     int32(domain.PositionModeOneWay),
+		TotalValue:       1750,
+		WalletBalance:    1500,
+		AvailableBalance: 1400,
+		Futures: &accountv1.FuturesWallet{
+			MarginMode:       "cross",
+			PositionMode:     "one_way",
+			InitialBalance:   1500,
+			WalletBalance:    1500,
+			AvailableBalance: 1400,
+			MarginBalance:    1500,
+			Positions: []*accountv1.FuturesPosition{{
+				Symbol:         "ETHUSDT",
+				Direction:      1,
+				InitialBalance: 500,
+				Leverage:       10,
+				FeeRate:        0.0004,
+			}},
+		},
+		Spot: &accountv1.SpotWallet{
+			Free: 250,
+			Assets: []*accountv1.SpotAsset{{
+				Symbol:        "BTCUSDT",
+				Qty:           0.01,
+				AvgEntryPrice: 25000,
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateVenue: %v", err)
+	}
+	state := repo.venueStates[resp.GetVenue().GetVenueId()]
+	if state.TotalValue != 1750 || state.WalletBalance != 1500 || state.AvailableBalance != 1400 {
+		t.Fatalf("state totals = %+v, want bootstrap totals", state)
+	}
+	if state.Futures.InitialBalance != 1500 || len(state.Futures.Positions) != 1 || state.Futures.Positions[0].Symbol != "ETHUSDT" {
+		t.Fatalf("futures state = %+v, want bootstrap futures", state.Futures)
+	}
+	if state.Spot.Free != 250 || len(state.Spot.Assets) != 1 || state.Spot.Assets[0].Symbol != "BTCUSDT" {
+		t.Fatalf("spot state = %+v, want bootstrap spot", state.Spot)
+	}
+}
+
+func TestGetVenueOnlineInfoBacktestUnboundReturnsVenueWalletState(t *testing.T) {
+	repo := &stubRepo{
+		venues: []domain.Venue{{
+			VenueID:      53,
+			UserID:       serviceTestUserID,
+			Exchange:     domain.ExchangeBinance,
+			Market:       domain.MarketPerpetualFutures,
+			Environment:  domain.EnvironmentBacktest,
+			Status:       domain.VenueStatusActive,
+			MarginMode:   domain.MarginModeCross,
+			PositionMode: domain.PositionModeOneWay,
+		}},
+		venueStates: map[int64]domain.OnlineAccountInfo{
+			53: {
+				Environment:      domain.EnvironmentBacktest,
+				TotalValue:       1000,
+				WalletBalance:    1000,
+				AvailableBalance: 900,
+				Futures:          domain.FuturesWallet{MarginMode: "cross", PositionMode: "one_way", WalletBalance: 1000, AvailableBalance: 900},
+				UpdatedAt:        time.Now().UTC(),
+			},
+		},
+	}
+	svc := NewAccountGRPCService(repo, nil, nil, nil)
+
+	resp, err := svc.GetVenueOnlineInfo(context.Background(), &accountv1.GetVenueOnlineInfoRequest{
+		UserId:  serviceTestUserID,
+		VenueId: 53,
+	})
+	if err != nil {
+		t.Fatalf("GetVenueOnlineInfo: %v", err)
+	}
+	if resp.GetVenue().GetAccountId() != 0 {
+		t.Fatalf("venue account_id = %d, want unbound", resp.GetVenue().GetAccountId())
+	}
+	if resp.GetWallet().GetTotalValue() != 1000 || resp.GetWallet().GetFutures().GetAvailableBalance() != 900 {
+		t.Fatalf("wallet = %+v, want persisted unbound venue state", resp.GetWallet())
+	}
+}
+
+func TestBindBacktestVenuePreservesExistingWalletState(t *testing.T) {
+	accountID := int64(42)
+	repo := &stubRepo{
+		account: domain.Account{
+			AccountID:   accountID,
+			UserID:      serviceTestUserID,
+			Environment: domain.EnvironmentBacktest,
+			Status:      domain.AccountStatusActive,
+		},
+		venues: []domain.Venue{{
+			VenueID:      53,
+			UserID:       serviceTestUserID,
+			Exchange:     domain.ExchangeBinance,
+			Market:       domain.MarketPerpetualFutures,
+			Environment:  domain.EnvironmentBacktest,
+			Status:       domain.VenueStatusActive,
+			MarginMode:   domain.MarginModeCross,
+			PositionMode: domain.PositionModeOneWay,
+		}},
+		venueStates: map[int64]domain.OnlineAccountInfo{
+			53: {
+				Environment:      domain.EnvironmentBacktest,
+				TotalValue:       1234,
+				WalletBalance:    1234,
+				AvailableBalance: 1200,
+				Futures:          domain.FuturesWallet{MarginMode: "cross", PositionMode: "one_way", WalletBalance: 1234, AvailableBalance: 1200},
+				UpdatedAt:        time.Now().UTC(),
+			},
+		},
+	}
+	svc := NewAccountGRPCService(repo, nil, nil, nil)
+
+	_, err := svc.BindVenue(context.Background(), &accountv1.BindVenueRequest{
+		UserId:    serviceTestUserID,
+		AccountId: accountID,
+		VenueId:   53,
+	})
+	if err != nil {
+		t.Fatalf("BindVenue: %v", err)
+	}
+	state := repo.venueStates[53]
+	if state.AccountID != accountID {
+		t.Fatalf("wallet state account_id = %d, want %d", state.AccountID, accountID)
+	}
+	if state.TotalValue != 1234 || state.AvailableBalance != 1200 {
+		t.Fatalf("wallet state was reset: %+v", state)
+	}
+}
+
+func TestUpdateBacktestWalletStateSplitsMixedPayloadByVenueMarket(t *testing.T) {
+	accountID := int64(42)
+	repo := &stubRepo{
+		account: domain.Account{
+			AccountID:   accountID,
+			UserID:      serviceTestUserID,
+			Environment: domain.EnvironmentBacktest,
+			Status:      domain.AccountStatusActive,
+		},
+		venues: []domain.Venue{{
+			VenueID:      53,
+			UserID:       serviceTestUserID,
+			AccountID:    &accountID,
+			Exchange:     domain.ExchangeBinance,
+			Market:       domain.MarketPerpetualFutures,
+			Environment:  domain.EnvironmentBacktest,
+			Status:       domain.VenueStatusActive,
+			MarginMode:   domain.MarginModeCross,
+			PositionMode: domain.PositionModeOneWay,
+		}},
+	}
+	svc := NewAccountGRPCService(repo, nil, nil, nil)
+
+	_, err := svc.UpdateAccountWalletState(context.Background(), &accountv1.UpdateAccountWalletStateRequest{
+		AccountId:        accountID,
+		TotalValue:       1250,
+		WalletBalance:    1000,
+		AvailableBalance: 1000,
+		Futures: &accountv1.FuturesWallet{
+			MarginMode:       "cross",
+			PositionMode:     "one_way",
+			InitialBalance:   1000,
+			WalletBalance:    1000,
+			AvailableBalance: 1000,
+			MarginBalance:    1000,
+		},
+		Spot: &accountv1.SpotWallet{Free: 250},
+	})
+	if err != nil {
+		t.Fatalf("UpdateAccountWalletState: %v", err)
+	}
+	state := repo.venueStates[53]
+	if state.TotalValue != 1000 || state.WalletBalance != 1000 || state.AvailableBalance != 1000 {
+		t.Fatalf("futures venue state totals = %+v, want futures-only 1000", state)
+	}
+	if state.Spot.Free != 0 {
+		t.Fatalf("futures venue carried spot wallet: %+v", state.Spot)
+	}
+}
+
+func TestUpdateBacktestWalletStateUsesRequestSnapshotTime(t *testing.T) {
+	accountID := int64(42)
+	snapshotTime := time.Date(2026, 6, 1, 0, 43, 0, 0, time.UTC)
+	repo := &stubRepo{
+		account: domain.Account{
+			AccountID:    accountID,
+			UserID:       serviceTestUserID,
+			Environment:  domain.EnvironmentBacktest,
+			Status:       domain.AccountStatusActive,
+			MarginMode:   "cross",
+			PositionMode: "one_way",
+		},
+		venues: []domain.Venue{{
+			VenueID:      53,
+			UserID:       serviceTestUserID,
+			AccountID:    &accountID,
+			Exchange:     domain.ExchangeBinance,
+			Market:       domain.MarketPerpetualFutures,
+			Environment:  domain.EnvironmentBacktest,
+			Status:       domain.VenueStatusActive,
+			MarginMode:   domain.MarginModeCross,
+			PositionMode: domain.PositionModeOneWay,
+		}},
+	}
+	svc := NewAccountGRPCService(repo, nil, nil, nil)
+
+	_, err := svc.UpdateAccountWalletState(context.Background(), &accountv1.UpdateAccountWalletStateRequest{
+		AccountId:        accountID,
+		TotalValue:       994.506,
+		WalletBalance:    994.506,
+		AvailableBalance: 983.5434,
+		Futures: &accountv1.FuturesWallet{
+			MarginMode:       "cross",
+			PositionMode:     "one_way",
+			WalletBalance:    994.506,
+			AvailableBalance: 983.5434,
+			MarginBalance:    997.493,
+		},
+		SnapshotReason: int32(domain.SnapshotReasonOrderFill),
+		StrategyId:     43,
+		SnapshotTime:   timestamppb.New(snapshotTime),
+	})
+	if err != nil {
+		t.Fatalf("UpdateAccountWalletState: %v", err)
+	}
+	if len(repo.snapshotTimes) != 1 {
+		t.Fatalf("snapshot count = %d, want 1", len(repo.snapshotTimes))
+	}
+	if !repo.snapshotTimes[0].Equal(snapshotTime) {
+		t.Fatalf("snapshot time = %s, want %s", repo.snapshotTimes[0], snapshotTime)
+	}
+	if !repo.state.UpdatedAt.Equal(snapshotTime) {
+		t.Fatalf("account state updated_at = %s, want %s", repo.state.UpdatedAt, snapshotTime)
+	}
+	if !repo.venueStates[53].UpdatedAt.Equal(snapshotTime) {
+		t.Fatalf("venue state updated_at = %s, want %s", repo.venueStates[53].UpdatedAt, snapshotTime)
 	}
 }
 
@@ -689,6 +1212,49 @@ func TestBindVenueRejectsEnvironmentMismatch(t *testing.T) {
 	st, _ := status.FromError(err)
 	if st.Code() != codes.FailedPrecondition {
 		t.Fatalf("code = %v, want FailedPrecondition", st.Code())
+	}
+}
+
+func TestBindBacktestVenueInitializesWalletState(t *testing.T) {
+	accountID := int64(11)
+	repo := &stubRepo{
+		account: domain.Account{
+			AccountID:   accountID,
+			UserID:      serviceTestUserID,
+			Environment: domain.EnvironmentBacktest,
+			Status:      domain.AccountStatusActive,
+		},
+		venues: []domain.Venue{{
+			VenueID:      22,
+			UserID:       serviceTestUserID,
+			Environment:  domain.EnvironmentBacktest,
+			Exchange:     domain.ExchangeBinance,
+			Market:       domain.MarketPerpetualFutures,
+			Status:       domain.VenueStatusActive,
+			MarginMode:   domain.MarginModeCross,
+			PositionMode: domain.PositionModeOneWay,
+		}},
+	}
+	svc := NewAccountGRPCService(repo, nil, nil, nil)
+
+	_, err := svc.BindVenue(context.Background(), &accountv1.BindVenueRequest{
+		UserId:    serviceTestUserID,
+		AccountId: accountID,
+		VenueId:   22,
+		Reason:    "test bind",
+	})
+	if err != nil {
+		t.Fatalf("BindVenue: %v", err)
+	}
+	if len(repo.venueStates) != 1 {
+		t.Fatalf("venue wallet states len = %d, want 1", len(repo.venueStates))
+	}
+	state := repo.venueStates[22]
+	if state.AccountID != accountID || state.Environment != domain.EnvironmentBacktest {
+		t.Fatalf("state = %+v, want backtest account %d", state, accountID)
+	}
+	if state.Futures.MarginMode != "cross" || state.Futures.PositionMode != "one_way" {
+		t.Fatalf("state futures modes = %q/%q, want cross/one_way", state.Futures.MarginMode, state.Futures.PositionMode)
 	}
 }
 

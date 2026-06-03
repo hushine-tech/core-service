@@ -27,7 +27,8 @@ import (
 )
 
 // TestTimescaleHTTPCreateAndGRPC exercises the same paths as scripts/integration_e2e.sh:
-// POST /accounts (backtest with initial_balance + live), then gRPC Get/Update against TimescaleDB.
+// POST /accounts creates a backtest account context, then gRPC reads/updates
+// backtest wallet state against TimescaleDB.
 func TestTimescaleHTTPCreateAndGRPC(t *testing.T) {
 	dsn := os.Getenv("TIMESCALEDB_DSN")
 	if dsn == "" {
@@ -41,7 +42,6 @@ func TestTimescaleHTTPCreateAndGRPC(t *testing.T) {
 	ctx := context.Background()
 	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
 	btName := "int-bt-" + suffix
-	lvName := "int-lv-" + suffix
 	username := "int-user-" + suffix
 
 	h := httpserver.NewHandler(repo)
@@ -78,13 +78,9 @@ func TestTimescaleHTTPCreateAndGRPC(t *testing.T) {
 	cli := accountv1.NewAccountServiceClient(conn)
 	userID := createUser(t, cli, username)
 
-	// --- Backtest account + wallet seed (same as curl POST /accounts) ---
-	btBody := fmt.Sprintf(`{"user_id":%d,"name":%q,"mode":0,"initial_balance":10000}`, userID, btName)
+	// --- Backtest account context; default simulated venue is created by the service. ---
+	btBody := fmt.Sprintf(`{"user_id":%d,"name":%q,"environment":0}`, userID, btName)
 	btID := mustPostAccount(t, ts.URL, btBody)
-
-	// --- Live account (no seed; exchange/mock fills on first read) ---
-	lvBody := fmt.Sprintf(`{"user_id":%d,"name":%q,"mode":1,"api_key":"mock","api_secret":"mock"}`, userID, lvName)
-	lvID := mustPostAccount(t, ts.URL, lvBody)
 
 	ls, err := cli.ListSymbols(ctx, &accountv1.ListSymbolsRequest{Market: "spot", Query: "ETH", Limit: 5})
 	if err != nil {
@@ -99,8 +95,8 @@ func TestTimescaleHTTPCreateAndGRPC(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetOnlineAccountInfo backtest: %v", err)
 	}
-	if g1.GetWallet().GetFutures().GetWalletBalance() != 10000 {
-		t.Fatalf("backtest initial futures.wallet_balance want 10000 got %f", g1.GetWallet().GetFutures().GetWalletBalance())
+	if g1.GetWallet().GetFutures().GetWalletBalance() != 0 {
+		t.Fatalf("backtest initial futures.wallet_balance want 0 got %f", g1.GetWallet().GetFutures().GetWalletBalance())
 	}
 
 	// Backtest: push update (no snapshot)
@@ -128,29 +124,6 @@ func TestTimescaleHTTPCreateAndGRPC(t *testing.T) {
 		t.Fatalf("backtest persisted want 15000 got %f", g2.GetWallet().GetFutures().GetWalletBalance())
 	}
 
-	// Live: mock exchange
-	gl, err := cli.GetOnlineAccountInfo(ctx, &accountv1.GetOnlineAccountInfoRequest{AccountId: lvID, UserId: userID})
-	if err != nil {
-		t.Fatalf("GetOnlineAccountInfo live: %v", err)
-	}
-	if gl.GetWallet().GetFutures().GetWalletBalance() < 8888.0 || gl.GetWallet().GetFutures().GetWalletBalance() > 8889.0 {
-		t.Fatalf("live mock futures.wallet_balance want ~8888.5 got %f", gl.GetWallet().GetFutures().GetWalletBalance())
-	}
-
-	ul, err := cli.UpdateAccountWalletState(ctx, &accountv1.UpdateAccountWalletStateRequest{
-		AccountId:        lvID,
-		WalletBalance:    999999,
-		AvailableBalance: 999999,
-		TotalValue:       999999,
-		Futures:          &accountv1.FuturesWallet{WalletBalance: 999999},
-		Spot:             &accountv1.SpotWallet{Free: 999999},
-	})
-	if err != nil {
-		t.Fatalf("UpdateAccountWalletState live: %v", err)
-	}
-	if ul.GetWallet().GetFutures().GetWalletBalance() > 100000 {
-		t.Fatalf("live update should not echo bogus request; got %f", ul.GetWallet().GetFutures().GetWalletBalance())
-	}
 }
 
 // TestRegistryGRPC exercises CreateAccount / ListAccounts / GetAccount over gRPC.
@@ -196,10 +169,9 @@ func TestRegistryGRPC(t *testing.T) {
 	userID := createUser(t, cli, username)
 
 	created, err := cli.CreateAccount(ctx, &accountv1.CreateAccountRequest{
-		Name:           name,
-		Environment:    int32(domain.EnvironmentBacktest),
-		InitialBalance: 5000,
-		UserId:         userID,
+		Name:        name,
+		Environment: int32(domain.EnvironmentBacktest),
+		UserId:      userID,
 	})
 	if err != nil {
 		t.Fatalf("CreateAccount: %v", err)

@@ -600,7 +600,7 @@ type CreateAccountRequest struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	Name           string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	Environment    int32                  `protobuf:"varint,2,opt,name=environment,proto3" json:"environment,omitempty"`
-	InitialBalance float64                `protobuf:"fixed64,5,opt,name=initial_balance,json=initialBalance,proto3" json:"initial_balance,omitempty"`
+	InitialBalance float64                `protobuf:"fixed64,5,opt,name=initial_balance,json=initialBalance,proto3" json:"initial_balance,omitempty"`   // deprecated: account creation no longer seeds wallet state
 	SlippageBps    float64                `protobuf:"fixed64,8,opt,name=slippage_bps,json=slippageBps,proto3" json:"slippage_bps,omitempty"`            // default: 0.0
 	DefaultFeeRate float64                `protobuf:"fixed64,9,opt,name=default_fee_rate,json=defaultFeeRate,proto3" json:"default_fee_rate,omitempty"` // default: 0.0004
 	Description    string                 `protobuf:"bytes,10,opt,name=description,proto3" json:"description,omitempty"`
@@ -1046,21 +1046,26 @@ func (x *VenueEntry) GetArchivedReason() string {
 }
 
 type CreateVenueRequest struct {
-	state          protoimpl.MessageState `protogen:"open.v1"`
-	UserId         int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	AccountId      int64                  `protobuf:"varint,2,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
-	Exchange       int32                  `protobuf:"varint,3,opt,name=exchange,proto3" json:"exchange,omitempty"`
-	Market         int32                  `protobuf:"varint,4,opt,name=market,proto3" json:"market,omitempty"`
-	Environment    int32                  `protobuf:"varint,5,opt,name=environment,proto3" json:"environment,omitempty"`
-	Status         int32                  `protobuf:"varint,6,opt,name=status,proto3" json:"status,omitempty"`
-	DisplayName    string                 `protobuf:"bytes,7,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
-	Description    string                 `protobuf:"bytes,8,opt,name=description,proto3" json:"description,omitempty"`
-	ApiKey         string                 `protobuf:"bytes,9,opt,name=api_key,json=apiKey,proto3" json:"api_key,omitempty"`
-	CredentialJson string                 `protobuf:"bytes,10,opt,name=credential_json,json=credentialJson,proto3" json:"credential_json,omitempty"`
-	MarginMode     int32                  `protobuf:"varint,11,opt,name=margin_mode,json=marginMode,proto3" json:"margin_mode,omitempty"`
-	PositionMode   int32                  `protobuf:"varint,12,opt,name=position_mode,json=positionMode,proto3" json:"position_mode,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	UserId           int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	AccountId        int64                  `protobuf:"varint,2,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
+	Exchange         int32                  `protobuf:"varint,3,opt,name=exchange,proto3" json:"exchange,omitempty"`
+	Market           int32                  `protobuf:"varint,4,opt,name=market,proto3" json:"market,omitempty"`
+	Environment      int32                  `protobuf:"varint,5,opt,name=environment,proto3" json:"environment,omitempty"`
+	Status           int32                  `protobuf:"varint,6,opt,name=status,proto3" json:"status,omitempty"`
+	DisplayName      string                 `protobuf:"bytes,7,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
+	Description      string                 `protobuf:"bytes,8,opt,name=description,proto3" json:"description,omitempty"`
+	ApiKey           string                 `protobuf:"bytes,9,opt,name=api_key,json=apiKey,proto3" json:"api_key,omitempty"`
+	CredentialJson   string                 `protobuf:"bytes,10,opt,name=credential_json,json=credentialJson,proto3" json:"credential_json,omitempty"`
+	MarginMode       int32                  `protobuf:"varint,11,opt,name=margin_mode,json=marginMode,proto3" json:"margin_mode,omitempty"`
+	PositionMode     int32                  `protobuf:"varint,12,opt,name=position_mode,json=positionMode,proto3" json:"position_mode,omitempty"`
+	Futures          *FuturesWallet         `protobuf:"bytes,13,opt,name=futures,proto3" json:"futures,omitempty"`
+	Spot             *SpotWallet            `protobuf:"bytes,14,opt,name=spot,proto3" json:"spot,omitempty"`
+	TotalValue       float64                `protobuf:"fixed64,15,opt,name=total_value,json=totalValue,proto3" json:"total_value,omitempty"`
+	WalletBalance    float64                `protobuf:"fixed64,16,opt,name=wallet_balance,json=walletBalance,proto3" json:"wallet_balance,omitempty"`
+	AvailableBalance float64                `protobuf:"fixed64,17,opt,name=available_balance,json=availableBalance,proto3" json:"available_balance,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *CreateVenueRequest) Reset() {
@@ -1173,6 +1178,41 @@ func (x *CreateVenueRequest) GetMarginMode() int32 {
 func (x *CreateVenueRequest) GetPositionMode() int32 {
 	if x != nil {
 		return x.PositionMode
+	}
+	return 0
+}
+
+func (x *CreateVenueRequest) GetFutures() *FuturesWallet {
+	if x != nil {
+		return x.Futures
+	}
+	return nil
+}
+
+func (x *CreateVenueRequest) GetSpot() *SpotWallet {
+	if x != nil {
+		return x.Spot
+	}
+	return nil
+}
+
+func (x *CreateVenueRequest) GetTotalValue() float64 {
+	if x != nil {
+		return x.TotalValue
+	}
+	return 0
+}
+
+func (x *CreateVenueRequest) GetWalletBalance() float64 {
+	if x != nil {
+		return x.WalletBalance
+	}
+	return 0
+}
+
+func (x *CreateVenueRequest) GetAvailableBalance() float64 {
+	if x != nil {
+		return x.AvailableBalance
 	}
 	return 0
 }
@@ -2600,8 +2640,10 @@ type UpdatePortfolioSnapshotRequest struct {
 	SnapshotReason int32                  `protobuf:"varint,3,opt,name=snapshot_reason,json=snapshotReason,proto3" json:"snapshot_reason,omitempty"`
 	StrategyId     int64                  `protobuf:"varint,4,opt,name=strategy_id,json=strategyId,proto3" json:"strategy_id,omitempty"`
 	SessionId      string                 `protobuf:"bytes,5,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// 回测/行情事件时间；为空时快照使用服务端处理时间。
+	SnapshotTime  *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=snapshot_time,json=snapshotTime,proto3" json:"snapshot_time,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *UpdatePortfolioSnapshotRequest) Reset() {
@@ -2667,6 +2709,13 @@ func (x *UpdatePortfolioSnapshotRequest) GetSessionId() string {
 		return x.SessionId
 	}
 	return ""
+}
+
+func (x *UpdatePortfolioSnapshotRequest) GetSnapshotTime() *timestamppb.Timestamp {
+	if x != nil {
+		return x.SnapshotTime
+	}
+	return nil
 }
 
 type UpdatePortfolioSnapshotResponse struct {
@@ -3127,7 +3176,9 @@ type UpdateAccountWalletStateRequest struct {
 	// 审计追溯：触发此次钱包更新的策略 ID（0 = 无策略）
 	StrategyId int64 `protobuf:"varint,9,opt,name=strategy_id,json=strategyId,proto3" json:"strategy_id,omitempty"`
 	// 关联的 session ID（空字符串 = 非 session 触发）
-	SessionId     string `protobuf:"bytes,10,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	SessionId string `protobuf:"bytes,10,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	// 回测/行情事件时间；为空时快照使用服务端处理时间。
+	SnapshotTime  *timestamppb.Timestamp `protobuf:"bytes,11,opt,name=snapshot_time,json=snapshotTime,proto3" json:"snapshot_time,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3223,6 +3274,13 @@ func (x *UpdateAccountWalletStateRequest) GetSessionId() string {
 		return x.SessionId
 	}
 	return ""
+}
+
+func (x *UpdateAccountWalletStateRequest) GetSnapshotTime() *timestamppb.Timestamp {
+	if x != nil {
+		return x.SnapshotTime
+	}
+	return nil
 }
 
 type UpdateAccountWalletStateResponse struct {
@@ -8340,7 +8398,7 @@ const file_account_service_proto_rawDesc = "" +
 	"lastUsedAt\x12;\n" +
 	"\varchived_at\x18\x11 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
 	"archivedAt\x12'\n" +
-	"\x0farchived_reason\x18\x12 \x01(\tR\x0earchivedReason\"\x87\x03\n" +
+	"\x0farchived_reason\x18\x12 \x01(\tR\x0earchivedReason\"\xdd\x04\n" +
 	"\x12CreateVenueRequest\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x1d\n" +
 	"\n" +
@@ -8356,7 +8414,13 @@ const file_account_service_proto_rawDesc = "" +
 	" \x01(\tR\x0ecredentialJson\x12\x1f\n" +
 	"\vmargin_mode\x18\v \x01(\x05R\n" +
 	"marginMode\x12#\n" +
-	"\rposition_mode\x18\f \x01(\x05R\fpositionMode\"C\n" +
+	"\rposition_mode\x18\f \x01(\x05R\fpositionMode\x123\n" +
+	"\afutures\x18\r \x01(\v2\x19.account.v1.FuturesWalletR\afutures\x12*\n" +
+	"\x04spot\x18\x0e \x01(\v2\x16.account.v1.SpotWalletR\x04spot\x12\x1f\n" +
+	"\vtotal_value\x18\x0f \x01(\x01R\n" +
+	"totalValue\x12%\n" +
+	"\x0ewallet_balance\x18\x10 \x01(\x01R\rwalletBalance\x12+\n" +
+	"\x11available_balance\x18\x11 \x01(\x01R\x10availableBalance\"C\n" +
 	"\x13CreateVenueResponse\x12,\n" +
 	"\x05venue\x18\x01 \x01(\v2\x16.account.v1.VenueEntryR\x05venue\"\xcd\x01\n" +
 	"\x11ListVenuesRequest\x12\x17\n" +
@@ -8460,7 +8524,7 @@ const file_account_service_proto_rawDesc = "" +
 	"account_id\x18\x01 \x01(\x03R\taccountId\x12\x17\n" +
 	"\auser_id\x18d \x01(\x03R\x06userId\"Y\n" +
 	"\x1cGetPortfolioSnapshotResponse\x129\n" +
-	"\bsnapshot\x18\x01 \x01(\v2\x1d.account.v1.PortfolioSnapshotR\bsnapshot\"\xc1\x01\n" +
+	"\bsnapshot\x18\x01 \x01(\v2\x1d.account.v1.PortfolioSnapshotR\bsnapshot\"\x82\x02\n" +
 	"\x1eUpdatePortfolioSnapshotRequest\x12\x1d\n" +
 	"\n" +
 	"account_id\x18\x01 \x01(\x03R\taccountId\x12\x17\n" +
@@ -8469,7 +8533,8 @@ const file_account_service_proto_rawDesc = "" +
 	"\vstrategy_id\x18\x04 \x01(\x03R\n" +
 	"strategyId\x12\x1d\n" +
 	"\n" +
-	"session_id\x18\x05 \x01(\tR\tsessionId\"\\\n" +
+	"session_id\x18\x05 \x01(\tR\tsessionId\x12?\n" +
+	"\rsnapshot_time\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\fsnapshotTime\"\\\n" +
 	"\x1fUpdatePortfolioSnapshotResponse\x129\n" +
 	"\bsnapshot\x18\x01 \x01(\v2\x1d.account.v1.PortfolioSnapshotR\bsnapshot\"\xe6\x02\n" +
 	"\x11PortfolioSnapshot\x12\x1d\n" +
@@ -8516,7 +8581,7 @@ const file_account_service_proto_rawDesc = "" +
 	"mark_price\x18\x05 \x01(\x01R\tmarkPrice\x12%\n" +
 	"\x0eunrealized_pnl\x18\x06 \x01(\x01R\runrealizedPnl\x12%\n" +
 	"\x0emargin_balance\x18\a \x01(\x01R\rmarginBalance\x12+\n" +
-	"\x11liquidation_price\x18\b \x01(\x01R\x10liquidationPrice\"\x85\x03\n" +
+	"\x11liquidation_price\x18\b \x01(\x01R\x10liquidationPrice\"\xc6\x03\n" +
 	"\x1fUpdateAccountWalletStateRequest\x12\x1d\n" +
 	"\n" +
 	"account_id\x18\x01 \x01(\x03R\taccountId\x123\n" +
@@ -8531,7 +8596,8 @@ const file_account_service_proto_rawDesc = "" +
 	"strategyId\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\n" +
-	" \x01(\tR\tsessionIdJ\x04\b\x02\x10\x03\"Z\n" +
+	" \x01(\tR\tsessionId\x12?\n" +
+	"\rsnapshot_time\x18\v \x01(\v2\x1a.google.protobuf.TimestampR\fsnapshotTimeJ\x04\b\x02\x10\x03\"Z\n" +
 	" UpdateAccountWalletStateResponse\x126\n" +
 	"\x06wallet\x18\x01 \x01(\v2\x1e.account.v1.AccountWalletStateR\x06wallet\"\x92\x03\n" +
 	"\x12AccountWalletState\x123\n" +
@@ -9187,164 +9253,168 @@ var file_account_service_proto_depIdxs = []int32{
 	118, // 9: account.v1.VenueEntry.updated_at:type_name -> google.protobuf.Timestamp
 	118, // 10: account.v1.VenueEntry.last_used_at:type_name -> google.protobuf.Timestamp
 	118, // 11: account.v1.VenueEntry.archived_at:type_name -> google.protobuf.Timestamp
-	14,  // 12: account.v1.CreateVenueResponse.venue:type_name -> account.v1.VenueEntry
-	14,  // 13: account.v1.ListVenuesResponse.venues:type_name -> account.v1.VenueEntry
-	14,  // 14: account.v1.GetVenueResponse.venue:type_name -> account.v1.VenueEntry
-	14,  // 15: account.v1.GetVenueOnlineInfoResponse.venue:type_name -> account.v1.VenueEntry
-	48,  // 16: account.v1.GetVenueOnlineInfoResponse.wallet:type_name -> account.v1.AccountWalletState
-	14,  // 17: account.v1.BindVenueResponse.venue:type_name -> account.v1.VenueEntry
-	14,  // 18: account.v1.ReleaseVenueResponse.venue:type_name -> account.v1.VenueEntry
-	29,  // 19: account.v1.PreflightStrategySessionRequest.required_routes:type_name -> account.v1.RequiredRoute
-	30,  // 20: account.v1.PreflightStrategySessionRequest.required_symbols:type_name -> account.v1.RequiredSymbol
-	31,  // 21: account.v1.PreflightStrategySessionResponse.issues:type_name -> account.v1.PreflightIssue
-	14,  // 22: account.v1.PreflightStrategySessionResponse.resolved_venues:type_name -> account.v1.VenueEntry
-	48,  // 23: account.v1.GetOnlineAccountInfoResponse.wallet:type_name -> account.v1.AccountWalletState
-	42,  // 24: account.v1.GetPortfolioSnapshotResponse.snapshot:type_name -> account.v1.PortfolioSnapshot
-	42,  // 25: account.v1.UpdatePortfolioSnapshotResponse.snapshot:type_name -> account.v1.PortfolioSnapshot
-	118, // 26: account.v1.PortfolioSnapshot.updated_at:type_name -> google.protobuf.Timestamp
-	43,  // 27: account.v1.PortfolioSnapshot.venues:type_name -> account.v1.VenueSnapshot
-	48,  // 28: account.v1.PortfolioSnapshot.wallet:type_name -> account.v1.AccountWalletState
-	118, // 29: account.v1.VenueSnapshot.updated_at:type_name -> google.protobuf.Timestamp
-	44,  // 30: account.v1.VenueSnapshot.balances:type_name -> account.v1.BalanceEntry
-	45,  // 31: account.v1.VenueSnapshot.positions:type_name -> account.v1.PositionEntry
-	48,  // 32: account.v1.VenueSnapshot.wallet:type_name -> account.v1.AccountWalletState
-	49,  // 33: account.v1.UpdateAccountWalletStateRequest.futures:type_name -> account.v1.FuturesWallet
-	53,  // 34: account.v1.UpdateAccountWalletStateRequest.spot:type_name -> account.v1.SpotWallet
-	48,  // 35: account.v1.UpdateAccountWalletStateResponse.wallet:type_name -> account.v1.AccountWalletState
-	49,  // 36: account.v1.AccountWalletState.futures:type_name -> account.v1.FuturesWallet
-	53,  // 37: account.v1.AccountWalletState.spot:type_name -> account.v1.SpotWallet
-	118, // 38: account.v1.AccountWalletState.updated_at:type_name -> google.protobuf.Timestamp
-	50,  // 39: account.v1.FuturesWallet.positions:type_name -> account.v1.FuturesPosition
-	51,  // 40: account.v1.FuturesWallet.risk_metadata:type_name -> account.v1.FuturesRiskMetadata
-	52,  // 41: account.v1.FuturesRiskMetadata.brackets:type_name -> account.v1.FuturesRiskBracket
-	54,  // 42: account.v1.SpotWallet.assets:type_name -> account.v1.SpotAsset
-	118, // 43: account.v1.StrategyEntry.created_at:type_name -> google.protobuf.Timestamp
-	59,  // 44: account.v1.CreateStrategyResponse.strategy:type_name -> account.v1.StrategyEntry
-	59,  // 45: account.v1.ListStrategiesResponse.strategies:type_name -> account.v1.StrategyEntry
-	59,  // 46: account.v1.GetStrategyResponse.strategy:type_name -> account.v1.StrategyEntry
-	59,  // 47: account.v1.AccountStrategyEntry.strategy:type_name -> account.v1.StrategyEntry
-	118, // 48: account.v1.AccountStrategyEntry.mounted_at:type_name -> google.protobuf.Timestamp
-	77,  // 49: account.v1.ListAccountStrategiesResponse.entries:type_name -> account.v1.AccountStrategyEntry
-	118, // 50: account.v1.StrategySessionEntry.started_at:type_name -> google.protobuf.Timestamp
-	118, // 51: account.v1.StrategySessionEntry.completed_at:type_name -> google.protobuf.Timestamp
-	118, // 52: account.v1.StrategySessionEntry.created_at:type_name -> google.protobuf.Timestamp
-	81,  // 53: account.v1.GetSessionResponse.session:type_name -> account.v1.StrategySessionEntry
-	81,  // 54: account.v1.ListSessionsResponse.sessions:type_name -> account.v1.StrategySessionEntry
-	81,  // 55: account.v1.ListRunningSessionsResponse.sessions:type_name -> account.v1.StrategySessionEntry
-	96,  // 56: account.v1.ListSessionSnapshotsResponse.items:type_name -> account.v1.SnapshotEntry
-	118, // 57: account.v1.SnapshotEntry.time:type_name -> google.protobuf.Timestamp
-	101, // 58: account.v1.ListReconciliationRunsResponse.items:type_name -> account.v1.ReconciliationRunEntry
-	118, // 59: account.v1.ReconciliationRunEntry.time:type_name -> google.protobuf.Timestamp
-	102, // 60: account.v1.ReconciliationRunEntry.field_diffs:type_name -> account.v1.FieldDiffEntry
-	102, // 61: account.v1.ReconciliationRunEntry.advisory_diffs:type_name -> account.v1.FieldDiffEntry
-	118, // 62: account.v1.NotificationChannel.bound_at:type_name -> google.protobuf.Timestamp
-	118, // 63: account.v1.NotificationChannel.last_delivery_at:type_name -> google.protobuf.Timestamp
-	104, // 64: account.v1.GetNotificationSettingsResponse.preferences:type_name -> account.v1.NotificationPreferences
-	103, // 65: account.v1.GetNotificationSettingsResponse.plan:type_name -> account.v1.NotificationPlan
-	105, // 66: account.v1.GetNotificationSettingsResponse.telegram:type_name -> account.v1.NotificationChannel
-	104, // 67: account.v1.UpdateNotificationPreferencesRequest.preferences:type_name -> account.v1.NotificationPreferences
-	107, // 68: account.v1.UpdateNotificationPreferencesResponse.settings:type_name -> account.v1.GetNotificationSettingsResponse
-	118, // 69: account.v1.CreateNotificationBindCodeResponse.expires_at:type_name -> google.protobuf.Timestamp
-	107, // 70: account.v1.ConfirmNotificationBindingResponse.settings:type_name -> account.v1.GetNotificationSettingsResponse
-	107, // 71: account.v1.UnbindNotificationChannelResponse.settings:type_name -> account.v1.GetNotificationSettingsResponse
-	107, // 72: account.v1.SendTestNotificationResponse.settings:type_name -> account.v1.GetNotificationSettingsResponse
-	3,   // 73: account.v1.AccountService.CreateUser:input_type -> account.v1.CreateUserRequest
-	5,   // 74: account.v1.AccountService.VerifyUserPassword:input_type -> account.v1.VerifyUserPasswordRequest
-	1,   // 75: account.v1.AccountService.GetUser:input_type -> account.v1.GetUserRequest
-	11,  // 76: account.v1.AccountService.CreateAccount:input_type -> account.v1.CreateAccountRequest
-	7,   // 77: account.v1.AccountService.ListAccounts:input_type -> account.v1.ListAccountsRequest
-	9,   // 78: account.v1.AccountService.GetAccount:input_type -> account.v1.GetAccountRequest
-	15,  // 79: account.v1.AccountService.CreateVenue:input_type -> account.v1.CreateVenueRequest
-	17,  // 80: account.v1.AccountService.ListVenues:input_type -> account.v1.ListVenuesRequest
-	19,  // 81: account.v1.AccountService.GetVenue:input_type -> account.v1.GetVenueRequest
-	21,  // 82: account.v1.AccountService.GetVenueOnlineInfo:input_type -> account.v1.GetVenueOnlineInfoRequest
-	23,  // 83: account.v1.AccountService.BindVenue:input_type -> account.v1.BindVenueRequest
-	25,  // 84: account.v1.AccountService.ReleaseVenue:input_type -> account.v1.ReleaseVenueRequest
-	27,  // 85: account.v1.AccountService.ArchiveVenue:input_type -> account.v1.ArchiveVenueRequest
-	32,  // 86: account.v1.AccountService.PreflightStrategySession:input_type -> account.v1.PreflightStrategySessionRequest
-	34,  // 87: account.v1.AccountService.GetVenueRouteMeta:input_type -> account.v1.GetVenueRouteMetaRequest
-	36,  // 88: account.v1.AccountService.GetOnlineAccountInfo:input_type -> account.v1.GetOnlineAccountInfoRequest
-	38,  // 89: account.v1.AccountService.GetPortfolioSnapshot:input_type -> account.v1.GetPortfolioSnapshotRequest
-	40,  // 90: account.v1.AccountService.UpdatePortfolioSnapshot:input_type -> account.v1.UpdatePortfolioSnapshotRequest
-	46,  // 91: account.v1.AccountService.UpdateAccountWalletState:input_type -> account.v1.UpdateAccountWalletStateRequest
-	55,  // 92: account.v1.AccountService.ListSymbols:input_type -> account.v1.ListSymbolsRequest
-	57,  // 93: account.v1.AccountService.GetAccountMeta:input_type -> account.v1.GetAccountMetaRequest
-	60,  // 94: account.v1.AccountService.CreateStrategy:input_type -> account.v1.CreateStrategyRequest
-	62,  // 95: account.v1.AccountService.ListStrategies:input_type -> account.v1.ListStrategiesRequest
-	64,  // 96: account.v1.AccountService.GetStrategy:input_type -> account.v1.GetStrategyRequest
-	66,  // 97: account.v1.AccountService.ArchiveStrategy:input_type -> account.v1.ArchiveStrategyRequest
-	68,  // 98: account.v1.AccountService.MountStrategy:input_type -> account.v1.MountStrategyRequest
-	70,  // 99: account.v1.AccountService.UnmountStrategy:input_type -> account.v1.UnmountStrategyRequest
-	72,  // 100: account.v1.AccountService.ActivateStrategy:input_type -> account.v1.ActivateStrategyRequest
-	74,  // 101: account.v1.AccountService.DeactivateStrategy:input_type -> account.v1.DeactivateStrategyRequest
-	76,  // 102: account.v1.AccountService.ListAccountStrategies:input_type -> account.v1.ListAccountStrategiesRequest
-	79,  // 103: account.v1.AccountService.GetActiveStrategy:input_type -> account.v1.GetActiveStrategyRequest
-	82,  // 104: account.v1.AccountService.SaveSession:input_type -> account.v1.SaveSessionRequest
-	84,  // 105: account.v1.AccountService.UpdateSession:input_type -> account.v1.UpdateSessionRequest
-	86,  // 106: account.v1.AccountService.GetSession:input_type -> account.v1.GetSessionRequest
-	88,  // 107: account.v1.AccountService.ListSessions:input_type -> account.v1.ListSessionsRequest
-	90,  // 108: account.v1.AccountService.ListRunningSessions:input_type -> account.v1.ListRunningSessionsRequest
-	92,  // 109: account.v1.AccountService.MarkRuntimeSessionsRecoverable:input_type -> account.v1.MarkRuntimeSessionsRecoverableRequest
-	94,  // 110: account.v1.AccountService.ListSessionSnapshots:input_type -> account.v1.ListSessionSnapshotsRequest
-	97,  // 111: account.v1.AccountService.ListReconciliationRuns:input_type -> account.v1.ListReconciliationRunsRequest
-	99,  // 112: account.v1.AccountService.GetSessionReconciliationSummary:input_type -> account.v1.GetSessionReconciliationSummaryRequest
-	106, // 113: account.v1.AccountService.GetNotificationSettings:input_type -> account.v1.GetNotificationSettingsRequest
-	108, // 114: account.v1.AccountService.UpdateNotificationPreferences:input_type -> account.v1.UpdateNotificationPreferencesRequest
-	110, // 115: account.v1.AccountService.CreateNotificationBindCode:input_type -> account.v1.CreateNotificationBindCodeRequest
-	112, // 116: account.v1.AccountService.ConfirmNotificationBinding:input_type -> account.v1.ConfirmNotificationBindingRequest
-	114, // 117: account.v1.AccountService.UnbindNotificationChannel:input_type -> account.v1.UnbindNotificationChannelRequest
-	116, // 118: account.v1.AccountService.SendTestNotification:input_type -> account.v1.SendTestNotificationRequest
-	4,   // 119: account.v1.AccountService.CreateUser:output_type -> account.v1.CreateUserResponse
-	6,   // 120: account.v1.AccountService.VerifyUserPassword:output_type -> account.v1.VerifyUserPasswordResponse
-	2,   // 121: account.v1.AccountService.GetUser:output_type -> account.v1.GetUserResponse
-	12,  // 122: account.v1.AccountService.CreateAccount:output_type -> account.v1.CreateAccountResponse
-	8,   // 123: account.v1.AccountService.ListAccounts:output_type -> account.v1.ListAccountsResponse
-	10,  // 124: account.v1.AccountService.GetAccount:output_type -> account.v1.GetAccountResponse
-	16,  // 125: account.v1.AccountService.CreateVenue:output_type -> account.v1.CreateVenueResponse
-	18,  // 126: account.v1.AccountService.ListVenues:output_type -> account.v1.ListVenuesResponse
-	20,  // 127: account.v1.AccountService.GetVenue:output_type -> account.v1.GetVenueResponse
-	22,  // 128: account.v1.AccountService.GetVenueOnlineInfo:output_type -> account.v1.GetVenueOnlineInfoResponse
-	24,  // 129: account.v1.AccountService.BindVenue:output_type -> account.v1.BindVenueResponse
-	26,  // 130: account.v1.AccountService.ReleaseVenue:output_type -> account.v1.ReleaseVenueResponse
-	28,  // 131: account.v1.AccountService.ArchiveVenue:output_type -> account.v1.ArchiveVenueResponse
-	33,  // 132: account.v1.AccountService.PreflightStrategySession:output_type -> account.v1.PreflightStrategySessionResponse
-	35,  // 133: account.v1.AccountService.GetVenueRouteMeta:output_type -> account.v1.GetVenueRouteMetaResponse
-	37,  // 134: account.v1.AccountService.GetOnlineAccountInfo:output_type -> account.v1.GetOnlineAccountInfoResponse
-	39,  // 135: account.v1.AccountService.GetPortfolioSnapshot:output_type -> account.v1.GetPortfolioSnapshotResponse
-	41,  // 136: account.v1.AccountService.UpdatePortfolioSnapshot:output_type -> account.v1.UpdatePortfolioSnapshotResponse
-	47,  // 137: account.v1.AccountService.UpdateAccountWalletState:output_type -> account.v1.UpdateAccountWalletStateResponse
-	56,  // 138: account.v1.AccountService.ListSymbols:output_type -> account.v1.ListSymbolsResponse
-	58,  // 139: account.v1.AccountService.GetAccountMeta:output_type -> account.v1.GetAccountMetaResponse
-	61,  // 140: account.v1.AccountService.CreateStrategy:output_type -> account.v1.CreateStrategyResponse
-	63,  // 141: account.v1.AccountService.ListStrategies:output_type -> account.v1.ListStrategiesResponse
-	65,  // 142: account.v1.AccountService.GetStrategy:output_type -> account.v1.GetStrategyResponse
-	67,  // 143: account.v1.AccountService.ArchiveStrategy:output_type -> account.v1.ArchiveStrategyResponse
-	69,  // 144: account.v1.AccountService.MountStrategy:output_type -> account.v1.MountStrategyResponse
-	71,  // 145: account.v1.AccountService.UnmountStrategy:output_type -> account.v1.UnmountStrategyResponse
-	73,  // 146: account.v1.AccountService.ActivateStrategy:output_type -> account.v1.ActivateStrategyResponse
-	75,  // 147: account.v1.AccountService.DeactivateStrategy:output_type -> account.v1.DeactivateStrategyResponse
-	78,  // 148: account.v1.AccountService.ListAccountStrategies:output_type -> account.v1.ListAccountStrategiesResponse
-	80,  // 149: account.v1.AccountService.GetActiveStrategy:output_type -> account.v1.GetActiveStrategyResponse
-	83,  // 150: account.v1.AccountService.SaveSession:output_type -> account.v1.SaveSessionResponse
-	85,  // 151: account.v1.AccountService.UpdateSession:output_type -> account.v1.UpdateSessionResponse
-	87,  // 152: account.v1.AccountService.GetSession:output_type -> account.v1.GetSessionResponse
-	89,  // 153: account.v1.AccountService.ListSessions:output_type -> account.v1.ListSessionsResponse
-	91,  // 154: account.v1.AccountService.ListRunningSessions:output_type -> account.v1.ListRunningSessionsResponse
-	93,  // 155: account.v1.AccountService.MarkRuntimeSessionsRecoverable:output_type -> account.v1.MarkRuntimeSessionsRecoverableResponse
-	95,  // 156: account.v1.AccountService.ListSessionSnapshots:output_type -> account.v1.ListSessionSnapshotsResponse
-	98,  // 157: account.v1.AccountService.ListReconciliationRuns:output_type -> account.v1.ListReconciliationRunsResponse
-	100, // 158: account.v1.AccountService.GetSessionReconciliationSummary:output_type -> account.v1.GetSessionReconciliationSummaryResponse
-	107, // 159: account.v1.AccountService.GetNotificationSettings:output_type -> account.v1.GetNotificationSettingsResponse
-	109, // 160: account.v1.AccountService.UpdateNotificationPreferences:output_type -> account.v1.UpdateNotificationPreferencesResponse
-	111, // 161: account.v1.AccountService.CreateNotificationBindCode:output_type -> account.v1.CreateNotificationBindCodeResponse
-	113, // 162: account.v1.AccountService.ConfirmNotificationBinding:output_type -> account.v1.ConfirmNotificationBindingResponse
-	115, // 163: account.v1.AccountService.UnbindNotificationChannel:output_type -> account.v1.UnbindNotificationChannelResponse
-	117, // 164: account.v1.AccountService.SendTestNotification:output_type -> account.v1.SendTestNotificationResponse
-	119, // [119:165] is the sub-list for method output_type
-	73,  // [73:119] is the sub-list for method input_type
-	73,  // [73:73] is the sub-list for extension type_name
-	73,  // [73:73] is the sub-list for extension extendee
-	0,   // [0:73] is the sub-list for field type_name
+	49,  // 12: account.v1.CreateVenueRequest.futures:type_name -> account.v1.FuturesWallet
+	53,  // 13: account.v1.CreateVenueRequest.spot:type_name -> account.v1.SpotWallet
+	14,  // 14: account.v1.CreateVenueResponse.venue:type_name -> account.v1.VenueEntry
+	14,  // 15: account.v1.ListVenuesResponse.venues:type_name -> account.v1.VenueEntry
+	14,  // 16: account.v1.GetVenueResponse.venue:type_name -> account.v1.VenueEntry
+	14,  // 17: account.v1.GetVenueOnlineInfoResponse.venue:type_name -> account.v1.VenueEntry
+	48,  // 18: account.v1.GetVenueOnlineInfoResponse.wallet:type_name -> account.v1.AccountWalletState
+	14,  // 19: account.v1.BindVenueResponse.venue:type_name -> account.v1.VenueEntry
+	14,  // 20: account.v1.ReleaseVenueResponse.venue:type_name -> account.v1.VenueEntry
+	29,  // 21: account.v1.PreflightStrategySessionRequest.required_routes:type_name -> account.v1.RequiredRoute
+	30,  // 22: account.v1.PreflightStrategySessionRequest.required_symbols:type_name -> account.v1.RequiredSymbol
+	31,  // 23: account.v1.PreflightStrategySessionResponse.issues:type_name -> account.v1.PreflightIssue
+	14,  // 24: account.v1.PreflightStrategySessionResponse.resolved_venues:type_name -> account.v1.VenueEntry
+	48,  // 25: account.v1.GetOnlineAccountInfoResponse.wallet:type_name -> account.v1.AccountWalletState
+	42,  // 26: account.v1.GetPortfolioSnapshotResponse.snapshot:type_name -> account.v1.PortfolioSnapshot
+	118, // 27: account.v1.UpdatePortfolioSnapshotRequest.snapshot_time:type_name -> google.protobuf.Timestamp
+	42,  // 28: account.v1.UpdatePortfolioSnapshotResponse.snapshot:type_name -> account.v1.PortfolioSnapshot
+	118, // 29: account.v1.PortfolioSnapshot.updated_at:type_name -> google.protobuf.Timestamp
+	43,  // 30: account.v1.PortfolioSnapshot.venues:type_name -> account.v1.VenueSnapshot
+	48,  // 31: account.v1.PortfolioSnapshot.wallet:type_name -> account.v1.AccountWalletState
+	118, // 32: account.v1.VenueSnapshot.updated_at:type_name -> google.protobuf.Timestamp
+	44,  // 33: account.v1.VenueSnapshot.balances:type_name -> account.v1.BalanceEntry
+	45,  // 34: account.v1.VenueSnapshot.positions:type_name -> account.v1.PositionEntry
+	48,  // 35: account.v1.VenueSnapshot.wallet:type_name -> account.v1.AccountWalletState
+	49,  // 36: account.v1.UpdateAccountWalletStateRequest.futures:type_name -> account.v1.FuturesWallet
+	53,  // 37: account.v1.UpdateAccountWalletStateRequest.spot:type_name -> account.v1.SpotWallet
+	118, // 38: account.v1.UpdateAccountWalletStateRequest.snapshot_time:type_name -> google.protobuf.Timestamp
+	48,  // 39: account.v1.UpdateAccountWalletStateResponse.wallet:type_name -> account.v1.AccountWalletState
+	49,  // 40: account.v1.AccountWalletState.futures:type_name -> account.v1.FuturesWallet
+	53,  // 41: account.v1.AccountWalletState.spot:type_name -> account.v1.SpotWallet
+	118, // 42: account.v1.AccountWalletState.updated_at:type_name -> google.protobuf.Timestamp
+	50,  // 43: account.v1.FuturesWallet.positions:type_name -> account.v1.FuturesPosition
+	51,  // 44: account.v1.FuturesWallet.risk_metadata:type_name -> account.v1.FuturesRiskMetadata
+	52,  // 45: account.v1.FuturesRiskMetadata.brackets:type_name -> account.v1.FuturesRiskBracket
+	54,  // 46: account.v1.SpotWallet.assets:type_name -> account.v1.SpotAsset
+	118, // 47: account.v1.StrategyEntry.created_at:type_name -> google.protobuf.Timestamp
+	59,  // 48: account.v1.CreateStrategyResponse.strategy:type_name -> account.v1.StrategyEntry
+	59,  // 49: account.v1.ListStrategiesResponse.strategies:type_name -> account.v1.StrategyEntry
+	59,  // 50: account.v1.GetStrategyResponse.strategy:type_name -> account.v1.StrategyEntry
+	59,  // 51: account.v1.AccountStrategyEntry.strategy:type_name -> account.v1.StrategyEntry
+	118, // 52: account.v1.AccountStrategyEntry.mounted_at:type_name -> google.protobuf.Timestamp
+	77,  // 53: account.v1.ListAccountStrategiesResponse.entries:type_name -> account.v1.AccountStrategyEntry
+	118, // 54: account.v1.StrategySessionEntry.started_at:type_name -> google.protobuf.Timestamp
+	118, // 55: account.v1.StrategySessionEntry.completed_at:type_name -> google.protobuf.Timestamp
+	118, // 56: account.v1.StrategySessionEntry.created_at:type_name -> google.protobuf.Timestamp
+	81,  // 57: account.v1.GetSessionResponse.session:type_name -> account.v1.StrategySessionEntry
+	81,  // 58: account.v1.ListSessionsResponse.sessions:type_name -> account.v1.StrategySessionEntry
+	81,  // 59: account.v1.ListRunningSessionsResponse.sessions:type_name -> account.v1.StrategySessionEntry
+	96,  // 60: account.v1.ListSessionSnapshotsResponse.items:type_name -> account.v1.SnapshotEntry
+	118, // 61: account.v1.SnapshotEntry.time:type_name -> google.protobuf.Timestamp
+	101, // 62: account.v1.ListReconciliationRunsResponse.items:type_name -> account.v1.ReconciliationRunEntry
+	118, // 63: account.v1.ReconciliationRunEntry.time:type_name -> google.protobuf.Timestamp
+	102, // 64: account.v1.ReconciliationRunEntry.field_diffs:type_name -> account.v1.FieldDiffEntry
+	102, // 65: account.v1.ReconciliationRunEntry.advisory_diffs:type_name -> account.v1.FieldDiffEntry
+	118, // 66: account.v1.NotificationChannel.bound_at:type_name -> google.protobuf.Timestamp
+	118, // 67: account.v1.NotificationChannel.last_delivery_at:type_name -> google.protobuf.Timestamp
+	104, // 68: account.v1.GetNotificationSettingsResponse.preferences:type_name -> account.v1.NotificationPreferences
+	103, // 69: account.v1.GetNotificationSettingsResponse.plan:type_name -> account.v1.NotificationPlan
+	105, // 70: account.v1.GetNotificationSettingsResponse.telegram:type_name -> account.v1.NotificationChannel
+	104, // 71: account.v1.UpdateNotificationPreferencesRequest.preferences:type_name -> account.v1.NotificationPreferences
+	107, // 72: account.v1.UpdateNotificationPreferencesResponse.settings:type_name -> account.v1.GetNotificationSettingsResponse
+	118, // 73: account.v1.CreateNotificationBindCodeResponse.expires_at:type_name -> google.protobuf.Timestamp
+	107, // 74: account.v1.ConfirmNotificationBindingResponse.settings:type_name -> account.v1.GetNotificationSettingsResponse
+	107, // 75: account.v1.UnbindNotificationChannelResponse.settings:type_name -> account.v1.GetNotificationSettingsResponse
+	107, // 76: account.v1.SendTestNotificationResponse.settings:type_name -> account.v1.GetNotificationSettingsResponse
+	3,   // 77: account.v1.AccountService.CreateUser:input_type -> account.v1.CreateUserRequest
+	5,   // 78: account.v1.AccountService.VerifyUserPassword:input_type -> account.v1.VerifyUserPasswordRequest
+	1,   // 79: account.v1.AccountService.GetUser:input_type -> account.v1.GetUserRequest
+	11,  // 80: account.v1.AccountService.CreateAccount:input_type -> account.v1.CreateAccountRequest
+	7,   // 81: account.v1.AccountService.ListAccounts:input_type -> account.v1.ListAccountsRequest
+	9,   // 82: account.v1.AccountService.GetAccount:input_type -> account.v1.GetAccountRequest
+	15,  // 83: account.v1.AccountService.CreateVenue:input_type -> account.v1.CreateVenueRequest
+	17,  // 84: account.v1.AccountService.ListVenues:input_type -> account.v1.ListVenuesRequest
+	19,  // 85: account.v1.AccountService.GetVenue:input_type -> account.v1.GetVenueRequest
+	21,  // 86: account.v1.AccountService.GetVenueOnlineInfo:input_type -> account.v1.GetVenueOnlineInfoRequest
+	23,  // 87: account.v1.AccountService.BindVenue:input_type -> account.v1.BindVenueRequest
+	25,  // 88: account.v1.AccountService.ReleaseVenue:input_type -> account.v1.ReleaseVenueRequest
+	27,  // 89: account.v1.AccountService.ArchiveVenue:input_type -> account.v1.ArchiveVenueRequest
+	32,  // 90: account.v1.AccountService.PreflightStrategySession:input_type -> account.v1.PreflightStrategySessionRequest
+	34,  // 91: account.v1.AccountService.GetVenueRouteMeta:input_type -> account.v1.GetVenueRouteMetaRequest
+	36,  // 92: account.v1.AccountService.GetOnlineAccountInfo:input_type -> account.v1.GetOnlineAccountInfoRequest
+	38,  // 93: account.v1.AccountService.GetPortfolioSnapshot:input_type -> account.v1.GetPortfolioSnapshotRequest
+	40,  // 94: account.v1.AccountService.UpdatePortfolioSnapshot:input_type -> account.v1.UpdatePortfolioSnapshotRequest
+	46,  // 95: account.v1.AccountService.UpdateAccountWalletState:input_type -> account.v1.UpdateAccountWalletStateRequest
+	55,  // 96: account.v1.AccountService.ListSymbols:input_type -> account.v1.ListSymbolsRequest
+	57,  // 97: account.v1.AccountService.GetAccountMeta:input_type -> account.v1.GetAccountMetaRequest
+	60,  // 98: account.v1.AccountService.CreateStrategy:input_type -> account.v1.CreateStrategyRequest
+	62,  // 99: account.v1.AccountService.ListStrategies:input_type -> account.v1.ListStrategiesRequest
+	64,  // 100: account.v1.AccountService.GetStrategy:input_type -> account.v1.GetStrategyRequest
+	66,  // 101: account.v1.AccountService.ArchiveStrategy:input_type -> account.v1.ArchiveStrategyRequest
+	68,  // 102: account.v1.AccountService.MountStrategy:input_type -> account.v1.MountStrategyRequest
+	70,  // 103: account.v1.AccountService.UnmountStrategy:input_type -> account.v1.UnmountStrategyRequest
+	72,  // 104: account.v1.AccountService.ActivateStrategy:input_type -> account.v1.ActivateStrategyRequest
+	74,  // 105: account.v1.AccountService.DeactivateStrategy:input_type -> account.v1.DeactivateStrategyRequest
+	76,  // 106: account.v1.AccountService.ListAccountStrategies:input_type -> account.v1.ListAccountStrategiesRequest
+	79,  // 107: account.v1.AccountService.GetActiveStrategy:input_type -> account.v1.GetActiveStrategyRequest
+	82,  // 108: account.v1.AccountService.SaveSession:input_type -> account.v1.SaveSessionRequest
+	84,  // 109: account.v1.AccountService.UpdateSession:input_type -> account.v1.UpdateSessionRequest
+	86,  // 110: account.v1.AccountService.GetSession:input_type -> account.v1.GetSessionRequest
+	88,  // 111: account.v1.AccountService.ListSessions:input_type -> account.v1.ListSessionsRequest
+	90,  // 112: account.v1.AccountService.ListRunningSessions:input_type -> account.v1.ListRunningSessionsRequest
+	92,  // 113: account.v1.AccountService.MarkRuntimeSessionsRecoverable:input_type -> account.v1.MarkRuntimeSessionsRecoverableRequest
+	94,  // 114: account.v1.AccountService.ListSessionSnapshots:input_type -> account.v1.ListSessionSnapshotsRequest
+	97,  // 115: account.v1.AccountService.ListReconciliationRuns:input_type -> account.v1.ListReconciliationRunsRequest
+	99,  // 116: account.v1.AccountService.GetSessionReconciliationSummary:input_type -> account.v1.GetSessionReconciliationSummaryRequest
+	106, // 117: account.v1.AccountService.GetNotificationSettings:input_type -> account.v1.GetNotificationSettingsRequest
+	108, // 118: account.v1.AccountService.UpdateNotificationPreferences:input_type -> account.v1.UpdateNotificationPreferencesRequest
+	110, // 119: account.v1.AccountService.CreateNotificationBindCode:input_type -> account.v1.CreateNotificationBindCodeRequest
+	112, // 120: account.v1.AccountService.ConfirmNotificationBinding:input_type -> account.v1.ConfirmNotificationBindingRequest
+	114, // 121: account.v1.AccountService.UnbindNotificationChannel:input_type -> account.v1.UnbindNotificationChannelRequest
+	116, // 122: account.v1.AccountService.SendTestNotification:input_type -> account.v1.SendTestNotificationRequest
+	4,   // 123: account.v1.AccountService.CreateUser:output_type -> account.v1.CreateUserResponse
+	6,   // 124: account.v1.AccountService.VerifyUserPassword:output_type -> account.v1.VerifyUserPasswordResponse
+	2,   // 125: account.v1.AccountService.GetUser:output_type -> account.v1.GetUserResponse
+	12,  // 126: account.v1.AccountService.CreateAccount:output_type -> account.v1.CreateAccountResponse
+	8,   // 127: account.v1.AccountService.ListAccounts:output_type -> account.v1.ListAccountsResponse
+	10,  // 128: account.v1.AccountService.GetAccount:output_type -> account.v1.GetAccountResponse
+	16,  // 129: account.v1.AccountService.CreateVenue:output_type -> account.v1.CreateVenueResponse
+	18,  // 130: account.v1.AccountService.ListVenues:output_type -> account.v1.ListVenuesResponse
+	20,  // 131: account.v1.AccountService.GetVenue:output_type -> account.v1.GetVenueResponse
+	22,  // 132: account.v1.AccountService.GetVenueOnlineInfo:output_type -> account.v1.GetVenueOnlineInfoResponse
+	24,  // 133: account.v1.AccountService.BindVenue:output_type -> account.v1.BindVenueResponse
+	26,  // 134: account.v1.AccountService.ReleaseVenue:output_type -> account.v1.ReleaseVenueResponse
+	28,  // 135: account.v1.AccountService.ArchiveVenue:output_type -> account.v1.ArchiveVenueResponse
+	33,  // 136: account.v1.AccountService.PreflightStrategySession:output_type -> account.v1.PreflightStrategySessionResponse
+	35,  // 137: account.v1.AccountService.GetVenueRouteMeta:output_type -> account.v1.GetVenueRouteMetaResponse
+	37,  // 138: account.v1.AccountService.GetOnlineAccountInfo:output_type -> account.v1.GetOnlineAccountInfoResponse
+	39,  // 139: account.v1.AccountService.GetPortfolioSnapshot:output_type -> account.v1.GetPortfolioSnapshotResponse
+	41,  // 140: account.v1.AccountService.UpdatePortfolioSnapshot:output_type -> account.v1.UpdatePortfolioSnapshotResponse
+	47,  // 141: account.v1.AccountService.UpdateAccountWalletState:output_type -> account.v1.UpdateAccountWalletStateResponse
+	56,  // 142: account.v1.AccountService.ListSymbols:output_type -> account.v1.ListSymbolsResponse
+	58,  // 143: account.v1.AccountService.GetAccountMeta:output_type -> account.v1.GetAccountMetaResponse
+	61,  // 144: account.v1.AccountService.CreateStrategy:output_type -> account.v1.CreateStrategyResponse
+	63,  // 145: account.v1.AccountService.ListStrategies:output_type -> account.v1.ListStrategiesResponse
+	65,  // 146: account.v1.AccountService.GetStrategy:output_type -> account.v1.GetStrategyResponse
+	67,  // 147: account.v1.AccountService.ArchiveStrategy:output_type -> account.v1.ArchiveStrategyResponse
+	69,  // 148: account.v1.AccountService.MountStrategy:output_type -> account.v1.MountStrategyResponse
+	71,  // 149: account.v1.AccountService.UnmountStrategy:output_type -> account.v1.UnmountStrategyResponse
+	73,  // 150: account.v1.AccountService.ActivateStrategy:output_type -> account.v1.ActivateStrategyResponse
+	75,  // 151: account.v1.AccountService.DeactivateStrategy:output_type -> account.v1.DeactivateStrategyResponse
+	78,  // 152: account.v1.AccountService.ListAccountStrategies:output_type -> account.v1.ListAccountStrategiesResponse
+	80,  // 153: account.v1.AccountService.GetActiveStrategy:output_type -> account.v1.GetActiveStrategyResponse
+	83,  // 154: account.v1.AccountService.SaveSession:output_type -> account.v1.SaveSessionResponse
+	85,  // 155: account.v1.AccountService.UpdateSession:output_type -> account.v1.UpdateSessionResponse
+	87,  // 156: account.v1.AccountService.GetSession:output_type -> account.v1.GetSessionResponse
+	89,  // 157: account.v1.AccountService.ListSessions:output_type -> account.v1.ListSessionsResponse
+	91,  // 158: account.v1.AccountService.ListRunningSessions:output_type -> account.v1.ListRunningSessionsResponse
+	93,  // 159: account.v1.AccountService.MarkRuntimeSessionsRecoverable:output_type -> account.v1.MarkRuntimeSessionsRecoverableResponse
+	95,  // 160: account.v1.AccountService.ListSessionSnapshots:output_type -> account.v1.ListSessionSnapshotsResponse
+	98,  // 161: account.v1.AccountService.ListReconciliationRuns:output_type -> account.v1.ListReconciliationRunsResponse
+	100, // 162: account.v1.AccountService.GetSessionReconciliationSummary:output_type -> account.v1.GetSessionReconciliationSummaryResponse
+	107, // 163: account.v1.AccountService.GetNotificationSettings:output_type -> account.v1.GetNotificationSettingsResponse
+	109, // 164: account.v1.AccountService.UpdateNotificationPreferences:output_type -> account.v1.UpdateNotificationPreferencesResponse
+	111, // 165: account.v1.AccountService.CreateNotificationBindCode:output_type -> account.v1.CreateNotificationBindCodeResponse
+	113, // 166: account.v1.AccountService.ConfirmNotificationBinding:output_type -> account.v1.ConfirmNotificationBindingResponse
+	115, // 167: account.v1.AccountService.UnbindNotificationChannel:output_type -> account.v1.UnbindNotificationChannelResponse
+	117, // 168: account.v1.AccountService.SendTestNotification:output_type -> account.v1.SendTestNotificationResponse
+	123, // [123:169] is the sub-list for method output_type
+	77,  // [77:123] is the sub-list for method input_type
+	77,  // [77:77] is the sub-list for extension type_name
+	77,  // [77:77] is the sub-list for extension extendee
+	0,   // [0:77] is the sub-list for field type_name
 }
 
 func init() { file_account_service_proto_init() }

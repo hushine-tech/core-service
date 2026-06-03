@@ -62,10 +62,12 @@ type Repository interface {
 	// Current state management
 	UpdateAccountState(ctx context.Context, info domain.OnlineAccountInfo) error
 	GetAccountState(ctx context.Context, accountID int64) (domain.OnlineAccountInfo, error)
+	UpsertVenueWalletState(ctx context.Context, venue domain.Venue, info domain.OnlineAccountInfo) error
+	GetVenueWalletState(ctx context.Context, venueID, userID int64) (domain.OnlineAccountInfo, error)
 
 	// Snapshot (archive) management — event-driven writes only
 	// strategyID=0 means no strategy (manual or system-triggered snapshot).
-	SaveSnapshot(ctx context.Context, accountID int64, reason domain.SnapshotReason, strategyID int64, sessionID string) error
+	SaveSnapshot(ctx context.Context, accountID int64, reason domain.SnapshotReason, strategyID int64, sessionID string, snapshotTime time.Time) error
 
 	// Strategy management
 	CreateStrategy(ctx context.Context, s domain.Strategy) (int64, error)

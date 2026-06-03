@@ -55,7 +55,7 @@ CREATE TABLE IF NOT EXISTS order_attempts (
     error_message      TEXT             NOT NULL DEFAULT '',
     order_id           TEXT             NULL,
     exchange_order_id  TEXT             NULL,
-    mode               INTEGER          NOT NULL DEFAULT 0
+    environment        INTEGER          NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_order_attempts_user_time
@@ -86,7 +86,7 @@ CREATE TABLE IF NOT EXISTS orders (
     price               DOUBLE PRECISION NULL,
     status              TEXT             NOT NULL,
     error_message       TEXT             NOT NULL DEFAULT '',
-    mode                INTEGER          NOT NULL DEFAULT 0
+    environment         INTEGER          NOT NULL DEFAULT 0
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_exchange_order
@@ -115,7 +115,7 @@ CREATE TABLE IF NOT EXISTS order_fills (
     fill_price         DOUBLE PRECISION NOT NULL,
     fee                DOUBLE PRECISION NOT NULL DEFAULT 0,
     status             TEXT             NOT NULL,
-    mode               INTEGER          NOT NULL DEFAULT 0,
+    environment        INTEGER          NOT NULL DEFAULT 0,
     strategy_id        BIGINT           NULL,
     market             VARCHAR(20)      NULL,
     session_id         TEXT             NULL,

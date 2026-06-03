@@ -142,8 +142,24 @@ func TestUpdateAccountWalletState_Mode0_DoesNotLaunchReconciliation(t *testing.T
 		t.Fatalf("create account: %v", err)
 	}
 
-	// Seed the current state — backtest reads from DB.
-	_ = repo.UpdateAccountState(ctx, domain.OnlineAccountInfo{
+	venue, err := repo.CreateVenue(ctx, domain.Venue{
+		UserID:       testsUserID,
+		AccountID:    &accountID,
+		Exchange:     domain.ExchangeBinance,
+		Market:       domain.MarketPerpetualFutures,
+		Environment:  domain.EnvironmentBacktest,
+		Status:       domain.VenueStatusActive,
+		APIKey:       "sim_btv_00000000000000000000000000000001",
+		MarginMode:   domain.MarginModeCross,
+		PositionMode: domain.PositionModeOneWay,
+		CreatedAt:    time.Now().UTC(),
+		UpdatedAt:    time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatalf("create venue: %v", err)
+	}
+
+	info := domain.OnlineAccountInfo{
 		AccountID:   accountID,
 		Environment: domain.EnvironmentBacktest,
 		Futures: domain.FuturesWallet{
@@ -151,7 +167,9 @@ func TestUpdateAccountWalletState_Mode0_DoesNotLaunchReconciliation(t *testing.T
 		},
 		WalletBalance: 10000,
 		UpdatedAt:     time.Now().UTC(),
-	})
+	}
+	_ = repo.UpsertVenueWalletState(ctx, venue, info)
+	_ = repo.UpdateAccountState(ctx, info)
 
 	router := exchange.NewAdapterRouter(nil, repo.GetAccountState)
 	reconciler := reconciliation.NewService(enabledReconConfig(), repo)

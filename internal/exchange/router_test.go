@@ -70,21 +70,21 @@ func TestResolveTarget_BinanceTestnet(t *testing.T) {
 func TestResolveTarget_UnsupportedFailsExplicitly(t *testing.T) {
 	_, err := ResolveTarget(domain.Environment(99))
 	if err == nil {
-		t.Fatal("expected error for unsupported mode")
+		t.Fatal("expected error for unsupported environment")
 	}
 	if !strings.Contains(err.Error(), "unsupported") {
-		t.Fatalf("expected unsupported-mode error, got %v", err)
+		t.Fatalf("expected unsupported-environment error, got %v", err)
 	}
 }
 
 // AdapterRouter unit tests --------------------------------------------------
 
-func TestRouter_Backtest_ReadsFromDBAndSetsMode(t *testing.T) {
+func TestRouter_Backtest_ReadsFromDBAndSetsEnvironment(t *testing.T) {
 	getFromDB := func(_ context.Context, accountID int64) (domain.OnlineAccountInfo, error) {
 		return domain.OnlineAccountInfo{
 			AccountID:  accountID,
 			TotalValue: 12345,
-			// mode intentionally left as zero — router must stamp backtest
+			// Environment intentionally left as zero; router must stamp backtest.
 		}, nil
 	}
 	r := NewAdapterRouter(nil, getFromDB)
@@ -96,7 +96,7 @@ func TestRouter_Backtest_ReadsFromDBAndSetsMode(t *testing.T) {
 		t.Fatalf("unexpected err: %v", err)
 	}
 	if info.Environment != domain.EnvironmentBacktest {
-		t.Fatalf("expected backtest mode stamped, got %d", info.Environment)
+		t.Fatalf("expected backtest environment stamped, got %d", info.Environment)
 	}
 	if info.TotalValue != 12345 {
 		t.Fatalf("expected DB value passthrough, got %v", info.TotalValue)
@@ -127,7 +127,7 @@ func TestRouter_BinanceTestnet_UsesAccountCredentials(t *testing.T) {
 		t.Fatalf("adapter did not receive per-account credentials: %+v", fake.fetched)
 	}
 	if info.Environment != domain.EnvironmentDemo {
-		t.Fatalf("expected testnet mode stamped, got %d", info.Environment)
+		t.Fatalf("expected demo environment stamped, got %d", info.Environment)
 	}
 	if info.TotalValue != 9999 {
 		t.Fatalf("expected fake value passthrough, got %v", info.TotalValue)
@@ -135,7 +135,7 @@ func TestRouter_BinanceTestnet_UsesAccountCredentials(t *testing.T) {
 }
 
 func TestRouter_BinanceLive_AdapterNotConfiguredFailsExplicitly(t *testing.T) {
-	// only testnet registered
+	// only demo registered
 	r := NewAdapterRouter(
 		map[ExchangeTarget]OnlineInfoFetcher{
 			{Provider: ProviderBinance, Environment: EnvDemo}: &fakeFetcher{},
@@ -156,13 +156,13 @@ func TestRouter_BinanceLive_AdapterNotConfiguredFailsExplicitly(t *testing.T) {
 	}
 }
 
-func TestRouter_UnsupportedModeDoesNotFallback(t *testing.T) {
+func TestRouter_UnsupportedEnvironmentDoesNotFallback(t *testing.T) {
 	r := NewAdapterRouter(
 		map[ExchangeTarget]OnlineInfoFetcher{
 			{Provider: ProviderBinance, Environment: EnvLive}: &fakeFetcher{},
 		},
 		func(_ context.Context, id int64) (domain.OnlineAccountInfo, error) {
-			t.Fatalf("backtest fallback must NOT be called for unsupported mode")
+			t.Fatalf("backtest fallback must NOT be called for unsupported environment")
 			return domain.OnlineAccountInfo{}, nil
 		},
 	)
@@ -171,7 +171,7 @@ func TestRouter_UnsupportedModeDoesNotFallback(t *testing.T) {
 		Environment: domain.Environment(99),
 	})
 	if err == nil {
-		t.Fatal("expected error for unsupported mode")
+		t.Fatal("expected error for unsupported environment")
 	}
 }
 

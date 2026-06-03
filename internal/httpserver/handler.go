@@ -10,12 +10,15 @@ import (
 
 	"github.com/hushine-tech/core-service/internal/domain"
 	"github.com/hushine-tech/core-service/internal/repository"
+	"github.com/hushine-tech/core-service/internal/venuekeys"
 )
 
 // Handler implements the HTTP REST API for account management.
 type Handler struct {
 	repo repository.Repository
 }
+
+var newBacktestVenueAPIKey = venuekeys.NewBacktestAPIKey
 
 func NewHandler(repo repository.Repository) *Handler {
 	return &Handler{repo: repo}
@@ -85,17 +88,34 @@ func (h *Handler) handleAccountByID(w http.ResponseWriter, r *http.Request) {
 }
 
 type createAccountRequest struct {
-	UserID         int64   `json:"user_id"`
-	Name           string  `json:"name"`
-	Description    string  `json:"description"`
-	Environment    int     `json:"environment"`
-	APIKey         string  `json:"api_key"`
-	APISecret      string  `json:"api_secret"`
-	InitialBalance float64 `json:"initial_balance"`
-	MarginMode     string  `json:"margin_mode"`
-	PositionMode   string  `json:"position_mode"`
-	SlippageBps    float64 `json:"slippage_bps"`
-	DefaultFeeRate float64 `json:"default_fee_rate"`
+	UserID         int64    `json:"user_id"`
+	Name           string   `json:"name"`
+	Description    string   `json:"description"`
+	Environment    int      `json:"environment"`
+	Mode           *int     `json:"mode"`
+	APIKey         string   `json:"api_key"`
+	APISecret      string   `json:"api_secret"`
+	InitialBalance *float64 `json:"initial_balance"`
+	MarginMode     string   `json:"margin_mode"`
+	PositionMode   string   `json:"position_mode"`
+	SlippageBps    float64  `json:"slippage_bps"`
+	DefaultFeeRate float64  `json:"default_fee_rate"`
+}
+
+func deprecatedCreateAccountPayloadMessage(req createAccountRequest) string {
+	if req.Mode != nil {
+		return "account mode is deprecated; use environment"
+	}
+	if strings.TrimSpace(req.APIKey) != "" || strings.TrimSpace(req.APISecret) != "" {
+		return "account credentials must be configured on venues"
+	}
+	if req.InitialBalance != nil {
+		return "account initial_balance is deprecated; configure venue state instead"
+	}
+	if strings.TrimSpace(req.MarginMode) != "" || strings.TrimSpace(req.PositionMode) != "" {
+		return "margin_mode and position_mode must be configured on venues"
+	}
+	return ""
 }
 
 func (h *Handler) createAccount(w http.ResponseWriter, r *http.Request) {
@@ -112,15 +132,11 @@ func (h *Handler) createAccount(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "user_id is required")
 		return
 	}
+	if msg := deprecatedCreateAccountPayloadMessage(req); msg != "" {
+		writeError(w, http.StatusBadRequest, msg)
+		return
+	}
 
-	marginMode := req.MarginMode
-	if marginMode == "" {
-		marginMode = "cross"
-	}
-	positionMode := req.PositionMode
-	if positionMode == "" {
-		positionMode = "one_way"
-	}
 	feeRate := req.DefaultFeeRate
 	if feeRate == 0 {
 		feeRate = 0.0004
@@ -130,55 +146,62 @@ func (h *Handler) createAccount(w http.ResponseWriter, r *http.Request) {
 		Name:           strings.TrimSpace(req.Name),
 		Description:    strings.TrimSpace(req.Description),
 		Environment:    domain.Environment(req.Environment),
-		APIKey:         req.APIKey,
-		APISecret:      req.APISecret,
-		MarginMode:     marginMode,
-		PositionMode:   positionMode,
+		MarginMode:     "cross",
+		PositionMode:   "one_way",
 		SlippageBps:    req.SlippageBps,
 		DefaultFeeRate: feeRate,
 		CreatedAt:      time.Now().UTC(),
 	}
 
+	var backtestVenueAPIKey string
+	if account.Environment == domain.EnvironmentBacktest {
+		apiKey, err := newBacktestVenueAPIKey()
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "generate backtest venue key: "+err.Error())
+			return
+		}
+		backtestVenueAPIKey = apiKey
+	}
+
 	ctx := r.Context()
 	newID, err := h.repo.CreateAccount(ctx, account)
 	if err != nil {
+		if errors.Is(err, repository.ErrConflict) {
+			writeError(w, http.StatusConflict, "account already exists")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "create account: "+err.Error())
 		return
 	}
 	account.AccountID = newID
 
-	// 回测账号有初始余额：写入 accounts 表当前状态 + initial_seed 快照
-	if domain.Environment(req.Environment) == domain.EnvironmentBacktest && req.InitialBalance > 0 {
-		totalValue := req.InitialBalance
-		spot := domain.SpotWallet{}
-		if req.InitialBalance > 0 {
-			spot.Free = req.InitialBalance
-			totalValue += req.InitialBalance
-		}
-		info := domain.OnlineAccountInfo{
-			AccountID:   newID,
-			Environment: account.Environment,
-			Futures: domain.FuturesWallet{
-				MarginMode:         account.MarginMode,
-				PositionMode:       account.PositionMode,
-				InitialBalance:     req.InitialBalance,
-				WalletBalance:      req.InitialBalance,
-				AvailableBalance:   req.InitialBalance,
-				TotalMarginBalance: req.InitialBalance,
-				MarginBalance:      req.InitialBalance,
-			},
-			Spot:             spot,
-			TotalValue:       totalValue,
-			WalletBalance:    req.InitialBalance,
-			AvailableBalance: req.InitialBalance,
-			UpdatedAt:        time.Now().UTC(),
-		}
-		if err := h.repo.UpdateAccountState(ctx, info); err != nil {
-			writeError(w, http.StatusInternalServerError, "init wallet state: "+err.Error())
+	if account.Environment == domain.EnvironmentBacktest {
+		venue, err := h.repo.CreateVenue(ctx, domain.Venue{
+			UserID:               account.UserID,
+			AccountID:            &newID,
+			Exchange:             domain.ExchangeBinance,
+			Market:               domain.MarketPerpetualFutures,
+			Environment:          domain.EnvironmentBacktest,
+			Status:               domain.VenueStatusActive,
+			DisplayName:          "Simulated Binance Perpetual Futures",
+			Description:          "default simulated venue",
+			APIKey:               backtestVenueAPIKey,
+			CredentialKeyVersion: "synthetic",
+			MarginMode:           domain.MarginModeCross,
+			PositionMode:         domain.PositionModeOneWay,
+			CreatedAt:            time.Now().UTC(),
+			UpdatedAt:            time.Now().UTC(),
+		})
+		if err != nil {
+			if errors.Is(err, repository.ErrConflict) {
+				writeError(w, http.StatusConflict, "default backtest venue already exists")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "create default venue: "+err.Error())
 			return
 		}
-		if err := h.repo.SaveSnapshot(ctx, newID, domain.SnapshotReasonInitialSeed, 0, ""); err != nil {
-			writeError(w, http.StatusInternalServerError, "init snapshot: "+err.Error())
+		if err := h.repo.UpsertVenueWalletState(ctx, venue, defaultBacktestVenueState(account, venue)); err != nil {
+			writeError(w, http.StatusInternalServerError, "initialize backtest venue wallet state: "+err.Error())
 			return
 		}
 	}
@@ -191,6 +214,26 @@ func (h *Handler) createAccount(w http.ResponseWriter, r *http.Request) {
 		"environment": int(account.Environment),
 		"created_at":  account.CreatedAt,
 	})
+}
+
+func defaultBacktestVenueState(account domain.Account, venue domain.Venue) domain.OnlineAccountInfo {
+	marginMode := "cross"
+	if venue.MarginMode == domain.MarginModeIsolated {
+		marginMode = "isolated"
+	}
+	positionMode := "one_way"
+	if venue.PositionMode == domain.PositionModeHedge {
+		positionMode = "hedge"
+	}
+	return domain.OnlineAccountInfo{
+		AccountID:        account.AccountID,
+		Environment:      domain.EnvironmentBacktest,
+		Futures:          domain.FuturesWallet{MarginMode: marginMode, PositionMode: positionMode},
+		TotalValue:       0,
+		WalletBalance:    0,
+		AvailableBalance: 0,
+		UpdatedAt:        time.Now().UTC(),
+	}
 }
 
 func (h *Handler) listAccounts(w http.ResponseWriter, r *http.Request) {

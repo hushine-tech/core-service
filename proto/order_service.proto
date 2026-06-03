@@ -45,6 +45,7 @@ message PlaceOrderRequest {
   int32 position_side = 12;  // 0=none/BOTH, 1=long, 2=short
   string order_type = 13;    // MARKET / LIMIT; empty infers MARKET unless price is set
   string time_in_force = 14; // LIMIT default: GTC
+  google.protobuf.Timestamp market_time = 15; // 回测/行情事件时间；为空时使用服务端处理时间
 }
 
 message PlaceOrderResponse {

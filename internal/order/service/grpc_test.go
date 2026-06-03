@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/hushine-tech/core-service/gen/orderv1"
 	"github.com/hushine-tech/core-service/internal/domain"
@@ -15,6 +16,7 @@ import (
 	"github.com/hushine-tech/core-service/internal/order/repository"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type stubMetaGetter struct {
@@ -503,6 +505,45 @@ func TestPlaceOrder_filledOrderCreatesAttemptOrderAndFill(t *testing.T) {
 	}
 	if repo.fills[0].Qty != 0.1 {
 		t.Fatalf("fill qty = %.4f", repo.fills[0].Qty)
+	}
+}
+
+func TestPlaceOrderBacktestUsesMarketTimeAsExecutionEventTime(t *testing.T) {
+	meta := testOrderMeta(environmentBacktest)
+	result := executor.OrderResult{
+		ExchangeOrderID: "ex-order-1",
+		Symbol:          "BTCUSDT",
+		Side:            "BUY",
+		Status:          "FILLED",
+		OrigQty:         0.1,
+		ExecutedQty:     0.1,
+		AvgPrice:        50025,
+		Fills: []executor.FillResult{{
+			Qty:       0.1,
+			FillPrice: 50025,
+			Fee:       2.001,
+		}},
+	}
+	svc, repo := newTestSvc(meta, nil, result, nil)
+	marketTime := time.Date(2026, 6, 1, 0, 43, 0, 0, time.UTC)
+
+	req := testPlaceOrderRequest()
+	req.Symbol = "BTCUSDT"
+	req.Qty = 0.1
+	req.MarkPrice = 50000
+	req.MarketTime = timestamppb.New(marketTime)
+
+	if _, err := svc.PlaceOrder(context.Background(), req); err != nil {
+		t.Fatalf("PlaceOrder: %v", err)
+	}
+	if !repo.intents[0].Time.Equal(marketTime) {
+		t.Fatalf("intent time = %s, want %s", repo.intents[0].Time, marketTime)
+	}
+	if !repo.orders[0].Time.Equal(marketTime) {
+		t.Fatalf("order time = %s, want %s", repo.orders[0].Time, marketTime)
+	}
+	if !repo.fills[0].Time.Equal(marketTime) {
+		t.Fatalf("fill time = %s, want %s", repo.fills[0].Time, marketTime)
 	}
 }
 

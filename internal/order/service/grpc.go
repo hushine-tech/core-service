@@ -108,6 +108,7 @@ func (s *OrderGRPCService) PlaceOrder(ctx context.Context, req *orderv1.PlaceOrd
 	}
 
 	now := time.Now().UTC()
+	eventTime := marketTimeOrNow(req.GetMarketTime(), now)
 	intentID := strings.TrimSpace(req.GetIntentId())
 	if intentID == "" {
 		intentID = uuid.New().String()
@@ -118,7 +119,7 @@ func (s *OrderGRPCService) PlaceOrder(ctx context.Context, req *orderv1.PlaceOrd
 
 	intent := repository.OrderIntent{
 		IntentID:       intentID,
-		Time:           now,
+		Time:           eventTime,
 		AccountID:      accountID,
 		VenueID:        meta.VenueID,
 		UserID:         meta.UserID,
@@ -142,7 +143,7 @@ func (s *OrderGRPCService) PlaceOrder(ctx context.Context, req *orderv1.PlaceOrd
 	attempt := repository.OrderAttempt{
 		AttemptID:      attemptID,
 		IntentID:       intentID,
-		Time:           now,
+		Time:           eventTime,
 		AccountID:      accountID,
 		VenueID:        meta.VenueID,
 		UserID:         meta.UserID,
@@ -205,7 +206,7 @@ func (s *OrderGRPCService) PlaceOrder(ctx context.Context, req *orderv1.PlaceOrd
 		attempt.ErrorMessage = nonEmpty(result.ErrorMessage, "order attempt failed")
 		attempt.RecoveryError = ""
 	} else {
-		persistedOrder, persistedFills = buildPersistedExecution(meta, attempt, req.GetStrategyId(), req.GetSessionId(), market, result)
+		persistedOrder, persistedFills = buildPersistedExecution(meta, attempt, req.GetStrategyId(), req.GetSessionId(), market, result, eventTime)
 		attempt.OrderID = persistedOrder.OrderID
 		attempt.ExchangeOrderID = persistedOrder.ExchangeOrderID
 		if result.FillPending {
@@ -466,7 +467,7 @@ func (s *OrderGRPCService) resolveAttempt(
 		return buildPlaceOrderResponse(attempt, nil, nil), nil
 	}
 
-	persistedOrder, persistedFills := buildPersistedExecution(meta, attempt, strategyID, sessionID, market, result)
+	persistedOrder, persistedFills := buildPersistedExecution(meta, attempt, strategyID, sessionID, market, result, time.Now().UTC())
 	attempt.OrderID = persistedOrder.OrderID
 	attempt.ExchangeOrderID = persistedOrder.ExchangeOrderID
 	if result.FillPending {
@@ -632,8 +633,12 @@ func buildPersistedExecution(
 	sessionID string,
 	market int32,
 	result executor.OrderResult,
+	eventTime time.Time,
 ) (*repository.Order, []repository.OrderFill) {
-	now := time.Now().UTC()
+	now := eventTime.UTC()
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
 	localOrderID := nonEmpty(attempt.OrderID, uuid.New().String())
 	order := &repository.Order{
 		OrderID:         localOrderID,
@@ -905,6 +910,17 @@ func timestampOrNil(value time.Time) *timestamppb.Timestamp {
 		return nil
 	}
 	return timestamppb.New(value)
+}
+
+func marketTimeOrNow(value *timestamppb.Timestamp, fallback time.Time) time.Time {
+	if value == nil || value.CheckValid() != nil {
+		return fallback.UTC()
+	}
+	out := value.AsTime().UTC()
+	if out.IsZero() {
+		return fallback.UTC()
+	}
+	return out
 }
 
 func fallbackPositive(primary, fallback float64) float64 {

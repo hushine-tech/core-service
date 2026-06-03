@@ -4,7 +4,6 @@
 //
 //	integration-grpc-client -addr 127.0.0.1:50051 -scenario create-user -username tester -password secret
 //	integration-grpc-client -addr 127.0.0.1:50051 -account <id> -scenario backtest
-//	integration-grpc-client -addr 127.0.0.1:50051 -account <id> -scenario live
 package main
 
 import (
@@ -83,7 +82,7 @@ func runBacktest(ctx context.Context, cli accountv1.AccountServiceClient, accoun
 	if userID <= 0 {
 		log.Fatal("-user is required for backtest")
 	}
-	fmt.Println("=== backtest: GetOnlineAccountInfo (expect seeded balance) ===")
+	fmt.Println("=== backtest: GetOnlineAccountInfo (expect simulated venue defaults) ===")
 	g1, err := cli.GetOnlineAccountInfo(ctx, &accountv1.GetOnlineAccountInfoRequest{AccountId: accountID, UserId: userID})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "GetOnlineAccountInfo: %v\n", err)

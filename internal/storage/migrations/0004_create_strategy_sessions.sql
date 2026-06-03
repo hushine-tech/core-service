@@ -3,7 +3,7 @@ CREATE TABLE IF NOT EXISTS strategy_sessions (
     session_id      TEXT PRIMARY KEY,
     account_id      BIGINT NOT NULL,
     strategy_id     BIGINT NOT NULL,
-    mode            INTEGER NOT NULL DEFAULT 0,
+    environment     INTEGER NOT NULL DEFAULT 0,
     status          TEXT NOT NULL DEFAULT 'running',
     interval        TEXT NOT NULL DEFAULT '1m',
     start_time_ms   BIGINT NULL,

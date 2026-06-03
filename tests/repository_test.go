@@ -20,6 +20,7 @@ type mockRepo struct {
 	accounts             map[int64]domain.Account
 	venues               map[int64]domain.Venue
 	states               map[int64]domain.OnlineAccountInfo
+	venueStates          map[int64]domain.OnlineAccountInfo
 	snapshots            []domain.SnapshotReason // log of reasons written
 	strategies           map[int64]domain.Strategy
 	accountStrategies    map[int64]map[int64]domain.AccountStrategy
@@ -56,6 +57,7 @@ func newMockRepo() *mockRepo {
 		accounts:             make(map[int64]domain.Account),
 		venues:               make(map[int64]domain.Venue),
 		states:               make(map[int64]domain.OnlineAccountInfo),
+		venueStates:          make(map[int64]domain.OnlineAccountInfo),
 		strategies:           make(map[int64]domain.Strategy),
 		accountStrategies:    make(map[int64]map[int64]domain.AccountStrategy),
 		sessions:             make(map[string]domain.StrategySession),
@@ -235,6 +237,7 @@ func (m *mockRepo) ReleaseVenue(_ context.Context, userID, venueID int64, _ stri
 	}
 	venue.AccountID = nil
 	m.venues[venueID] = venue
+	delete(m.venueStates, venueID)
 	return venue, nil
 }
 
@@ -254,6 +257,7 @@ func (m *mockRepo) ArchiveVenue(_ context.Context, userID, venueID int64, reason
 	venue.Status = domain.VenueStatusArchived
 	venue.ArchivedReason = reason
 	m.venues[venueID] = venue
+	delete(m.venueStates, venueID)
 	return nil
 }
 
@@ -315,7 +319,24 @@ func (m *mockRepo) GetAccountState(_ context.Context, id int64) (domain.OnlineAc
 	return s, nil
 }
 
-func (m *mockRepo) SaveSnapshot(_ context.Context, accountID int64, reason domain.SnapshotReason, _ int64, _ string) error {
+func (m *mockRepo) UpsertVenueWalletState(_ context.Context, venue domain.Venue, info domain.OnlineAccountInfo) error {
+	m.venueStates[venue.VenueID] = info
+	return nil
+}
+
+func (m *mockRepo) GetVenueWalletState(_ context.Context, venueID, userID int64) (domain.OnlineAccountInfo, error) {
+	venue, ok := m.venues[venueID]
+	if !ok || (userID > 0 && venue.UserID != userID) {
+		return domain.OnlineAccountInfo{}, errNotFound
+	}
+	info, ok := m.venueStates[venueID]
+	if !ok {
+		return domain.OnlineAccountInfo{}, errNotFound
+	}
+	return info, nil
+}
+
+func (m *mockRepo) SaveSnapshot(_ context.Context, accountID int64, reason domain.SnapshotReason, _ int64, _ string, _ time.Time) error {
 	if _, ok := m.states[accountID]; !ok {
 		return errNotFound
 	}
@@ -667,7 +688,7 @@ func TestMockRepoSaveSnapshot(t *testing.T) {
 	id, _ := repo.CreateAccount(ctx, domain.Account{Name: "bt", UserID: 1, Environment: domain.EnvironmentBacktest, CreatedAt: time.Now()})
 	_ = repo.UpdateAccountState(ctx, domain.OnlineAccountInfo{AccountID: id, WalletBalance: 5000, UpdatedAt: time.Now()})
 
-	if err := repo.SaveSnapshot(ctx, id, domain.SnapshotReasonOrderFill, 0, ""); err != nil {
+	if err := repo.SaveSnapshot(ctx, id, domain.SnapshotReasonOrderFill, 0, "", time.Time{}); err != nil {
 		t.Fatalf("SaveSnapshot: %v", err)
 	}
 	if len(repo.snapshots) != 1 || repo.snapshots[0] != domain.SnapshotReasonOrderFill {
@@ -678,7 +699,7 @@ func TestMockRepoSaveSnapshot(t *testing.T) {
 func TestMockRepoSaveSnapshot_notFound(t *testing.T) {
 	repo := newMockRepo()
 	ctx := context.Background()
-	err := repo.SaveSnapshot(ctx, 999, domain.SnapshotReasonOrderFill, 0, "")
+	err := repo.SaveSnapshot(ctx, 999, domain.SnapshotReasonOrderFill, 0, "", time.Time{})
 	if err == nil {
 		t.Fatal("expected error for non-existent account")
 	}

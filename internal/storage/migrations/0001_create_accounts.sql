@@ -2,7 +2,7 @@ CREATE TABLE IF NOT EXISTS accounts (
     account_id       BIGSERIAL       PRIMARY KEY,
     name             TEXT            NOT NULL,
     description      TEXT            NOT NULL DEFAULT '',
-    mode             INTEGER         NOT NULL DEFAULT 0,
+    environment      INTEGER         NOT NULL DEFAULT 0,
     api_key          TEXT            NOT NULL DEFAULT '',
     api_secret       TEXT            NOT NULL DEFAULT '',
     margin_mode      TEXT            NOT NULL DEFAULT 'cross',

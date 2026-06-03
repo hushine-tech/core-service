@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# End-to-end: TimescaleDB + core-service (HTTP + gRPC) with MOCK_BINANCE for live.
+# End-to-end: TimescaleDB + core-service (HTTP + gRPC) for backtest account flow.
 #
 # Prerequisites: Go 1.22+, TimescaleDB reachable, Python 3 (for JSON) or jq.
 #
@@ -13,7 +13,6 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 export TIMESCALEDB_DSN="${TIMESCALEDB_DSN:-host=192.168.88.10 port=5432 user=postgres password=postgres dbname=account sslmode=disable}"
-export MOCK_BINANCE=1
 export HTTP_ADDR="${HTTP_ADDR:-:18080}"
 export GRPC_ADDR="${GRPC_ADDR:-:18081}"
 export BINLOG_PATH="${BINLOG_PATH:-./logs}"
@@ -33,7 +32,6 @@ mkdir -p "$BINLOG_PATH"
 
 STAMP="$(date +%s)-$$"
 BT_NAME="e2e-bt-${STAMP}"
-LV_NAME="e2e-lv-${STAMP}"
 USERNAME="e2e-user-${STAMP}"
 PASSWORD="integration-pass-${STAMP}"
 
@@ -79,24 +77,14 @@ if [[ -z "$USER_ID" ]]; then
 fi
 echo "=== gRPC: created user ${USERNAME} (user_id=${USER_ID}) ==="
 
-echo "=== curl: create backtest account + wallet (initial_balance) ==="
+echo "=== curl: create backtest account context ==="
 BT_JSON="$(curl -sS -X POST "${HTTP_BASE}/accounts" \
   -H 'Content-Type: application/json' \
-  -d "{\"user_id\":${USER_ID},\"name\":\"${BT_NAME}\",\"mode\":0,\"initial_balance\":10000}")"
+  -d "{\"user_id\":${USER_ID},\"name\":\"${BT_NAME}\",\"environment\":0}")"
 echo "$BT_JSON"
 BT_ID="$(echo "$BT_JSON" | extract_id)"
 
-echo "=== curl: create live account (credentials placeholder; Binance mocked) ==="
-LV_JSON="$(curl -sS -X POST "${HTTP_BASE}/accounts" \
-  -H 'Content-Type: application/json' \
-  -d "{\"user_id\":${USER_ID},\"name\":\"${LV_NAME}\",\"mode\":1,\"api_key\":\"mock\",\"api_secret\":\"mock\"}")"
-echo "$LV_JSON"
-LV_ID="$(echo "$LV_JSON" | extract_id)"
-
 echo "=== gRPC client: backtest scenario (account ${BT_ID}) ==="
 go run ./cmd/integration-grpc-client -addr "$GRPC_HOSTPORT" -account "$BT_ID" -user "$USER_ID" -scenario backtest
-
-echo "=== gRPC client: live scenario (account ${LV_ID}) ==="
-go run ./cmd/integration-grpc-client -addr "$GRPC_HOSTPORT" -account "$LV_ID" -user "$USER_ID" -scenario live
 
 echo "=== OK: e2e finished (data persisted to TimescaleDB) ==="

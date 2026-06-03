@@ -221,7 +221,7 @@ message CreateAccountRequest {
   string name = 1;
   int32 environment = 2;
   reserved 3, 4; // removed: account credentials now live on venues
-  double initial_balance = 5;
+  double initial_balance = 5; // deprecated: account creation no longer seeds wallet state
   reserved 6, 7; // removed: market modes now live on venues
   double slippage_bps = 8;     // default: 0.0
   double default_fee_rate = 9; // default: 0.0004
@@ -283,6 +283,11 @@ message CreateVenueRequest {
   string credential_json = 10;
   int32 margin_mode = 11;
   int32 position_mode = 12;
+  FuturesWallet futures = 13;
+  SpotWallet spot = 14;
+  double total_value = 15;
+  double wallet_balance = 16;
+  double available_balance = 17;
 }
 
 message CreateVenueResponse {
@@ -431,6 +436,8 @@ message UpdatePortfolioSnapshotRequest {
   int32 snapshot_reason = 3;
   int64 strategy_id = 4;
   string session_id = 5;
+  // 回测/行情事件时间；为空时快照使用服务端处理时间。
+  google.protobuf.Timestamp snapshot_time = 6;
 }
 
 message UpdatePortfolioSnapshotResponse {
@@ -496,6 +503,8 @@ message UpdateAccountWalletStateRequest {
   int64 strategy_id = 9;
   // 关联的 session ID（空字符串 = 非 session 触发）
   string session_id = 10;
+  // 回测/行情事件时间；为空时快照使用服务端处理时间。
+  google.protobuf.Timestamp snapshot_time = 11;
 }
 
 message UpdateAccountWalletStateResponse {

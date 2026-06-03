@@ -209,6 +209,7 @@ CREATE INDEX IF NOT EXISTS idx_reconciliation_runs_hard_fail
 -- Portfolio/Venue Phase 1 schema note:
 -- accounts.environment replaces accounts.mode.
 -- venues stores exchange/market credential resources.
+-- venue_wallet_states stores current canonical wallet state keyed by venue_id.
 -- session_venues snapshots account-bound venues at session start.
 -- order_intents stores order route facts.
 -- order_attempts, orders, and order_fills keep execution facts and join to order_intents.

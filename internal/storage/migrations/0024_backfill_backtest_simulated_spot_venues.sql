@@ -1,3 +1,0 @@
--- Superseded by the hard-cut synthetic-key venue model.
--- Spot execution is not supported for backtest venues yet, so this migration
--- intentionally does not create simulated spot venues.

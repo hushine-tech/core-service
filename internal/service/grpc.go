@@ -1400,7 +1400,7 @@ func (s *AccountGRPCService) readPortfolioSnapshot(ctx context.Context, account 
 			return adapter.PortfolioSnapshot{}, mapRepoErr(err)
 		}
 		if len(venues) == 0 {
-			return adapter.PortfolioSnapshot{}, status.Error(codes.FailedPrecondition, "account has no active venue")
+			return emptyPortfolioSnapshot(account), nil
 		}
 		snapshot := adapter.PortfolioSnapshot{
 			UserID:      account.UserID,
@@ -1439,15 +1439,15 @@ func (s *AccountGRPCService) readPortfolioSnapshot(ctx context.Context, account 
 		}
 		return snapshot, nil
 	}
-	if s.registry == nil {
-		return adapter.PortfolioSnapshot{}, status.Error(codes.FailedPrecondition, "exchange capability registry is not configured")
-	}
 	venues, err := s.repo.ListActiveAccountVenues(ctx, account.UserID, account.AccountID)
 	if err != nil {
 		return adapter.PortfolioSnapshot{}, mapRepoErr(err)
 	}
 	if len(venues) == 0 {
-		return adapter.PortfolioSnapshot{}, status.Error(codes.FailedPrecondition, "account has no active venue")
+		return emptyPortfolioSnapshot(account), nil
+	}
+	if s.registry == nil {
+		return adapter.PortfolioSnapshot{}, status.Error(codes.FailedPrecondition, "exchange capability registry is not configured")
 	}
 
 	out := adapter.PortfolioSnapshot{
@@ -1501,6 +1501,22 @@ func (s *AccountGRPCService) readPortfolioSnapshot(ctx context.Context, account 
 		out.VenueSnapshots = append(out.VenueSnapshots, venueSnapshot)
 	}
 	return out, nil
+}
+
+func emptyPortfolioSnapshot(account domain.Account) adapter.PortfolioSnapshot {
+	updatedAt := time.Now().UTC()
+	info := domain.OnlineAccountInfo{
+		AccountID:   account.AccountID,
+		Environment: environmentFromAccount(account),
+		UpdatedAt:   updatedAt,
+	}
+	return adapter.PortfolioSnapshot{
+		UserID:      account.UserID,
+		AccountID:   account.AccountID,
+		Environment: environmentFromAccount(account),
+		UpdatedAt:   updatedAt,
+		OnlineInfo:  &info,
+	}
 }
 
 func (s *AccountGRPCService) ensureBacktestVenueWalletState(ctx context.Context, account domain.Account, venue domain.Venue) error {

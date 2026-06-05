@@ -45,9 +45,12 @@ func (simulatedOrderExecutor) PlaceOrder(_ context.Context, req adapter.OrderReq
 	}
 	qty := math.Abs(req.Qty)
 	slippageFactor := req.SlippageBps / 10000.0
-	side := strings.ToUpper(strings.TrimSpace(req.Side))
+	side, err := normalizeOrderSide(req.Side)
+	if err != nil {
+		return adapter.OrderResult{}, err
+	}
 	fillPrice := price
-	if side == "BUY" || side == "LONG" {
+	if side == "BUY" {
 		fillPrice = price * (1 + slippageFactor)
 	} else {
 		fillPrice = price * (1 - slippageFactor)
@@ -82,6 +85,10 @@ func (simulatedOrderExecutor) PlaceOrder(_ context.Context, req adapter.OrderReq
 }
 
 func placeSimulatedLimitOrder(req adapter.OrderRequest, orderType string) (adapter.OrderResult, error) {
+	side, err := normalizeOrderSide(req.Side)
+	if err != nil {
+		return adapter.OrderResult{}, err
+	}
 	limitPrice := 0.0
 	if req.Price != nil {
 		limitPrice = *req.Price
@@ -103,7 +110,7 @@ func placeSimulatedLimitOrder(req adapter.OrderRequest, orderType string) (adapt
 		ExchangeOrderID: exchangeOrderID,
 		ClientOrderID:   strings.TrimSpace(req.ClientOrderID),
 		Symbol:          strings.ToUpper(strings.TrimSpace(req.Symbol)),
-		Side:            strings.ToUpper(strings.TrimSpace(req.Side)),
+		Side:            side,
 		Qty:             req.Qty,
 		LimitPrice:      limitPrice,
 		FeeRate:         req.DefaultFeeRate,
@@ -120,7 +127,7 @@ func placeSimulatedLimitOrder(req adapter.OrderRequest, orderType string) (adapt
 		ExchangeOrderID: exchangeOrderID,
 		ClientOrderID:   strings.TrimSpace(req.ClientOrderID),
 		Symbol:          match.State.Symbol,
-		Side:            strings.ToUpper(strings.TrimSpace(req.Side)),
+		Side:            side,
 		PositionSide:    req.PositionSide,
 		OrderType:       orderType,
 		TimeInForce:     timeInForce,
@@ -143,6 +150,16 @@ func placeSimulatedLimitOrder(req adapter.OrderRequest, orderType string) (adapt
 		}}
 	}
 	return out, nil
+}
+
+func normalizeOrderSide(side string) (string, error) {
+	normalized := strings.ToUpper(strings.TrimSpace(side))
+	switch normalized {
+	case "BUY", "SELL":
+		return normalized, nil
+	default:
+		return "", fmt.Errorf("unsupported order side: %q", side)
+	}
 }
 
 func toLegacyOrderRequest(req adapter.OrderRequest) orderexecutor.OrderRequest {

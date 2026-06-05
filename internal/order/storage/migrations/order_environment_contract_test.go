@@ -8,8 +8,7 @@ import (
 
 func TestFreshOrderMigrationsDoNotCreateLegacyAccountEnvironmentColumns(t *testing.T) {
 	files := []string{
-		"0001_create_order_fills.sql",
-		"0004_order_execution_domain.sql",
+		"0006_order_venue_hard_cut.sql",
 	}
 	legacyAccountRoutingColumn := regexp.MustCompile(`(?i)\b[m]ode\b`)
 	for _, path := range files {

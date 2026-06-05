@@ -264,6 +264,7 @@ func TestPlaceOrder_validationErrors(t *testing.T) {
 		{&orderv1.PlaceOrderRequest{AccountId: 0, Symbol: "BTCUSDT", Qty: 1}, codes.InvalidArgument},
 		{&orderv1.PlaceOrderRequest{AccountId: 1, Symbol: "", Qty: 1}, codes.InvalidArgument},
 		{&orderv1.PlaceOrderRequest{AccountId: 1, Symbol: "BTCUSDT", Qty: 0}, codes.InvalidArgument},
+		{&orderv1.PlaceOrderRequest{AccountId: 1, Exchange: exchangeBinance, Market: marketPerpetualFutures, PositionSide: positionSideBoth, Symbol: "BTCUSDT", Side: "LONG", Qty: 1}, codes.InvalidArgument},
 	}
 	for _, tc := range cases {
 		_, err := svc.PlaceOrder(context.Background(), tc.req)

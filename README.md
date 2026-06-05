@@ -18,7 +18,6 @@ make run
 ## Integration (TimescaleDB + curl + gRPC)
 
 - **Create DB + tables (no local `psql` required):** `make ensure-db` runs `go run ./cmd/ensure-account-db` (uses `PGHOST` default `192.168.88.10`, creates database `account`, applies `internal/storage/migrations/*.sql`).
-- **Current consolidated schema snapshot:** see `docs/current_schema.sql` for the merged end-state structure after all migrations.
 - **DSN default:** `host=192.168.88.10 port=5432 user=postgres password=postgres dbname=account sslmode=disable` (override with `TIMESCALEDB_DSN`).
 - **Mock Binance (no real API):** server honors `MOCK_BINANCE=1` for live/testnet fetch paths.
 - **Go test (in-process HTTP + gRPC, same DB):** `make test-integration` (or `go test -tags=integration -v ./tests/integration/...`).

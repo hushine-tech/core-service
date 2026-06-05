@@ -66,16 +66,6 @@ func (h *Handler) handleAccountByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sub := parts[1]
-	if sub == "wallet" {
-		if r.Method != http.MethodGet && r.Method != http.MethodPut {
-			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
-			return
-		}
-		writeError(w, http.StatusGone, "account wallet endpoint removed; use venue wallet or portfolio snapshot APIs")
-		return
-	}
-
 	writeError(w, http.StatusNotFound, "not found")
 }
 

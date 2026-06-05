@@ -26,7 +26,7 @@ type PlaceOrderRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	AccountId     int64                  `protobuf:"varint,1,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
 	Symbol        string                 `protobuf:"bytes,2,opt,name=symbol,proto3" json:"symbol,omitempty"`
-	Side          string                 `protobuf:"bytes,3,opt,name=side,proto3" json:"side,omitempty"` // "BUY" / "SELL" or legacy strategy "LONG" / "SHORT"
+	Side          string                 `protobuf:"bytes,3,opt,name=side,proto3" json:"side,omitempty"` // "BUY" / "SELL"; direction belongs in position_side
 	Qty           float64                `protobuf:"fixed64,4,opt,name=qty,proto3" json:"qty,omitempty"`
 	Price         *float64               `protobuf:"fixed64,5,opt,name=price,proto3,oneof" json:"price,omitempty"`                             // limit price; omit for market order
 	MarkPrice     float64                `protobuf:"fixed64,6,opt,name=mark_price,json=markPrice,proto3" json:"mark_price,omitempty"`          // current mark price (used for mock fill calculation)

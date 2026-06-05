@@ -191,10 +191,6 @@ func normalizeBinanceOrderSide(side string, positionMode string) (string, string
 		switch sideUpper {
 		case "BUY", "SELL":
 			return sideUpper, "", nil
-		case "LONG":
-			return "BUY", "", nil
-		case "SHORT":
-			return "SELL", "", nil
 		default:
 			return "", "", fmt.Errorf("unsupported order side for one-way mode: %q", side)
 		}

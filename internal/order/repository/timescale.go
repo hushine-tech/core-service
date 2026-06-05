@@ -130,9 +130,6 @@ func resolveMigrationsDir() (string, error) {
 	if d := strings.TrimSpace(os.Getenv("ORDER_MIGRATIONS")); d != "" {
 		return d, nil
 	}
-	if d := strings.TrimSpace(os.Getenv("ORDER_SERVICE_MIGRATIONS")); d != "" {
-		return d, nil
-	}
 	rel := filepath.Join("internal", "order", "storage", "migrations")
 	if _, err := os.Stat(rel); err == nil {
 		return rel, nil
@@ -924,9 +921,9 @@ func nullableFloat64(v float64) any {
 
 func orderSideCode(side string) (int16, error) {
 	switch strings.ToUpper(strings.TrimSpace(side)) {
-	case "BUY", "LONG":
+	case "BUY":
 		return orderSideBuy, nil
-	case "SELL", "SHORT":
+	case "SELL":
 		return orderSideSell, nil
 	default:
 		return 0, fmt.Errorf("unsupported order side: %q", side)

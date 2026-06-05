@@ -33,7 +33,7 @@ service OrderService {
 message PlaceOrderRequest {
   int64 account_id = 1;
   string symbol = 2;
-  string side = 3;           // "BUY" / "SELL" or legacy strategy "LONG" / "SHORT"
+  string side = 3;           // "BUY" / "SELL"; direction belongs in position_side
   double qty = 4;
   optional double price = 5; // limit price; omit for market order
   double mark_price = 6;     // current mark price (used for mock fill calculation)

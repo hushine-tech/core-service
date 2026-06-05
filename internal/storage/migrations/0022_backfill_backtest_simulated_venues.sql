@@ -1,5 +1,0 @@
--- No-op by design.
---
--- Backtest account compatibility is intentionally not preserved. Fresh local
--- databases should be rebuilt after the portfolio/venue hard cut; old account
--- rows are not backfilled into simulated venues.

@@ -29,11 +29,22 @@ func (e *MockExecutor) Execute(_ context.Context, req OrderRequest, meta account
 		basePrice = *req.Price
 	}
 
-	// Apply slippage: BUY/LONG pays more, SELL/SHORT receives less.
+	// Apply slippage: BUY pays more, SELL receives less.
 	slippageFactor := meta.SlippageBps / 10000.0
-	side := strings.ToUpper(req.Side)
+	side, ok := normalizeMockOrderSide(req.Side)
+	if !ok {
+		return OrderResult{
+			ClientOrderID: req.ClientOrderID,
+			Symbol:        req.Symbol,
+			Side:          req.Side,
+			OrderType:     orderType,
+			TimeInForce:   req.TimeInForce,
+			Status:        "FAILED",
+			ErrorMessage:  "unsupported order side: " + req.Side,
+		}, nil
+	}
 	var fillPrice float64
-	if side == "BUY" || side == "LONG" {
+	if side == "BUY" {
 		fillPrice = basePrice * (1 + slippageFactor)
 	} else {
 		fillPrice = basePrice * (1 - slippageFactor)
@@ -46,7 +57,7 @@ func (e *MockExecutor) Execute(_ context.Context, req OrderRequest, meta account
 		ExchangeOrderID: uuid.New().String(),
 		ClientOrderID:   req.ClientOrderID,
 		Symbol:          req.Symbol,
-		Side:            req.Side,
+		Side:            side,
 		OrderType:       orderType,
 		TimeInForce:     req.TimeInForce,
 		Status:          "FILLED",
@@ -65,6 +76,20 @@ func (e *MockExecutor) Execute(_ context.Context, req OrderRequest, meta account
 
 func (e *MockExecutor) executeLimit(req OrderRequest, meta accountmeta.Meta) OrderResult {
 	exchangeOrderID := uuid.New().String()
+	side, ok := normalizeMockOrderSide(req.Side)
+	if !ok {
+		return OrderResult{
+			ExchangeOrderID: exchangeOrderID,
+			ClientOrderID:   req.ClientOrderID,
+			Symbol:          req.Symbol,
+			Side:            req.Side,
+			OrderType:       "LIMIT",
+			TimeInForce:     firstNonEmpty(req.TimeInForce, "GTC"),
+			Status:          "FAILED",
+			ErrorMessage:    "unsupported order side: " + req.Side,
+		}
+	}
+	req.Side = side
 	limitPrice := 0.0
 	if req.Price != nil {
 		limitPrice = *req.Price
@@ -79,7 +104,7 @@ func (e *MockExecutor) executeLimit(req OrderRequest, meta accountmeta.Meta) Ord
 		ExchangeOrderID: exchangeOrderID,
 		ClientOrderID:   req.ClientOrderID,
 		Symbol:          req.Symbol,
-		Side:            req.Side,
+		Side:            side,
 		Qty:             req.Qty,
 		LimitPrice:      limitPrice,
 		FeeRate:         meta.DefaultFeeRate,
@@ -96,7 +121,7 @@ func (e *MockExecutor) executeLimit(req OrderRequest, meta accountmeta.Meta) Ord
 		ExchangeOrderID: exchangeOrderID,
 		ClientOrderID:   req.ClientOrderID,
 		Symbol:          req.Symbol,
-		Side:            req.Side,
+		Side:            side,
 		OrderType:       "LIMIT",
 		TimeInForce:     firstNonEmpty(req.TimeInForce, "GTC"),
 		Status:          result.State.Status,
@@ -139,6 +164,16 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func normalizeMockOrderSide(side string) (string, bool) {
+	normalized := strings.ToUpper(strings.TrimSpace(side))
+	switch normalized {
+	case "BUY", "SELL":
+		return normalized, true
+	default:
+		return "", false
+	}
 }
 
 func (e *MockExecutor) Resolve(_ context.Context, _ RecoveryRequest, _ accountmeta.Meta) (OrderResult, error) {

@@ -91,6 +91,10 @@ func (s *OrderGRPCService) PlaceOrder(ctx context.Context, req *orderv1.PlaceOrd
 	if err := validateRouteRequest(req.GetExchange(), req.GetMarket(), req.GetPositionSide()); err != nil {
 		return nil, err
 	}
+	side, err := normalizeOrderSide(req.GetSide())
+	if err != nil {
+		return nil, err
+	}
 	orderTypeCode, orderTypeText, timeInForce, err := normalizeOrderContract(req)
 	if err != nil {
 		return nil, err
@@ -131,7 +135,7 @@ func (s *OrderGRPCService) PlaceOrder(ctx context.Context, req *orderv1.PlaceOrd
 		PositionSide:   req.GetPositionSide(),
 		OrderType:      orderTypeCode,
 		Symbol:         req.GetSymbol(),
-		Side:           req.GetSide(),
+		Side:           side,
 		RequestedQty:   req.GetQty(),
 		RequestedPrice: req.GetPrice(),
 		Status:         "REQUESTED",
@@ -155,7 +159,7 @@ func (s *OrderGRPCService) PlaceOrder(ctx context.Context, req *orderv1.PlaceOrd
 		PositionSide:   req.GetPositionSide(),
 		OrderType:      orderTypeCode,
 		Symbol:         req.GetSymbol(),
-		Side:           req.GetSide(),
+		Side:           side,
 		RequestedQty:   req.GetQty(),
 		RequestedPrice: req.GetPrice(),
 		MarkPrice:      req.GetMarkPrice(),
@@ -174,7 +178,7 @@ func (s *OrderGRPCService) PlaceOrder(ctx context.Context, req *orderv1.PlaceOrd
 	orderReq := executor.OrderRequest{
 		AccountID:     accountID,
 		Symbol:        req.GetSymbol(),
-		Side:          req.GetSide(),
+		Side:          side,
 		Qty:           req.GetQty(),
 		Price:         price,
 		MarkPrice:     req.GetMarkPrice(),
@@ -975,6 +979,16 @@ func validateRouteRequest(exchange, market, positionSide int32) error {
 		return nil
 	default:
 		return status.Errorf(codes.InvalidArgument, "unsupported position_side: %d", positionSide)
+	}
+}
+
+func normalizeOrderSide(side string) (string, error) {
+	normalized := strings.ToUpper(strings.TrimSpace(side))
+	switch normalized {
+	case "BUY", "SELL":
+		return normalized, nil
+	default:
+		return "", status.Errorf(codes.InvalidArgument, "unsupported order side: %q", side)
 	}
 }
 

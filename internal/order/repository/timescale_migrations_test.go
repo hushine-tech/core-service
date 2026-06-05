@@ -9,7 +9,6 @@ import (
 
 func TestResolveMigrationsDirUsesOrderModulePath(t *testing.T) {
 	t.Setenv("ORDER_MIGRATIONS", "")
-	t.Setenv("ORDER_SERVICE_MIGRATIONS", "")
 
 	wd, err := os.Getwd()
 	if err != nil {
@@ -40,7 +39,6 @@ func TestResolveMigrationsDirSupportsOrderOverride(t *testing.T) {
 		t.Fatalf("mkdir override: %v", err)
 	}
 	t.Setenv("ORDER_MIGRATIONS", override)
-	t.Setenv("ORDER_SERVICE_MIGRATIONS", "")
 
 	got, err := resolveMigrationsDir()
 	if err != nil {
@@ -48,22 +46,5 @@ func TestResolveMigrationsDirSupportsOrderOverride(t *testing.T) {
 	}
 	if got != override {
 		t.Fatalf("migrations dir = %q, want override %q", got, override)
-	}
-}
-
-func TestResolveMigrationsDirSupportsLegacyOrderServiceOverride(t *testing.T) {
-	override := filepath.Join(t.TempDir(), "legacy-migrations")
-	if err := os.MkdirAll(override, 0o755); err != nil {
-		t.Fatalf("mkdir override: %v", err)
-	}
-	t.Setenv("ORDER_MIGRATIONS", "")
-	t.Setenv("ORDER_SERVICE_MIGRATIONS", override)
-
-	got, err := resolveMigrationsDir()
-	if err != nil {
-		t.Fatalf("resolveMigrationsDir: %v", err)
-	}
-	if got != override {
-		t.Fatalf("migrations dir = %q, want legacy override %q", got, override)
 	}
 }

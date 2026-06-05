@@ -42,7 +42,7 @@ func TestCreateAccountRejectsDeprecatedRuntimePayload(t *testing.T) {
 		name string
 		body string
 	}{
-		{"legacy mode", `{"user_id":7,"name":"legacy","mode":1}`},
+		{"deprecated mode field", `{"user_id":7,"name":"deprecated","mode":1}`},
 		{"credentials", `{"user_id":7,"name":"legacy","environment":1,"api_key":"k","api_secret":"s"}`},
 		{"initial balance", `{"user_id":7,"name":"legacy","environment":0,"initial_balance":1000}`},
 		{"market modes", `{"user_id":7,"name":"legacy","environment":0,"margin_mode":"cross","position_mode":"one_way"}`},
@@ -75,14 +75,14 @@ func TestCreateBacktestAccountCreatesPortfolioContextOnly(t *testing.T) {
 	}
 }
 
-func TestAccountWalletEndpointIsGone(t *testing.T) {
+func TestAccountWalletEndpointDoesNotExist(t *testing.T) {
 	for _, method := range []string{http.MethodGet, http.MethodPut} {
 		t.Run(method, func(t *testing.T) {
 			req := httptest.NewRequest(method, "/accounts/7/wallet", nil)
 			rec := httptest.NewRecorder()
 			NewHandler(&fakeRepo{}).handleAccountByID(rec, req)
-			if rec.Code != http.StatusGone {
-				t.Fatalf("status = %d, want 410; body=%s", rec.Code, rec.Body.String())
+			if rec.Code != http.StatusNotFound {
+				t.Fatalf("status = %d, want 404; body=%s", rec.Code, rec.Body.String())
 			}
 		})
 	}

@@ -18,7 +18,7 @@ type noopExtAPILogger struct{}
 
 func (noopExtAPILogger) ExtAPI(context.Context, elog.ExtAPILogEntry) {}
 
-func TestBinanceExecutor_OneWayLongMapsToBuy(t *testing.T) {
+func TestBinanceExecutor_OneWayBuyPassesThrough(t *testing.T) {
 	t.Parallel()
 
 	var got url.Values
@@ -48,7 +48,7 @@ func TestBinanceExecutor_OneWayLongMapsToBuy(t *testing.T) {
 
 	res, err := exec.Execute(context.Background(), OrderRequest{
 		Symbol:    "ETHUSDT",
-		Side:      "LONG",
+		Side:      "BUY",
 		Qty:       1.065,
 		MarkPrice: 2500,
 	}, accountmeta.Meta{
@@ -82,7 +82,7 @@ func TestBinanceExecutor_OneWayLongMapsToBuy(t *testing.T) {
 	}
 }
 
-func TestBinanceExecutor_OneWayShortMapsToSell(t *testing.T) {
+func TestBinanceExecutor_OneWaySellPassesThrough(t *testing.T) {
 	t.Parallel()
 
 	var got url.Values
@@ -112,7 +112,7 @@ func TestBinanceExecutor_OneWayShortMapsToSell(t *testing.T) {
 
 	res, err := exec.Execute(context.Background(), OrderRequest{
 		Symbol:    "ETHUSDT",
-		Side:      "SHORT",
+		Side:      "SELL",
 		Qty:       0.5,
 		MarkPrice: 2400,
 	}, accountmeta.Meta{
@@ -131,6 +131,46 @@ func TestBinanceExecutor_OneWayShortMapsToSell(t *testing.T) {
 	}
 	if got.Get("side") != "SELL" {
 		t.Fatalf("side = %q, want SELL", got.Get("side"))
+	}
+}
+
+func TestBinanceExecutor_OneWayRejectsDirectionSide(t *testing.T) {
+	t.Parallel()
+
+	hit := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hit = true
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	exec := &BinanceExecutor{
+		baseURL:    srv.URL,
+		httpClient: httpclient.New(&http.Client{}, noopExtAPILogger{}, "binance_test"),
+	}
+
+	res, err := exec.Execute(context.Background(), OrderRequest{
+		Symbol:    "ETHUSDT",
+		Side:      "LONG",
+		Qty:       1,
+		MarkPrice: 2500,
+	}, accountmeta.Meta{
+		APIKey:       "key",
+		APISecret:    "secret",
+		PositionMode: "one_way",
+	})
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if res.Status != "FAILED" {
+		t.Fatalf("status = %q, want FAILED", res.Status)
+	}
+	if res.ErrorMessage == "" {
+		t.Fatal("expected error message for rejected direction side")
+	}
+	if hit {
+		t.Fatal("unexpected outbound HTTP request for rejected direction side")
 	}
 }
 
@@ -340,7 +380,7 @@ func TestBinanceExecutor_HedgeModeRejected(t *testing.T) {
 
 	res, err := exec.Execute(context.Background(), OrderRequest{
 		Symbol:    "ETHUSDT",
-		Side:      "LONG",
+		Side:      "BUY",
 		Qty:       1,
 		MarkPrice: 2500,
 	}, accountmeta.Meta{

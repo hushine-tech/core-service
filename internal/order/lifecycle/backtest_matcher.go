@@ -127,9 +127,9 @@ func CancelBacktestLimitOrder(order BacktestLimitOrder, at time.Time) Event {
 
 func limitTouched(side string, price float64, bar BacktestBar) bool {
 	switch strings.ToUpper(strings.TrimSpace(side)) {
-	case "BUY", "LONG":
+	case "BUY":
 		return bar.Low <= price
-	case "SELL", "SHORT":
+	case "SELL":
 		return bar.High >= price
 	default:
 		return false

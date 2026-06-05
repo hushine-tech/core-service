@@ -346,7 +346,7 @@ func TestBacktestPortfolioSnapshotFailsWhenVenueWalletStateIsMissing(t *testing.
 	}
 }
 
-func TestBacktestPortfolioSnapshotFailsWithoutActiveVenue(t *testing.T) {
+func TestBacktestPortfolioSnapshotWithoutActiveVenueReturnsEmptySnapshot(t *testing.T) {
 	accountID := int64(15)
 	repo := &stubRepo{
 		account: domain.Account{
@@ -357,12 +357,49 @@ func TestBacktestPortfolioSnapshotFailsWithoutActiveVenue(t *testing.T) {
 	}
 	svc := NewAccountGRPCService(repo, nil, nil, nil)
 
-	_, err := svc.GetPortfolioSnapshot(context.Background(), &accountv1.GetPortfolioSnapshotRequest{
+	resp, err := svc.GetPortfolioSnapshot(context.Background(), &accountv1.GetPortfolioSnapshotRequest{
 		AccountId: accountID,
 		UserId:    serviceTestUserID,
 	})
-	if status.Code(err) != codes.FailedPrecondition {
-		t.Fatalf("GetPortfolioSnapshot() code = %v, want FailedPrecondition (err=%v)", status.Code(err), err)
+	if err != nil {
+		t.Fatalf("GetPortfolioSnapshot() unexpected error: %v", err)
+	}
+	snapshot := resp.GetSnapshot()
+	if snapshot.GetAccountId() != accountID || snapshot.GetUserId() != serviceTestUserID {
+		t.Fatalf("snapshot ids = account:%d user:%d", snapshot.GetAccountId(), snapshot.GetUserId())
+	}
+	if len(snapshot.GetVenues()) != 0 {
+		t.Fatalf("venues len = %d, want 0", len(snapshot.GetVenues()))
+	}
+	if snapshot.GetWallet() == nil {
+		t.Fatal("empty snapshot should still include account-level wallet shell")
+	}
+}
+
+func TestExchangePortfolioSnapshotWithoutActiveVenueReturnsEmptySnapshot(t *testing.T) {
+	accountID := int64(16)
+	repo := &stubRepo{
+		account: domain.Account{
+			AccountID:   accountID,
+			UserID:      serviceTestUserID,
+			Environment: domain.EnvironmentDemo,
+		},
+	}
+	svc := NewAccountGRPCService(repo, nil, nil, nil)
+
+	resp, err := svc.GetPortfolioSnapshot(context.Background(), &accountv1.GetPortfolioSnapshotRequest{
+		AccountId: accountID,
+		UserId:    serviceTestUserID,
+	})
+	if err != nil {
+		t.Fatalf("GetPortfolioSnapshot() unexpected error: %v", err)
+	}
+	snapshot := resp.GetSnapshot()
+	if snapshot.GetAccountId() != accountID || snapshot.GetWallet().GetEnvironment() != int32(domain.EnvironmentDemo) {
+		t.Fatalf("snapshot = %+v", snapshot)
+	}
+	if len(snapshot.GetVenues()) != 0 {
+		t.Fatalf("venues len = %d, want 0", len(snapshot.GetVenues()))
 	}
 }
 

@@ -38,8 +38,7 @@ type Task struct {
 }
 
 // Service is the Phase C reconciliation coordinator. It runs compare work
-// in detached goroutines so the main UpdateAccountWalletState response path
-// is never blocked.
+// in detached goroutines so request paths are never blocked.
 //
 // Hard non-negotiables (enforced in runIsolated):
 //  1. never panic out — defer recover()

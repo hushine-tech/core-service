@@ -879,7 +879,7 @@ func TestUpdateSessionRejectsTerminalSessionMutation(t *testing.T) {
 	}
 }
 
-func TestUpdateAccountWalletStateRejectsTerminalSession(t *testing.T) {
+func TestUpdatePortfolioSnapshotRejectsTerminalSession(t *testing.T) {
 	repo := newSessionStubRepo()
 	repo.account = domain.Account{
 		AccountID:   42,
@@ -906,18 +906,15 @@ func TestUpdateAccountWalletStateRejectsTerminalSession(t *testing.T) {
 		t.Fatalf("terminal UpdateSession: %v", err)
 	}
 
-	_, err = svc.UpdateAccountWalletState(context.Background(), &accountv1.UpdateAccountWalletStateRequest{
+	_, err = svc.UpdatePortfolioSnapshot(context.Background(), &accountv1.UpdatePortfolioSnapshotRequest{
 		AccountId:      42,
+		UserId:         strategyTestUserID,
 		StrategyId:     7,
 		SessionId:      "sess-wallet-terminal",
 		SnapshotReason: int32(domain.SnapshotReasonPeriodicSample),
-		WalletBalance:  1000,
-		Futures: &accountv1.FuturesWallet{
-			WalletBalance: 1000,
-		},
 	})
 	if status.Code(err) != codes.FailedPrecondition {
-		t.Fatalf("terminal wallet update code = %v, want FailedPrecondition (err=%v)", status.Code(err), err)
+		t.Fatalf("terminal portfolio update code = %v, want FailedPrecondition (err=%v)", status.Code(err), err)
 	}
 }
 

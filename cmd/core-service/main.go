@@ -139,7 +139,7 @@ func main() {
 	// so this is safe to wire unconditionally.
 	reconciler := reconciliation.NewService(cfg.Exchange.Reconciliation, repo)
 	if cfg.Exchange.Reconciliation.Enabled {
-		logger.Info(ctx, "system", "reconciliation enabled: async shadow compare will run on demo/live UpdateAccountWalletState")
+		logger.Info(ctx, "system", "reconciliation enabled: async shadow compare service is wired")
 	}
 
 	// ── Notification management ──────────────────────────────────────────────

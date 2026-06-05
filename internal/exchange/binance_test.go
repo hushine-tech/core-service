@@ -307,7 +307,7 @@ func TestBinanceAdapter_FetchOnlineAccountInfo_CountsStablecoinSpotAssets(t *tes
 func TestBinanceAdapter_FetchOnlineAccountInfo_UnpricedSpotAssetsDoNotBlockFetch(t *testing.T) {
 	// Regression for canonical-wallet-display-boundary review #2:
 	// a dust / delisted spot asset whose USDT price cannot be resolved MUST
-	// NOT fail the whole GetOnlineAccountInfo call — that would block
+	// NOT fail the whole exchange snapshot call; that would block
 	// futures-only strategy startup for any account carrying such an asset.
 	// The asset is preserved with Price=nil; canonical spot runtime falls
 	// back to free+locked at that point.

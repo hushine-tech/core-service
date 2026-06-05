@@ -37,9 +37,6 @@ service AccountService {
   rpc PreflightStrategySession(PreflightStrategySessionRequest) returns (PreflightStrategySessionResponse);
   rpc GetVenueRouteMeta(GetVenueRouteMetaRequest) returns (GetVenueRouteMetaResponse);
 
-  // Latest wallet state: backtest reads DB; demo/live fetch from exchange venues per account registration.
-  rpc GetOnlineAccountInfo(GetOnlineAccountInfoRequest) returns (GetOnlineAccountInfoResponse);
-
   // Phase 2 canonical portfolio snapshot API. It reads active account venues
   // through the exchange capability registry and returns account-level summary
   // plus per-venue balances/positions.
@@ -48,12 +45,6 @@ service AccountService {
   // Refresh and persist the current portfolio snapshot. Exchange-backed
   // accounts read from active venues; backtest accounts read local state.
   rpc UpdatePortfolioSnapshot(UpdatePortfolioSnapshotRequest) returns (UpdatePortfolioSnapshotResponse);
-
-  // Bidirectional wallet sync. Routing uses only account_id: look up the account's registered
-  // environment and venues. strategy-service does not send routing hints.
-  // Backtest: request wallet is authoritative — persisted and returned.
-  // Demo/live: exchange is authoritative — request wallet is ignored for persistence; fetched state is stored and returned.
-  rpc UpdateAccountWalletState(UpdateAccountWalletStateRequest) returns (UpdateAccountWalletStateResponse);
 
   // Cached tradable symbols for portal pickers (Binance public exchangeInfo). market: "spot" | "usdm_futures".
   rpc ListSymbols(ListSymbolsRequest) returns (ListSymbolsResponse);
@@ -220,9 +211,7 @@ message GetAccountResponse {
 message CreateAccountRequest {
   string name = 1;
   int32 environment = 2;
-  reserved 3, 4; // removed: account credentials now live on venues
-  double initial_balance = 5; // deprecated: account creation no longer seeds wallet state
-  reserved 6, 7; // removed: market modes now live on venues
+  reserved 3, 4, 5, 6, 7; // removed: account credentials, wallet seed, and market modes now live on venues
   double slippage_bps = 8;     // default: 0.0
   double default_fee_rate = 9; // default: 0.0004
   string description = 10;
@@ -412,15 +401,6 @@ message GetVenueRouteMetaResponse {
   double slippage_bps = 12;
 }
 
-message GetOnlineAccountInfoRequest {
-  int64 account_id = 1;
-  int64 user_id = 100;
-}
-
-message GetOnlineAccountInfoResponse {
-  AccountWalletState wallet = 1;
-}
-
 message GetPortfolioSnapshotRequest {
   int64 account_id = 1;
   int64 user_id = 100;
@@ -486,29 +466,6 @@ message PositionEntry {
   double unrealized_pnl = 6;
   double margin_balance = 7;
   double liquidation_price = 8;
-}
-
-message UpdateAccountWalletStateRequest {
-  int64 account_id = 1;
-  reserved 2; // removed: clients no longer send routing profile; now derived server-side from account registry
-  FuturesWallet futures = 3;
-  SpotWallet spot = 4;
-  double total_value = 5;
-  double wallet_balance = 6;
-  double available_balance = 7;
-  // snapshot_reason > 0 时触发快照写入（0 = 不写快照）
-  // 1=order_fill, 2=strategy_start, 3=strategy_end, 4=reconciliation_local, 5=reconciliation_exchange, 6=periodic_sample
-  int32 snapshot_reason = 8;
-  // 审计追溯：触发此次钱包更新的策略 ID（0 = 无策略）
-  int64 strategy_id = 9;
-  // 关联的 session ID（空字符串 = 非 session 触发）
-  string session_id = 10;
-  // 回测/行情事件时间；为空时快照使用服务端处理时间。
-  google.protobuf.Timestamp snapshot_time = 11;
-}
-
-message UpdateAccountWalletStateResponse {
-  AccountWalletState wallet = 1;
 }
 
 // Canonical wallet payload (aligned with strategy_service.wallet_factory / Account).

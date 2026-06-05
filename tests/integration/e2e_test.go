@@ -90,40 +90,14 @@ func TestTimescaleHTTPCreateAndGRPC(t *testing.T) {
 		t.Fatalf("ListSymbols: %v", ls.GetSymbols())
 	}
 
-	// Backtest: initial read
-	g1, err := cli.GetOnlineAccountInfo(ctx, &accountv1.GetOnlineAccountInfoRequest{AccountId: btID, UserId: userID})
+	// Backtest: initial portfolio read
+	g1, err := cli.GetPortfolioSnapshot(ctx, &accountv1.GetPortfolioSnapshotRequest{AccountId: btID, UserId: userID})
 	if err != nil {
-		t.Fatalf("GetOnlineAccountInfo backtest: %v", err)
+		t.Fatalf("GetPortfolioSnapshot backtest: %v", err)
 	}
-	if g1.GetWallet().GetFutures().GetWalletBalance() != 0 {
-		t.Fatalf("backtest initial futures.wallet_balance want 0 got %f", g1.GetWallet().GetFutures().GetWalletBalance())
+	if g1.GetSnapshot().GetWallet().GetFutures().GetWalletBalance() != 0 {
+		t.Fatalf("backtest initial futures.wallet_balance want 0 got %f", g1.GetSnapshot().GetWallet().GetFutures().GetWalletBalance())
 	}
-
-	// Backtest: push update (no snapshot)
-	u1, err := cli.UpdateAccountWalletState(ctx, &accountv1.UpdateAccountWalletStateRequest{
-		AccountId:        btID,
-		WalletBalance:    15000,
-		AvailableBalance: 14000,
-		TotalValue:       15500,
-		Futures:          &accountv1.FuturesWallet{MarginMode: "cross", PositionMode: "one_way"},
-		Spot:             &accountv1.SpotWallet{Free: 600},
-		SnapshotReason:   0, // no snapshot for plain state update
-	})
-	if err != nil {
-		t.Fatalf("UpdateAccountWalletState backtest: %v", err)
-	}
-	if u1.GetWallet().GetFutures().GetWalletBalance() != 15000 {
-		t.Fatalf("backtest update response want 15000 got %f", u1.GetWallet().GetFutures().GetWalletBalance())
-	}
-
-	g2, err := cli.GetOnlineAccountInfo(ctx, &accountv1.GetOnlineAccountInfoRequest{AccountId: btID, UserId: userID})
-	if err != nil {
-		t.Fatalf("GetOnlineAccountInfo backtest 2: %v", err)
-	}
-	if g2.GetWallet().GetFutures().GetWalletBalance() != 15000 {
-		t.Fatalf("backtest persisted want 15000 got %f", g2.GetWallet().GetFutures().GetWalletBalance())
-	}
-
 }
 
 // TestRegistryGRPC exercises CreateAccount / ListAccounts / GetAccount over gRPC.
@@ -206,8 +180,8 @@ func TestRegistryGRPC(t *testing.T) {
 	}
 }
 
-// TestBacktestMultiSymbolWalletBootstrap persists spot+futures via UpdateAccountWalletState after gRPC create.
-func TestBacktestMultiSymbolWalletBootstrap(t *testing.T) {
+// TestBacktestMultiSymbolVenueWalletBootstrap persists spot+futures via venue creation.
+func TestBacktestMultiSymbolVenueWalletBootstrap(t *testing.T) {
 	dsn := os.Getenv("TIMESCALEDB_DSN")
 	if dsn == "" {
 		dsn = "host=192.168.88.10 port=5432 user=postgres password=postgres dbname=account sslmode=disable"
@@ -253,8 +227,15 @@ func TestBacktestMultiSymbolWalletBootstrap(t *testing.T) {
 		t.Fatalf("CreateAccount: %v", err)
 	}
 	price := 41000.0
-	_, err = cli.UpdateAccountWalletState(ctx, &accountv1.UpdateAccountWalletStateRequest{
-		AccountId: created.GetAccountId(),
+	_, err = cli.CreateVenue(ctx, &accountv1.CreateVenueRequest{
+		UserId:      userID,
+		AccountId:   created.GetAccountId(),
+		Exchange:    int32(domain.ExchangeBinance),
+		Market:      int32(domain.MarketPerpetualFutures),
+		Environment: int32(domain.EnvironmentBacktest),
+		Status:      int32(domain.VenueStatusActive),
+		DisplayName: "backtest-bootstrap",
+		ApiKey:      "backtest-" + suffix,
 		Spot: &accountv1.SpotWallet{
 			Free: 5000, Locked: 0,
 			Assets: []*accountv1.SpotAsset{
@@ -269,26 +250,23 @@ func TestBacktestMultiSymbolWalletBootstrap(t *testing.T) {
 				{Symbol: "ETHUSDT", InitialBalance: 1500, Leverage: 10, FeeRate: 0.0004},
 			},
 		},
-		TotalValue:       5000 + 0.1*41000 + 1*2100 + 2000 + 1500,
-		WalletBalance:    3500,
-		AvailableBalance: 3500,
 	})
 	if err != nil {
-		t.Fatalf("UpdateAccountWalletState: %v", err)
+		t.Fatalf("CreateVenue: %v", err)
 	}
 
-	g, err := cli.GetOnlineAccountInfo(ctx, &accountv1.GetOnlineAccountInfoRequest{AccountId: created.GetAccountId(), UserId: userID})
+	g, err := cli.GetPortfolioSnapshot(ctx, &accountv1.GetPortfolioSnapshotRequest{AccountId: created.GetAccountId(), UserId: userID})
 	if err != nil {
-		t.Fatalf("GetOnlineAccountInfo: %v", err)
+		t.Fatalf("GetPortfolioSnapshot: %v", err)
 	}
-	if g.GetWallet().GetTotalValue() <= 0 {
-		t.Fatalf("expected positive total_value, got %f", g.GetWallet().GetTotalValue())
+	if g.GetSnapshot().GetWallet().GetTotalValue() <= 0 {
+		t.Fatalf("expected positive total_value, got %f", g.GetSnapshot().GetWallet().GetTotalValue())
 	}
-	if len(g.GetWallet().GetSpot().GetAssets()) != 2 {
-		t.Fatalf("spot assets: %d", len(g.GetWallet().GetSpot().GetAssets()))
+	if len(g.GetSnapshot().GetWallet().GetSpot().GetAssets()) != 2 {
+		t.Fatalf("spot assets: %d", len(g.GetSnapshot().GetWallet().GetSpot().GetAssets()))
 	}
-	if len(g.GetWallet().GetFutures().GetPositions()) != 2 {
-		t.Fatalf("futures positions: %d", len(g.GetWallet().GetFutures().GetPositions()))
+	if len(g.GetSnapshot().GetWallet().GetFutures().GetPositions()) != 2 {
+		t.Fatalf("futures positions: %d", len(g.GetSnapshot().GetWallet().GetFutures().GetPositions()))
 	}
 }
 

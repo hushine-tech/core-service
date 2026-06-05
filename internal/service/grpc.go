@@ -613,9 +613,6 @@ func (s *AccountGRPCService) CreateAccount(ctx context.Context, req *accountv1.C
 	if err != nil {
 		return nil, err
 	}
-	if req.GetInitialBalance() != 0 {
-		return nil, status.Error(codes.InvalidArgument, "account initial_balance is deprecated; configure venue state instead")
-	}
 	feeRate := req.GetDefaultFeeRate()
 	if feeRate == 0 {
 		feeRate = 0.0004
@@ -1346,27 +1343,6 @@ func toProtoVenue(v domain.Venue) *accountv1.VenueEntry {
 	return out
 }
 
-// GetOnlineAccountInfo returns wallet state: backtest from accounts table; demo/live from exchange (then updates accounts table).
-// 不再写快照——快照由独立的事件触发。
-func (s *AccountGRPCService) GetOnlineAccountInfo(ctx context.Context, req *accountv1.GetOnlineAccountInfoRequest) (*accountv1.GetOnlineAccountInfoResponse, error) {
-	if err := requireUserID(req.GetUserId()); err != nil {
-		return nil, err
-	}
-	accountID := req.GetAccountId()
-	if accountID == 0 {
-		return nil, status.Error(codes.InvalidArgument, "account_id is required")
-	}
-
-	resp, err := s.UpdatePortfolioSnapshot(ctx, &accountv1.UpdatePortfolioSnapshotRequest{
-		AccountId: accountID,
-		UserId:    req.GetUserId(),
-	})
-	if err != nil {
-		return nil, err
-	}
-	return &accountv1.GetOnlineAccountInfoResponse{Wallet: resp.GetSnapshot().GetWallet()}, nil
-}
-
 func (s *AccountGRPCService) GetPortfolioSnapshot(ctx context.Context, req *accountv1.GetPortfolioSnapshotRequest) (*accountv1.GetPortfolioSnapshotResponse, error) {
 	if err := requireUserID(req.GetUserId()); err != nil {
 		return nil, err
@@ -2092,143 +2068,6 @@ func toProtoVenueSnapshot(snapshot adapter.PortfolioSnapshot) *accountv1.VenueSn
 		})
 	}
 	return out
-}
-
-// UpdateAccountWalletState branches on the account's registered environment.
-// snapshot_reason > 0 时额外写一条快照。
-func (s *AccountGRPCService) UpdateAccountWalletState(ctx context.Context, req *accountv1.UpdateAccountWalletStateRequest) (*accountv1.UpdateAccountWalletStateResponse, error) {
-	accountID := req.GetAccountId()
-	if accountID == 0 {
-		return nil, status.Error(codes.InvalidArgument, "account_id is required")
-	}
-
-	account, err := s.repo.GetAccount(ctx, accountID, 0)
-	if err != nil {
-		return nil, mapRepoErr(err)
-	}
-
-	snapshotReason := domain.SnapshotReason(req.GetSnapshotReason())
-	strategyID := req.GetStrategyId()
-	sessionID := req.GetSessionId()
-	snapshotTime := requestTimestampOrZero(req.GetSnapshotTime())
-	if err := s.requireActiveSessionForAccount(ctx, sessionID, accountID, strategyID, account.UserID); err != nil {
-		return nil, err
-	}
-
-	env := environmentFromAccount(account)
-	switch env {
-	case domain.EnvironmentBacktest:
-		updatedAt := snapshotTime
-		if updatedAt.IsZero() {
-			updatedAt = time.Now().UTC()
-		}
-		info := domain.OnlineAccountInfo{
-			AccountID:        accountID,
-			Environment:      env,
-			TotalValue:       req.GetTotalValue(),
-			WalletBalance:    req.GetWalletBalance(),
-			AvailableBalance: req.GetAvailableBalance(),
-			UpdatedAt:        updatedAt,
-		}
-		if f := req.GetFutures(); f != nil {
-			info.Futures = fromProtoFuturesWallet(f)
-		}
-		if info.Futures.MarginMode == "" {
-			info.Futures.MarginMode = account.MarginMode
-		}
-		if info.Futures.PositionMode == "" {
-			info.Futures.PositionMode = account.PositionMode
-		}
-		if info.Futures.WalletBalance == 0 && req.GetWalletBalance() != 0 {
-			info.Futures.WalletBalance = req.GetWalletBalance()
-		}
-		if info.Futures.AvailableBalance == 0 && req.GetAvailableBalance() != 0 {
-			info.Futures.AvailableBalance = req.GetAvailableBalance()
-		}
-		if info.Futures.UnrealizedPnl == 0 && info.Futures.TotalUnrealizedPnl != 0 {
-			info.Futures.UnrealizedPnl = info.Futures.TotalUnrealizedPnl
-		}
-		if info.Futures.MarginBalance == 0 {
-			info.Futures.MarginBalance = info.Futures.WalletBalance + info.Futures.UnrealizedPnl
-		}
-		if info.Futures.TotalMarginBalance == 0 {
-			info.Futures.TotalMarginBalance = info.Futures.MarginBalance
-		}
-		if sp := req.GetSpot(); sp != nil {
-			info.Spot = fromProtoSpotWallet(sp)
-		}
-		if err := s.updateBacktestVenueWalletStates(ctx, account, info, req.GetFutures() != nil, req.GetSpot() != nil); err != nil {
-			return nil, err
-		}
-		if err := s.repo.UpdateAccountState(ctx, info); err != nil {
-			return nil, status.Errorf(codes.Unavailable, "update account state: %v", err)
-		}
-		if snapshotReason > 0 {
-			if err := s.repo.SaveSnapshot(ctx, accountID, snapshotReason, strategyID, sessionID, snapshotTime); err != nil {
-				return nil, status.Errorf(codes.Unavailable, "save snapshot: %v", err)
-			}
-		}
-		saved, err := s.repo.GetAccountState(ctx, accountID)
-		if err != nil {
-			return nil, status.Errorf(codes.Unavailable, "read account state: %v", err)
-		}
-		return &accountv1.UpdateAccountWalletStateResponse{Wallet: toProtoAccountWalletState(saved)}, nil
-
-	case domain.EnvironmentDemo, domain.EnvironmentLive:
-		snapshot, err := s.readPortfolioSnapshot(ctx, account)
-		if err != nil {
-			return nil, err
-		}
-		info := onlineInfoFromPortfolioSnapshot(snapshot, account)
-		if err := s.repo.UpdateAccountState(ctx, info); err != nil {
-			return nil, status.Errorf(codes.Unavailable, "update account state: %v", err)
-		}
-		if snapshotReason > 0 {
-			if err := s.repo.SaveSnapshot(ctx, accountID, snapshotReason, strategyID, sessionID, snapshotTime); err != nil {
-				return nil, status.Errorf(codes.Unavailable, "save snapshot: %v", err)
-			}
-		}
-
-		// Phase C shadow-compare: fire-and-forget goroutine. Reuses the
-		// authoritative snapshot we just fetched (no second Binance call)
-		// and the local canonical snapshot from the request. Never blocks
-		// the response; errors / panics stay inside the goroutine.
-		//
-		// Guard fires when EITHER a futures or spot payload is present.
-		// Spot-only accounts must still get reconciliation; filtering by
-		// futures alone was a blind-spot. The "no wallet payload at all"
-		// case (neither futures nor spot) still short-circuits, because
-		// comparing a blank local wallet against an authoritative one
-		// would produce spurious soft-fails across every field.
-		if s.reconciler != nil && s.reconciler.Enabled() && (req.GetFutures() != nil || req.GetSpot() != nil) {
-			local := domain.OnlineAccountInfo{
-				AccountID:        accountID,
-				Environment:      env,
-				Futures:          fromProtoFuturesWallet(req.GetFutures()),
-				TotalValue:       req.GetTotalValue(),
-				WalletBalance:    req.GetWalletBalance(),
-				AvailableBalance: req.GetAvailableBalance(),
-				UpdatedAt:        time.Now().UTC(),
-			}
-			if sp := req.GetSpot(); sp != nil {
-				local.Spot = fromProtoSpotWallet(sp)
-			}
-			s.reconciler.LaunchAsync(reconciliation.Task{
-				Account:        account,
-				Local:          local,
-				Exchange:       info,
-				SessionID:      sessionID,
-				StrategyID:     strategyID,
-				SnapshotReason: snapshotReason,
-				TriggerTime:    time.Now().UTC(),
-			})
-		}
-
-		return &accountv1.UpdateAccountWalletStateResponse{Wallet: toProtoAccountWalletState(info)}, nil
-
-	default:
-		return nil, status.Errorf(codes.InvalidArgument, "unsupported account environment: %d", env)
-	}
 }
 
 func toProtoAccountWalletState(info domain.OnlineAccountInfo) *accountv1.AccountWalletState {

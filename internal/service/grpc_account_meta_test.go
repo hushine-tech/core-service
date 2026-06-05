@@ -16,7 +16,6 @@ import (
 	"github.com/hushine-tech/core-service/internal/venuekeys"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const serviceTestUserID int64 = 7
@@ -635,25 +634,6 @@ func TestCreateAccountConflictReturnsAlreadyExists(t *testing.T) {
 	}
 }
 
-func TestCreateAccountRejectsAccountLevelInitialBalance(t *testing.T) {
-	repo := &stubRepo{}
-	svc := NewAccountGRPCService(repo, nil, nil, nil)
-
-	_, err := svc.CreateAccount(context.Background(), &accountv1.CreateAccountRequest{
-		UserId:         serviceTestUserID,
-		Name:           "backtest-main",
-		Environment:    int32(domain.EnvironmentBacktest),
-		InitialBalance: 1000,
-	})
-	if status.Code(err) != codes.InvalidArgument {
-		t.Fatalf("CreateAccount error = %v, want InvalidArgument", err)
-	}
-	if repo.createdAccount.Name != "" || len(repo.createdVenues) != 0 || repo.state.AccountID != 0 || len(repo.venueStates) != 0 {
-		t.Fatalf("deprecated account seed must not write state: account=%+v venues=%+v state=%+v venue_states=%+v",
-			repo.createdAccount, repo.createdVenues, repo.state, repo.venueStates)
-	}
-}
-
 func TestCreateDemoVenueEncryptsCredentials(t *testing.T) {
 	mgr, err := credential.NewManager("12345678901234567890123456789012", "test-v1")
 	if err != nil {
@@ -997,115 +977,6 @@ func TestBindBacktestVenuePreservesExistingWalletState(t *testing.T) {
 	}
 	if state.TotalValue != 1234 || state.AvailableBalance != 1200 {
 		t.Fatalf("wallet state was reset: %+v", state)
-	}
-}
-
-func TestUpdateBacktestWalletStateSplitsMixedPayloadByVenueMarket(t *testing.T) {
-	accountID := int64(42)
-	repo := &stubRepo{
-		account: domain.Account{
-			AccountID:   accountID,
-			UserID:      serviceTestUserID,
-			Environment: domain.EnvironmentBacktest,
-			Status:      domain.AccountStatusActive,
-		},
-		venues: []domain.Venue{{
-			VenueID:      53,
-			UserID:       serviceTestUserID,
-			AccountID:    &accountID,
-			Exchange:     domain.ExchangeBinance,
-			Market:       domain.MarketPerpetualFutures,
-			Environment:  domain.EnvironmentBacktest,
-			Status:       domain.VenueStatusActive,
-			MarginMode:   domain.MarginModeCross,
-			PositionMode: domain.PositionModeOneWay,
-		}},
-	}
-	svc := NewAccountGRPCService(repo, nil, nil, nil)
-
-	_, err := svc.UpdateAccountWalletState(context.Background(), &accountv1.UpdateAccountWalletStateRequest{
-		AccountId:        accountID,
-		TotalValue:       1250,
-		WalletBalance:    1000,
-		AvailableBalance: 1000,
-		Futures: &accountv1.FuturesWallet{
-			MarginMode:       "cross",
-			PositionMode:     "one_way",
-			InitialBalance:   1000,
-			WalletBalance:    1000,
-			AvailableBalance: 1000,
-			MarginBalance:    1000,
-		},
-		Spot: &accountv1.SpotWallet{Free: 250},
-	})
-	if err != nil {
-		t.Fatalf("UpdateAccountWalletState: %v", err)
-	}
-	state := repo.venueStates[53]
-	if state.TotalValue != 1000 || state.WalletBalance != 1000 || state.AvailableBalance != 1000 {
-		t.Fatalf("futures venue state totals = %+v, want futures-only 1000", state)
-	}
-	if state.Spot.Free != 0 {
-		t.Fatalf("futures venue carried spot wallet: %+v", state.Spot)
-	}
-}
-
-func TestUpdateBacktestWalletStateUsesRequestSnapshotTime(t *testing.T) {
-	accountID := int64(42)
-	snapshotTime := time.Date(2026, 6, 1, 0, 43, 0, 0, time.UTC)
-	repo := &stubRepo{
-		account: domain.Account{
-			AccountID:    accountID,
-			UserID:       serviceTestUserID,
-			Environment:  domain.EnvironmentBacktest,
-			Status:       domain.AccountStatusActive,
-			MarginMode:   "cross",
-			PositionMode: "one_way",
-		},
-		venues: []domain.Venue{{
-			VenueID:      53,
-			UserID:       serviceTestUserID,
-			AccountID:    &accountID,
-			Exchange:     domain.ExchangeBinance,
-			Market:       domain.MarketPerpetualFutures,
-			Environment:  domain.EnvironmentBacktest,
-			Status:       domain.VenueStatusActive,
-			MarginMode:   domain.MarginModeCross,
-			PositionMode: domain.PositionModeOneWay,
-		}},
-	}
-	svc := NewAccountGRPCService(repo, nil, nil, nil)
-
-	_, err := svc.UpdateAccountWalletState(context.Background(), &accountv1.UpdateAccountWalletStateRequest{
-		AccountId:        accountID,
-		TotalValue:       994.506,
-		WalletBalance:    994.506,
-		AvailableBalance: 983.5434,
-		Futures: &accountv1.FuturesWallet{
-			MarginMode:       "cross",
-			PositionMode:     "one_way",
-			WalletBalance:    994.506,
-			AvailableBalance: 983.5434,
-			MarginBalance:    997.493,
-		},
-		SnapshotReason: int32(domain.SnapshotReasonOrderFill),
-		StrategyId:     43,
-		SnapshotTime:   timestamppb.New(snapshotTime),
-	})
-	if err != nil {
-		t.Fatalf("UpdateAccountWalletState: %v", err)
-	}
-	if len(repo.snapshotTimes) != 1 {
-		t.Fatalf("snapshot count = %d, want 1", len(repo.snapshotTimes))
-	}
-	if !repo.snapshotTimes[0].Equal(snapshotTime) {
-		t.Fatalf("snapshot time = %s, want %s", repo.snapshotTimes[0], snapshotTime)
-	}
-	if !repo.state.UpdatedAt.Equal(snapshotTime) {
-		t.Fatalf("account state updated_at = %s, want %s", repo.state.UpdatedAt, snapshotTime)
-	}
-	if !repo.venueStates[53].UpdatedAt.Equal(snapshotTime) {
-		t.Fatalf("venue state updated_at = %s, want %s", repo.venueStates[53].UpdatedAt, snapshotTime)
 	}
 }
 

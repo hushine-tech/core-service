@@ -1,8 +1,8 @@
 # Portal wallet bootstrap defaults
 
-When the quant portal creates a **backtest** account with selected symbols but minimal per-position input, servers apply these defaults so payloads stay compatible with `account_service.proto` and `strategy-service` wallet expectations.
+When the quant portal creates a **backtest venue** with selected symbols but minimal per-position input, servers apply these defaults so payloads stay compatible with `account_service.proto` and `strategy-service` wallet expectations.
 
-**quant-handler:** wallet bootstrap runs only when spot or futures is **meaningful** (non-zero free/locked, non-empty assets, non-empty futures positions, or non-zero cross `initial_balance`). Sending `"spot": {}` or an empty futures block does **not** overwrite the snapshot created by `CreateAccount` (e.g. legacy `initial_balance` seed).
+**quant-handler:** wallet bootstrap belongs to `CreateVenue` only. It runs when spot or futures is **meaningful** (non-zero free/locked, non-empty assets, non-empty futures positions, or non-zero cross `initial_balance`). Account creation does not seed or overwrite wallet state.
 
 ## Futures (`FuturesPosition`)
 

@@ -111,16 +111,16 @@ func seedBinancePerpVenue(t *testing.T, repo *mockRepo, accountID int64, env dom
 	return credManager
 }
 
-func TestGetOnlineAccountInfo_Backtest(t *testing.T) {
+func TestGetPortfolioSnapshot_Backtest(t *testing.T) {
 	svc, _, id := setupService(t)
-	resp, err := svc.GetOnlineAccountInfo(context.Background(), &accountv1.GetOnlineAccountInfoRequest{
+	resp, err := svc.GetPortfolioSnapshot(context.Background(), &accountv1.GetPortfolioSnapshotRequest{
 		AccountId: id,
 		UserId:    testsUserID,
 	})
 	if err != nil {
-		t.Fatalf("GetOnlineAccountInfo: %v", err)
+		t.Fatalf("GetPortfolioSnapshot: %v", err)
 	}
-	w := resp.GetWallet()
+	w := resp.GetSnapshot().GetWallet()
 	if w == nil {
 		t.Fatal("expected wallet")
 	}
@@ -132,7 +132,7 @@ func TestGetOnlineAccountInfo_Backtest(t *testing.T) {
 	}
 }
 
-func TestGetOnlineAccountInfo_TestnetFetchesExchangeAndRefreshesStoredState(t *testing.T) {
+func TestUpdatePortfolioSnapshot_TestnetFetchesExchangeAndRefreshesStoredState(t *testing.T) {
 	repo := newMockRepo()
 	ctx := context.Background()
 	accountID, err := repo.CreateAccount(ctx, domain.Account{
@@ -177,20 +177,20 @@ func TestGetOnlineAccountInfo_TestnetFetchesExchangeAndRefreshesStoredState(t *t
 	}
 	reader := &testPortfolioSnapshotReader{info: exchangeInfo}
 	router := exchange.NewAdapterRouter(nil, func(_ context.Context, _ int64) (domain.OnlineAccountInfo, error) {
-		t.Fatal("testnet GetOnlineAccountInfo must not read local wallet state")
+		t.Fatal("testnet portfolio snapshot must not read local wallet state")
 		return domain.OnlineAccountInfo{}, nil
 	})
 	registry := newBinancePerpSnapshotRegistry(reader, domain.EnvironmentDemo)
 	svc := service.NewAccountGRPCService(repo, router, testCatalog(), nil, service.WithCredentialManager(credManager), service.WithExchangeRegistry(registry))
 
-	resp, err := svc.GetOnlineAccountInfo(ctx, &accountv1.GetOnlineAccountInfoRequest{
+	resp, err := svc.UpdatePortfolioSnapshot(ctx, &accountv1.UpdatePortfolioSnapshotRequest{
 		AccountId: accountID,
 		UserId:    testsUserID,
 	})
 	if err != nil {
-		t.Fatalf("GetOnlineAccountInfo: %v", err)
+		t.Fatalf("UpdatePortfolioSnapshot: %v", err)
 	}
-	wallet := resp.GetWallet()
+	wallet := resp.GetSnapshot().GetWallet()
 	if wallet.GetEnvironment() != int32(domain.EnvironmentDemo) {
 		t.Fatalf("expected environment=1, got %d", wallet.GetEnvironment())
 	}
@@ -250,9 +250,9 @@ func TestCreateAccount_BacktestCreatesDefaultVenueAndVenueWalletState(t *testing
 	}
 }
 
-func TestGetOnlineAccountInfo_ZeroAccountID(t *testing.T) {
+func TestGetPortfolioSnapshot_ZeroAccountID(t *testing.T) {
 	svc, _, _ := setupService(t)
-	_, err := svc.GetOnlineAccountInfo(context.Background(), &accountv1.GetOnlineAccountInfoRequest{
+	_, err := svc.GetPortfolioSnapshot(context.Background(), &accountv1.GetPortfolioSnapshotRequest{
 		AccountId: 0,
 		UserId:    testsUserID,
 	})
@@ -264,9 +264,9 @@ func TestGetOnlineAccountInfo_ZeroAccountID(t *testing.T) {
 	}
 }
 
-func TestGetOnlineAccountInfo_NotFound(t *testing.T) {
+func TestGetPortfolioSnapshot_NotFound(t *testing.T) {
 	svc, _, _ := setupService(t)
-	_, err := svc.GetOnlineAccountInfo(context.Background(), &accountv1.GetOnlineAccountInfoRequest{
+	_, err := svc.GetPortfolioSnapshot(context.Background(), &accountv1.GetPortfolioSnapshotRequest{
 		AccountId: 9999,
 		UserId:    testsUserID,
 	})
@@ -278,7 +278,7 @@ func TestGetOnlineAccountInfo_NotFound(t *testing.T) {
 	}
 }
 
-func TestGetOnlineAccountInfo_Live_NoAdapter(t *testing.T) {
+func TestUpdatePortfolioSnapshot_Live_NoAdapter(t *testing.T) {
 	repo := newMockRepo()
 	ctx := context.Background()
 	id, err := repo.CreateAccount(ctx, domain.Account{
@@ -294,7 +294,7 @@ func TestGetOnlineAccountInfo_Live_NoAdapter(t *testing.T) {
 	router := exchange.NewAdapterRouter(nil, repo.GetAccountState)
 	svc := service.NewAccountGRPCService(repo, router, testCatalog(), nil, service.WithCredentialManager(credManager))
 
-	_, err = svc.GetOnlineAccountInfo(ctx, &accountv1.GetOnlineAccountInfoRequest{AccountId: id, UserId: testsUserID})
+	_, err = svc.UpdatePortfolioSnapshot(ctx, &accountv1.UpdatePortfolioSnapshotRequest{AccountId: id, UserId: testsUserID})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -303,96 +303,55 @@ func TestGetOnlineAccountInfo_Live_NoAdapter(t *testing.T) {
 	}
 }
 
-// TestGetOnlineAccountInfo_DoesNotWriteSnapshot verifies that GetOnlineAccountInfo
-// no longer appends snapshot rows.
-func TestGetOnlineAccountInfo_DoesNotWriteSnapshot(t *testing.T) {
+// TestGetPortfolioSnapshot_DoesNotWriteSnapshot verifies that reads do not
+// append snapshot rows.
+func TestGetPortfolioSnapshot_DoesNotWriteSnapshot(t *testing.T) {
 	svc, repo, id := setupService(t)
 	ctx := context.Background()
 
 	before := len(repo.snapshots)
-	_, err := svc.GetOnlineAccountInfo(ctx, &accountv1.GetOnlineAccountInfoRequest{AccountId: id, UserId: testsUserID})
+	_, err := svc.GetPortfolioSnapshot(ctx, &accountv1.GetPortfolioSnapshotRequest{AccountId: id, UserId: testsUserID})
 	if err != nil {
-		t.Fatalf("GetOnlineAccountInfo: %v", err)
+		t.Fatalf("GetPortfolioSnapshot: %v", err)
 	}
 	if len(repo.snapshots) != before {
 		t.Fatalf("expected no new snapshot, got %d new", len(repo.snapshots)-before)
 	}
 }
 
-func TestUpdateAccountWalletState_BacktestEcho(t *testing.T) {
-	svc, repo, id := setupService(t)
-	ctx := context.Background()
-
-	resp, err := svc.UpdateAccountWalletState(ctx, &accountv1.UpdateAccountWalletStateRequest{
-		AccountId:        id,
-		WalletBalance:    12000,
-		AvailableBalance: 11000,
-		TotalValue:       12500,
-		Futures: &accountv1.FuturesWallet{
-			MarginMode:   "cross",
-			PositionMode: "one_way",
-			Positions: []*accountv1.FuturesPosition{
-				{Symbol: "BTCUSDT", Direction: 0, InitialBalance: 1000, Leverage: 10, FeeRate: 0.0004},
-			},
-		},
-		Spot: &accountv1.SpotWallet{Free: 500, Locked: 0},
-	})
-	if err != nil {
-		t.Fatalf("UpdateAccountWalletState: %v", err)
-	}
-	w := resp.GetWallet()
-	if w == nil {
-		t.Fatal("expected wallet in response")
-	}
-	if w.GetFutures().GetWalletBalance() != 12000 || w.GetTotalValue() != 12500 {
-		t.Fatalf("unexpected response aggregates: wb=%f tv=%f", w.GetFutures().GetWalletBalance(), w.GetTotalValue())
-	}
-	if w.GetFutures().GetMarginMode() != "cross" {
-		t.Fatalf("expected cross margin in echoed futures")
-	}
-
-	state, err := repo.GetAccountState(ctx, id)
-	if err != nil {
-		t.Fatalf("GetAccountState: %v", err)
-	}
-	if state.WalletBalance != 12000 {
-		t.Fatalf("expected 12000 in repo, got %f", state.WalletBalance)
-	}
-}
-
-// TestUpdateAccountWalletState_NoSnapshotReason verifies that update without snapshot_reason
-// writes no snapshot.
-func TestUpdateAccountWalletState_NoSnapshotReason(t *testing.T) {
+// TestUpdatePortfolioSnapshot_NoSnapshotReason verifies that update without
+// snapshot_reason writes no snapshot.
+func TestUpdatePortfolioSnapshot_NoSnapshotReason(t *testing.T) {
 	svc, repo, id := setupService(t)
 	ctx := context.Background()
 	before := len(repo.snapshots)
 
-	_, err := svc.UpdateAccountWalletState(ctx, &accountv1.UpdateAccountWalletStateRequest{
+	_, err := svc.UpdatePortfolioSnapshot(ctx, &accountv1.UpdatePortfolioSnapshotRequest{
 		AccountId:      id,
-		WalletBalance:  11000,
+		UserId:         testsUserID,
 		SnapshotReason: 0, // no snapshot
 	})
 	if err != nil {
-		t.Fatalf("UpdateAccountWalletState: %v", err)
+		t.Fatalf("UpdatePortfolioSnapshot: %v", err)
 	}
 	if len(repo.snapshots) != before {
 		t.Fatalf("expected no snapshot, got %d new", len(repo.snapshots)-before)
 	}
 }
 
-// TestUpdateAccountWalletState_WithSnapshotReason verifies that snapshot_reason>0 writes a snapshot.
-func TestUpdateAccountWalletState_WithSnapshotReason(t *testing.T) {
+// TestUpdatePortfolioSnapshot_WithSnapshotReason verifies that snapshot_reason>0 writes a snapshot.
+func TestUpdatePortfolioSnapshot_WithSnapshotReason(t *testing.T) {
 	svc, repo, id := setupService(t)
 	ctx := context.Background()
 	before := len(repo.snapshots)
 
-	_, err := svc.UpdateAccountWalletState(ctx, &accountv1.UpdateAccountWalletStateRequest{
+	_, err := svc.UpdatePortfolioSnapshot(ctx, &accountv1.UpdatePortfolioSnapshotRequest{
 		AccountId:      id,
-		WalletBalance:  11000,
+		UserId:         testsUserID,
 		SnapshotReason: 1, // order_fill
 	})
 	if err != nil {
-		t.Fatalf("UpdateAccountWalletState: %v", err)
+		t.Fatalf("UpdatePortfolioSnapshot: %v", err)
 	}
 	if len(repo.snapshots) != before+1 {
 		t.Fatalf("expected 1 new snapshot, got %d", len(repo.snapshots)-before)
@@ -402,38 +361,11 @@ func TestUpdateAccountWalletState_WithSnapshotReason(t *testing.T) {
 	}
 }
 
-func TestUpdateAccountWalletState_Live_NoAdapter(t *testing.T) {
-	repo := newMockRepo()
-	ctx := context.Background()
-	id, err := repo.CreateAccount(ctx, domain.Account{
-		UserID:      testsUserID,
-		Name:        "live",
-		Environment: domain.EnvironmentLive,
-		CreatedAt:   time.Now(),
-	})
-	if err != nil {
-		t.Fatalf("create: %v", err)
-	}
-	credManager := seedBinancePerpVenue(t, repo, id, domain.EnvironmentLive, "live-key", "live-secret")
-	router := exchange.NewAdapterRouter(nil, repo.GetAccountState)
-	svc := service.NewAccountGRPCService(repo, router, testCatalog(), nil, service.WithCredentialManager(credManager))
-
-	_, err = svc.UpdateAccountWalletState(ctx, &accountv1.UpdateAccountWalletStateRequest{
-		AccountId:     id,
-		WalletBalance: 99999,
-	})
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if status.Code(err) != codes.FailedPrecondition {
-		t.Fatalf("expected FailedPrecondition, got %s", status.Code(err))
-	}
-}
-
-func TestUpdateAccountWalletState_ZeroAccountID(t *testing.T) {
+func TestUpdatePortfolioSnapshot_ZeroAccountID(t *testing.T) {
 	svc, _, _ := setupService(t)
-	_, err := svc.UpdateAccountWalletState(context.Background(), &accountv1.UpdateAccountWalletStateRequest{
+	_, err := svc.UpdatePortfolioSnapshot(context.Background(), &accountv1.UpdatePortfolioSnapshotRequest{
 		AccountId: 0,
+		UserId:    testsUserID,
 	})
 	if err == nil {
 		t.Fatal("expected error")

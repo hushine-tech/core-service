@@ -75,10 +75,9 @@ type ExchangeConfig struct {
 }
 
 // ReconciliationConfig drives Phase C shadow-compare behavior.
-// When Enabled is true, core-service runs an async compare in a detached
-// goroutine after every demo/live UpdateAccountWalletState; it writes to the
-// reconciliation_runs table and emits metric log events through the existing
-// ELK pipeline. Main request path is unaffected.
+// When Enabled is true, reconciliation work runs asynchronously and writes to
+// the reconciliation_runs table while emitting metric log events through the
+// existing ELK pipeline. Main request paths are unaffected.
 type ReconciliationConfig struct {
 	Enabled bool `yaml:"enabled"`
 	// Compare goroutine independent timeout. Must be > 0 when enabled.

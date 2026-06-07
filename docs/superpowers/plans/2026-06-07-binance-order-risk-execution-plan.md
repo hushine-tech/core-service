@@ -813,7 +813,7 @@ git commit -m "增加订单恢复截止与强制终止"
 - Test: `strategy-service/tests/test_strategy_engine.py`
 - Test: `strategy-service/tests/test_order_client.py`
 
-- [ ] **Step 1: Add runtime lifecycle tests**
+- [x] **Step 1: Add runtime lifecycle tests**
 
 Add tests in `strategy-service/tests/test_strategy_engine.py`:
 
@@ -830,7 +830,7 @@ def test_incremental_fill_event_updates_wallet_once():
     # Assert wallet position changes once and _settled_lifecycle_event_ids contains the event id.
 ```
 
-- [ ] **Step 2: Run failing runtime tests**
+- [x] **Step 2: Run failing runtime tests**
 
 ```bash
 cd /Users/xdy/Workplace/hushine/strategy-service
@@ -839,11 +839,11 @@ PYTHONPATH=.:./strategy-library pytest -q tests/test_strategy_engine.py -k 'forc
 
 Expected: one or both tests fail because terminal force-close handling is not explicit.
 
-- [ ] **Step 3: Extend lifecycle event conversion**
+- [x] **Step 3: Extend lifecycle event conversion**
 
 Modify `strategy-service/strategy_service/order_client.py` to preserve event source and terminal recovery status in `OrderUpdateEvent` if generated stubs expose it.
 
-- [ ] **Step 4: Handle terminal recovery events**
+- [x] **Step 4: Handle terminal recovery events**
 
 Modify `_is_order_update_terminal` in `strategy-service/strategy_service/strategy/base.py`:
 
@@ -854,7 +854,7 @@ if status in {"RECOVERY_EXPIRED", "FORCE_CLOSED"}:
 
 Modify `_consume_order_updates` so terminal events with no fill do not call wallet settlement but do unblock the route and call `on_order_update`.
 
-- [ ] **Step 5: Run strategy tests**
+- [x] **Step 5: Run strategy tests**
 
 ```bash
 cd /Users/xdy/Workplace/hushine/strategy-service
@@ -863,13 +863,18 @@ PYTHONPATH=.:./strategy-library pytest -q tests/test_strategy_engine.py tests/te
 
 Expected: pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd /Users/xdy/Workplace/hushine/strategy-service
 git add strategy_service/strategy/base.py strategy_service/order_client.py tests/test_strategy_engine.py tests/test_order_client.py
 git commit -m "处理订单恢复终态与增量钱包更新"
 ```
+
+Actual commits:
+- `strategy-library`: `910c8f3 扩展订单生命周期事件字段`
+- `strategy-library`: `6262487 保持订单事件位置参数兼容`
+- `strategy-service`: `de41175 处理订单恢复终态与增量钱包更新`
 
 ### Task 8: Expose Risk And Recovery State In Control Plane And UI
 
@@ -882,11 +887,11 @@ git commit -m "处理订单恢复终态与增量钱包更新"
 - Test: `control-panel-service/internal/runtimechannel/platform_proxy_test.go`
 - Test: `gateway/quant-handler/internal/app/order_history_test.go`
 
-- [ ] **Step 1: Add platform proxy test**
+- [x] **Step 1: Add platform proxy test**
 
 Add a test in `control-panel-service/internal/runtimechannel/platform_proxy_test.go` that invokes `order.PlaceOrder` with `post_only`, `reduce_only`, and `good_till_date`, then asserts the fake order client received the same values.
 
-- [ ] **Step 2: Run failing control-panel test**
+- [x] **Step 2: Run failing control-panel test**
 
 ```bash
 cd /Users/xdy/Workplace/hushine/control-panel-service
@@ -895,7 +900,7 @@ go test ./internal/runtimechannel -run OrderPlace -count=1
 
 Expected: failure if new generated order proto is not vendored or fake client does not assert fields.
 
-- [ ] **Step 3: Ensure proxy stays transparent**
+- [x] **Step 3: Ensure proxy stays transparent**
 
 Modify `platform_proxy.go` only if required. The desired implementation is still:
 
@@ -909,7 +914,7 @@ return p.requireOrder().PlaceOrder(ctx, req)
 
 Do not manually copy fields in control-panel.
 
-- [ ] **Step 4: Expose fields through handler JSON**
+- [x] **Step 4: Expose fields through handler JSON**
 
 Modify `gateway/quant-handler/internal/app/order_history.go` response structs to include:
 
@@ -924,11 +929,13 @@ NextCheckAt string `json:"next_check_at,omitempty"`
 RecoveryDeadlineAt string `json:"recovery_deadline_at,omitempty"`
 ```
 
-- [ ] **Step 5: Add handler serialization tests**
+Implementation note: query response proto entries also needed these fields first, so `core-service` now exposes order semantics, risk, and recovery fields from `QueryOrderIntents`, `QueryOrderAttempts`, and `QueryOrders`.
+
+- [x] **Step 5: Add handler serialization tests**
 
 Extend `gateway/quant-handler/internal/app/order_history_test.go` to assert the new JSON fields for intents, attempts, and orders.
 
-- [ ] **Step 6: Update frontend types and rendering**
+- [x] **Step 6: Update frontend types and rendering**
 
 Modify `gateway/quant-frontend/src/api.ts` order entry types with the same fields. Modify `OrderTree.tsx` to render compact badges:
 
@@ -938,7 +945,7 @@ Modify `gateway/quant-frontend/src/api.ts` order entry types with the same field
 {order.recovery_status && <Badge label={order.recovery_status} />}
 ```
 
-- [ ] **Step 7: Run UI and handler tests**
+- [x] **Step 7: Run UI and handler tests**
 
 ```bash
 cd /Users/xdy/Workplace/hushine/control-panel-service
@@ -951,7 +958,7 @@ npm run build
 
 Expected: pass.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 cd /Users/xdy/Workplace/hushine/control-panel-service
@@ -964,6 +971,13 @@ cd /Users/xdy/Workplace/hushine/gateway/quant-frontend
 git add src
 git commit -m "展示订单风控与恢复状态"
 ```
+
+Actual commits:
+- `core-service`: `9be5b9a 透出订单查询风控与恢复字段`
+- `control-panel-service`: `be63aa8 校验 RuntimeChannel 订单请求透传`
+- `quant-handler`: `ad08271 透出订单风控与恢复状态`
+- `quant-frontend`: `6efa97e 展示订单风控与恢复状态`
+- `strategy-service`: `06aa428 同步订单查询返回字段桩`
 
 ## Final Verification
 

@@ -47,6 +47,10 @@ func (f snapshotFactory) OrderExecutor() (adapter.OrderExecutor, error) {
 	return nil, adapter.CapabilityUnsupported("order_executor")
 }
 
+func (f snapshotFactory) OrderCapabilityProvider() (adapter.OrderCapabilityProvider, error) {
+	return nil, adapter.CapabilityUnsupported("order_capability_provider")
+}
+
 func (f snapshotFactory) OrderStateReader() (adapter.OrderStateReader, error) {
 	return nil, adapter.CapabilityUnsupported("order_state_reader")
 }

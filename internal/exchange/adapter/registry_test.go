@@ -9,7 +9,8 @@ import (
 )
 
 type testFactory struct {
-	orderExecutor OrderExecutor
+	orderExecutor           OrderExecutor
+	orderCapabilityProvider OrderCapabilityProvider
 }
 
 func (f testFactory) CredentialValidator() (CredentialValidator, error) {
@@ -31,6 +32,13 @@ func (f testFactory) OrderExecutor() (OrderExecutor, error) {
 	return f.orderExecutor, nil
 }
 
+func (f testFactory) OrderCapabilityProvider() (OrderCapabilityProvider, error) {
+	if f.orderCapabilityProvider == nil {
+		return nil, CapabilityUnsupported("order_capability_provider")
+	}
+	return f.orderCapabilityProvider, nil
+}
+
 func (f testFactory) OrderStateReader() (OrderStateReader, error) {
 	return nil, CapabilityUnsupported("order_state_reader")
 }
@@ -43,6 +51,12 @@ type testOrderExecutor struct{}
 
 func (testOrderExecutor) PlaceOrder(context.Context, OrderRequest) (OrderResult, error) {
 	return OrderResult{}, nil
+}
+
+type testOrderCapabilityProvider struct{}
+
+func (testOrderCapabilityProvider) OrderCapability(context.Context, ParsedCredential) (OrderCapability, error) {
+	return OrderCapability{Market: domain.MarketPerpetualFutures, OrderTypes: []string{"MARKET"}}, nil
 }
 
 func TestRegistryReturnsCapabilityForRegisteredRoute(t *testing.T) {
@@ -60,6 +74,28 @@ func TestRegistryReturnsCapabilityForRegisteredRoute(t *testing.T) {
 	}
 	if executor == nil {
 		t.Fatal("OrderExecutor() = nil, want capability")
+	}
+}
+
+func TestRegistryReturnsOrderCapabilityProviderForRegisteredRoute(t *testing.T) {
+	registry := NewRegistry()
+	route := Route{
+		Exchange:    domain.ExchangeBinance,
+		Environment: domain.EnvironmentDemo,
+		Market:      domain.MarketPerpetualFutures,
+	}
+	registry.Register(route, testFactory{orderCapabilityProvider: testOrderCapabilityProvider{}})
+
+	provider, err := registry.OrderCapabilityProvider(route)
+	if err != nil {
+		t.Fatalf("OrderCapabilityProvider() error = %v", err)
+	}
+	capability, err := provider.OrderCapability(context.Background(), ParsedCredential{})
+	if err != nil {
+		t.Fatalf("OrderCapability() error = %v", err)
+	}
+	if capability.Market != domain.MarketPerpetualFutures {
+		t.Fatalf("Market = %v, want perpetual futures", capability.Market)
 	}
 }
 
@@ -87,5 +123,20 @@ func TestRegistryRejectsUnsupportedCapability(t *testing.T) {
 	_, err := registry.OrderExecutor(route)
 	if !errors.Is(err, ErrCapabilityUnsupported) {
 		t.Fatalf("OrderExecutor() error = %v, want capability unsupported", err)
+	}
+}
+
+func TestRegistryRejectsUnsupportedOrderCapabilityProvider(t *testing.T) {
+	registry := NewRegistry()
+	route := Route{
+		Exchange:    domain.ExchangeOKX,
+		Environment: domain.EnvironmentDemo,
+		Market:      domain.MarketPerpetualFutures,
+	}
+	registry.Register(route, testFactory{})
+
+	_, err := registry.OrderCapabilityProvider(route)
+	if !errors.Is(err, ErrCapabilityUnsupported) {
+		t.Fatalf("OrderCapabilityProvider() error = %v, want capability unsupported", err)
 	}
 }

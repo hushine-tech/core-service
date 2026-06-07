@@ -30,6 +30,10 @@ func (f testPortfolioSnapshotFactory) OrderExecutor() (adapter.OrderExecutor, er
 	return nil, adapter.CapabilityUnsupported("order_executor")
 }
 
+func (f testPortfolioSnapshotFactory) OrderCapabilityProvider() (adapter.OrderCapabilityProvider, error) {
+	return nil, adapter.CapabilityUnsupported("order_capability_provider")
+}
+
 func (f testPortfolioSnapshotFactory) OrderStateReader() (adapter.OrderStateReader, error) {
 	return nil, adapter.CapabilityUnsupported("order_state_reader")
 }

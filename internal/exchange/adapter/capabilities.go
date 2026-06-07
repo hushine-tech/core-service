@@ -115,6 +115,15 @@ type OrderRequest struct {
 	Credential     ParsedCredential
 }
 
+type OrderCapability struct {
+	Market             domain.Market
+	OrderTypes         []string
+	TimeInForce        []string
+	SupportsPostOnly   bool
+	SupportsGTD        bool
+	SupportsReduceOnly bool
+}
+
 type OrderResult struct {
 	ExchangeOrderID string
 	ClientOrderID   string
@@ -206,6 +215,10 @@ type SymbolRulesReader interface {
 
 type OrderExecutor interface {
 	PlaceOrder(ctx context.Context, req OrderRequest) (OrderResult, error)
+}
+
+type OrderCapabilityProvider interface {
+	OrderCapability(ctx context.Context, credential ParsedCredential) (OrderCapability, error)
 }
 
 type OrderStateReader interface {

@@ -24,8 +24,83 @@ func TestBinanceDemoPerpFactoryProvidesAllPhase2Capabilities(t *testing.T) {
 	assertCapability(t, factory.AccountSnapshotReader)
 	assertCapability(t, factory.SymbolRulesReader)
 	assertCapability(t, factory.OrderExecutor)
+	assertCapability(t, factory.OrderCapabilityProvider)
 	assertCapability(t, factory.OrderStateReader)
 	assertCapability(t, factory.OrderCanceller)
+}
+
+func TestBinanceSpotFactoryProvidesOrderExecutorAndCapabilityProvider(t *testing.T) {
+	factory := NewFactory(adapter.Route{
+		Exchange:    domain.ExchangeBinance,
+		Environment: domain.EnvironmentDemo,
+		Market:      domain.MarketSpot,
+	}, nil)
+
+	assertCapability(t, factory.OrderExecutor)
+	assertCapability(t, factory.OrderStateReader)
+	provider, err := factory.OrderCapabilityProvider()
+	if err != nil {
+		t.Fatalf("OrderCapabilityProvider() error = %v", err)
+	}
+	capability, err := provider.OrderCapability(context.Background(), adapter.ParsedCredential{})
+	if err != nil {
+		t.Fatalf("OrderCapability() error = %v", err)
+	}
+	if capability.Market != domain.MarketSpot {
+		t.Fatalf("Market = %v, want spot", capability.Market)
+	}
+	if !capability.SupportsPostOnly || !capability.SupportsReduceOnly || capability.SupportsGTD {
+		t.Fatalf("spot capability = %+v, want post_only/reduce_only platform support without GTD", capability)
+	}
+	assertContains(t, capability.OrderTypes, "MARKET")
+	assertContains(t, capability.OrderTypes, "LIMIT")
+	assertContains(t, capability.TimeInForce, "GTC")
+	assertContains(t, capability.TimeInForce, "IOC")
+	assertContains(t, capability.TimeInForce, "FOK")
+}
+
+func TestBinanceFuturesOrderCapabilityIncludesAdvancedNativeSemantics(t *testing.T) {
+	factory := NewFactory(adapter.Route{
+		Exchange:    domain.ExchangeBinance,
+		Environment: domain.EnvironmentDemo,
+		Market:      domain.MarketPerpetualFutures,
+	}, nil)
+
+	provider, err := factory.OrderCapabilityProvider()
+	if err != nil {
+		t.Fatalf("OrderCapabilityProvider() error = %v", err)
+	}
+	capability, err := provider.OrderCapability(context.Background(), adapter.ParsedCredential{})
+	if err != nil {
+		t.Fatalf("OrderCapability() error = %v", err)
+	}
+	if !capability.SupportsPostOnly || !capability.SupportsGTD || !capability.SupportsReduceOnly {
+		t.Fatalf("futures capability = %+v, want post_only/GTD/reduce_only support", capability)
+	}
+	assertContains(t, capability.TimeInForce, "GTD")
+}
+
+func TestBinanceBacktestOrderCapabilityKeepsGTDUnsupported(t *testing.T) {
+	factory := NewBacktestFactory(adapter.Route{
+		Exchange:    domain.ExchangeBinance,
+		Environment: domain.EnvironmentBacktest,
+		Market:      domain.MarketPerpetualFutures,
+	})
+
+	provider, err := factory.OrderCapabilityProvider()
+	if err != nil {
+		t.Fatalf("OrderCapabilityProvider() error = %v", err)
+	}
+	capability, err := provider.OrderCapability(context.Background(), adapter.ParsedCredential{})
+	if err != nil {
+		t.Fatalf("OrderCapability() error = %v", err)
+	}
+	if capability.SupportsGTD {
+		t.Fatalf("SupportsGTD = true, want false until simulated expiry exists")
+	}
+	if contains(capability.TimeInForce, "GTD") {
+		t.Fatalf("TimeInForce = %v, want no GTD for backtest", capability.TimeInForce)
+	}
 }
 
 func TestBinanceBacktestFactoryUsesSimulatedExecutor(t *testing.T) {
@@ -44,7 +119,7 @@ func TestBinanceBacktestFactoryUsesSimulatedExecutor(t *testing.T) {
 		Side:          "BUY",
 		OrderType:     "MARKET",
 		Qty:           0.5,
-		Price:         ptr(2000.0),
+		MarkPrice:     2000.0,
 		ClientOrderID: "client-1",
 	})
 	if err != nil {
@@ -171,7 +246,7 @@ func TestBinanceBacktestLimitOrderPreservesFeeWhenFilled(t *testing.T) {
 	}
 }
 
-func TestBinanceBacktestAdvancedOrderContractFailsClosed(t *testing.T) {
+func TestBinanceBacktestGTDStillFailsClosed(t *testing.T) {
 	factory := NewBacktestFactory(adapter.Route{
 		Exchange:    domain.ExchangeBinance,
 		Environment: domain.EnvironmentBacktest,
@@ -183,67 +258,23 @@ func TestBinanceBacktestAdvancedOrderContractFailsClosed(t *testing.T) {
 	}
 
 	price := 3000.0
-	cases := []struct {
-		name    string
-		req     adapter.OrderRequest
-		wantMsg string
-	}{
-		{
-			name: "gtd",
-			req: adapter.OrderRequest{
-				Symbol:      "ETHUSDT",
-				Side:        "BUY",
-				OrderType:   "LIMIT",
-				TimeInForce: "GTD",
-				Qty:         0.2,
-				Price:       &price,
-				MarkPrice:   2999,
-			},
-			wantMsg: "time_in_force=GTD",
-		},
-		{
-			name: "post-only",
-			req: adapter.OrderRequest{
-				Symbol:      "ETHUSDT",
-				Side:        "BUY",
-				OrderType:   "LIMIT",
-				TimeInForce: "GTC",
-				PostOnly:    true,
-				Qty:         0.2,
-				Price:       &price,
-				MarkPrice:   2999,
-			},
-			wantMsg: "post_only",
-		},
-		{
-			name: "reduce-only",
-			req: adapter.OrderRequest{
-				Symbol:      "ETHUSDT",
-				Side:        "BUY",
-				OrderType:   "LIMIT",
-				TimeInForce: "GTC",
-				ReduceOnly:  true,
-				Qty:         0.2,
-				Price:       &price,
-				MarkPrice:   2999,
-			},
-			wantMsg: "reduce_only",
-		},
+	result, err := exec.PlaceOrder(context.Background(), adapter.OrderRequest{
+		Symbol:      "ETHUSDT",
+		Side:        "BUY",
+		OrderType:   "LIMIT",
+		TimeInForce: "GTD",
+		Qty:         0.2,
+		Price:       &price,
+		MarkPrice:   2999,
+	})
+	if err != nil {
+		t.Fatalf("PlaceOrder() error = %v", err)
 	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			result, err := exec.PlaceOrder(context.Background(), tc.req)
-			if err != nil {
-				t.Fatalf("PlaceOrder() error = %v", err)
-			}
-			if result.Status != "FAILED" {
-				t.Fatalf("status = %q, want FAILED", result.Status)
-			}
-			if !strings.Contains(result.ErrorMessage, tc.wantMsg) {
-				t.Fatalf("error = %q, want to contain %q", result.ErrorMessage, tc.wantMsg)
-			}
-		})
+	if result.Status != "FAILED" {
+		t.Fatalf("status = %q, want FAILED", result.Status)
+	}
+	if !strings.Contains(result.ErrorMessage, "time_in_force=GTD") {
+		t.Fatalf("error = %q, want to contain time_in_force=GTD", result.ErrorMessage)
 	}
 }
 
@@ -270,7 +301,7 @@ func TestBinanceFactoryRejectsUnsupportedMarkets(t *testing.T) {
 	factory := NewFactory(adapter.Route{
 		Exchange:    domain.ExchangeBinance,
 		Environment: domain.EnvironmentDemo,
-		Market:      domain.MarketSpot,
+		Market:      domain.MarketDeliveryFutures,
 	}, nil)
 
 	_, err := factory.OrderExecutor()
@@ -318,6 +349,22 @@ func TestLegacyOrderResultPreservesRecoverabilityFlags(t *testing.T) {
 	if len(result.Fills) != 1 || !result.Fills[0].FeeMissing {
 		t.Fatalf("fills = %+v, want FeeMissing preserved", result.Fills)
 	}
+}
+
+func assertContains(t *testing.T, got []string, want string) {
+	t.Helper()
+	if !contains(got, want) {
+		t.Fatalf("%v does not contain %q", got, want)
+	}
+}
+
+func contains(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func assertCapability[T any](t *testing.T, build func() (T, error)) {

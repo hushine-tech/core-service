@@ -418,7 +418,7 @@ func TestUnsupportedTimeInForceFailsClosed(t *testing.T) {
 	price := 2500.0
 	req.Price = &price
 	req.OrderType = "LIMIT"
-	req.TimeInForce = "IOC"
+	req.TimeInForce = "GTX"
 
 	_, err := svc.PlaceOrder(context.Background(), req)
 	if status.Code(err) != codes.FailedPrecondition {

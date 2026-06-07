@@ -1,6 +1,9 @@
 package binance
 
 import (
+	"net/http"
+	"time"
+
 	"github.com/hushine-tech/core-service/internal/domain"
 	legacyexchange "github.com/hushine-tech/core-service/internal/exchange"
 	"github.com/hushine-tech/core-service/internal/exchange/adapter"
@@ -55,24 +58,44 @@ func (f *Factory) SymbolRulesReader() (adapter.SymbolRulesReader, error) {
 }
 
 func (f *Factory) OrderExecutor() (adapter.OrderExecutor, error) {
-	if err := f.requirePerpetualFutures("order_executor"); err != nil {
+	if err := f.requireOrderMarket("order_executor"); err != nil {
 		return nil, err
 	}
 	switch f.route.Environment {
 	case domain.EnvironmentBacktest:
-		return simulatedOrderExecutor{}, nil
+		return simulatedOrderExecutor{route: f.route}, nil
 	case domain.EnvironmentDemo:
-		return orderExecutor{exec: orderexecutor.NewBinanceTestnetExecutor(f.logger)}, nil
+		return f.remoteOrderExecutor(orderexecutor.NewBinanceTestnetExecutor(f.logger)), nil
 	case domain.EnvironmentLive:
-		return orderExecutor{exec: orderexecutor.NewBinanceLiveExecutor(f.logger)}, nil
+		return f.remoteOrderExecutor(orderexecutor.NewBinanceLiveExecutor(f.logger)), nil
 	default:
 		return nil, adapter.CapabilityUnsupported("order_executor")
 	}
 }
 
-func (f *Factory) OrderStateReader() (adapter.OrderStateReader, error) {
-	if err := f.requirePerpetualFutures("order_state_reader"); err != nil {
+func (f *Factory) OrderCapabilityProvider() (adapter.OrderCapabilityProvider, error) {
+	if err := f.requireOrderMarket("order_capability_provider"); err != nil {
 		return nil, err
+	}
+	return orderCapabilityProvider{route: f.route}, nil
+}
+
+func (f *Factory) OrderStateReader() (adapter.OrderStateReader, error) {
+	if err := f.requireOrderMarket("order_state_reader"); err != nil {
+		return nil, err
+	}
+	if f.route.Market == domain.MarketSpot {
+		switch f.route.Environment {
+		case domain.EnvironmentBacktest:
+			return simulatedOrderStateReader{}, nil
+		case domain.EnvironmentDemo, domain.EnvironmentLive:
+			return spotOrderStateReader{
+				baseURL:    f.spotBaseURL(),
+				httpClient: &http.Client{Timeout: 10 * time.Second},
+			}, nil
+		default:
+			return nil, adapter.CapabilityUnsupported("order_state_reader")
+		}
 	}
 	switch f.route.Environment {
 	case domain.EnvironmentBacktest:
@@ -100,9 +123,40 @@ func (f *Factory) requirePerpetualFutures(capability string) error {
 	return nil
 }
 
+func (f *Factory) requireOrderMarket(capability string) error {
+	switch f.route.Market {
+	case domain.MarketSpot, domain.MarketPerpetualFutures:
+		return nil
+	default:
+		return adapter.CapabilityUnsupported(capability)
+	}
+}
+
 func (f *Factory) futuresBaseURL() string {
 	if f.route.Environment == domain.EnvironmentDemo {
 		return legacyexchange.BinanceTestnetBaseURL
 	}
 	return legacyexchange.BinanceLiveBaseURL
+}
+
+func (f *Factory) spotBaseURL() string {
+	if f.route.Environment == domain.EnvironmentDemo {
+		return legacyexchange.BinanceSpotTestnetURL
+	}
+	return legacyexchange.BinanceSpotBaseURL
+}
+
+func (f *Factory) remoteOrderExecutor(futuresExec *orderexecutor.BinanceExecutor) adapter.OrderExecutor {
+	exec := orderExecutor{
+		route:      f.route,
+		httpClient: &http.Client{Timeout: 10 * time.Second},
+	}
+	switch f.route.Market {
+	case domain.MarketSpot:
+		exec.baseURL = f.spotBaseURL()
+	case domain.MarketPerpetualFutures:
+		exec.exec = futuresExec
+		exec.baseURL = f.futuresBaseURL()
+	}
+	return exec
 }

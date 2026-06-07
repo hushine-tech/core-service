@@ -11,7 +11,8 @@ import (
 )
 
 type stubAdapterFactory struct {
-	orderExecutor exchangeadapter.OrderExecutor
+	orderExecutor    exchangeadapter.OrderExecutor
+	orderStateReader exchangeadapter.OrderStateReader
 }
 
 func (f stubAdapterFactory) CredentialValidator() (exchangeadapter.CredentialValidator, error) {
@@ -30,8 +31,15 @@ func (f stubAdapterFactory) OrderExecutor() (exchangeadapter.OrderExecutor, erro
 	return f.orderExecutor, nil
 }
 
+func (f stubAdapterFactory) OrderCapabilityProvider() (exchangeadapter.OrderCapabilityProvider, error) {
+	return nil, exchangeadapter.CapabilityUnsupported("order_capability_provider")
+}
+
 func (f stubAdapterFactory) OrderStateReader() (exchangeadapter.OrderStateReader, error) {
-	return nil, exchangeadapter.CapabilityUnsupported("order_state_reader")
+	if f.orderStateReader == nil {
+		return nil, exchangeadapter.CapabilityUnsupported("order_state_reader")
+	}
+	return f.orderStateReader, nil
 }
 
 func (f stubAdapterFactory) OrderCanceller() (exchangeadapter.OrderCanceller, error) {
@@ -51,6 +59,19 @@ func (e *recordingAdapterOrderExecutor) PlaceOrder(_ context.Context, req exchan
 		OrigQty:         req.Qty,
 		RemainingQty:    req.Qty,
 	}, nil
+}
+
+type stubAdapterOrderStateReader struct {
+	state  exchangeadapter.OrderState
+	trades []exchangeadapter.FillDelta
+}
+
+func (r stubAdapterOrderStateReader) QueryOrder(context.Context, exchangeadapter.QueryOrderRequest) (exchangeadapter.OrderState, error) {
+	return r.state, nil
+}
+
+func (r stubAdapterOrderStateReader) QueryTrades(context.Context, exchangeadapter.QueryTradesRequest) ([]exchangeadapter.FillDelta, error) {
+	return r.trades, nil
 }
 
 func TestAdapterRouter_ForwardsAdvancedOrderContractFields(t *testing.T) {
@@ -97,5 +118,57 @@ func TestAdapterRouter_ForwardsAdvancedOrderContractFields(t *testing.T) {
 	}
 	if adapterExec.lastReq.GoodTillDate == nil || adapterExec.lastReq.GoodTillDate.Unix() != 1893456000 {
 		t.Fatalf("good_till_date = %v, want 1893456000", adapterExec.lastReq.GoodTillDate)
+	}
+}
+
+func TestAdapterRouter_ResolveMarksInconsistentRecoveredTradesFillPending(t *testing.T) {
+	registry := exchangeadapter.NewRegistry()
+	registry.Register(exchangeadapter.Route{
+		Exchange:    domain.ExchangeBinance,
+		Environment: domain.EnvironmentBacktest,
+		Market:      domain.MarketSpot,
+	}, stubAdapterFactory{
+		orderStateReader: stubAdapterOrderStateReader{
+			state: exchangeadapter.OrderState{
+				ExchangeOrderID: "spot-order-1",
+				ClientOrderID:   "spot-client-1",
+				Symbol:          "ETHUSDT",
+				Status:          "FILLED",
+				OrigQty:         0.2,
+				ExecutedQty:     0.2,
+			},
+			trades: []exchangeadapter.FillDelta{{
+				ExchangeTradeID: "spot-trade-1",
+				Qty:             0.3,
+				FillPrice:       2500,
+			}},
+		},
+	})
+	router := NewAdapterRouter(registry)
+
+	result, err := router.Resolve(context.Background(), RecoveryRequest{
+		AccountID:       1,
+		Symbol:          "ETHUSDT",
+		ClientOrderID:   "spot-client-1",
+		ExchangeOrderID: "spot-order-1",
+	}, accountmeta.Meta{
+		AccountID:   1,
+		VenueID:     10,
+		UserID:      77,
+		Environment: int32(domain.EnvironmentBacktest),
+		Exchange:    int32(domain.ExchangeBinance),
+		Market:      int32(domain.MarketSpot),
+	})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if !result.FillPending {
+		t.Fatal("FillPending = false, want true for inconsistent recovered trades")
+	}
+	if len(result.Fills) != 0 {
+		t.Fatalf("fills = %+v, want no settleable recovered fills", result.Fills)
+	}
+	if result.ErrorMessage == "" {
+		t.Fatal("ErrorMessage is empty, want inconsistency reason")
 	}
 }

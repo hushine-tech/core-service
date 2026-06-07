@@ -60,6 +60,14 @@ func (r *Registry) OrderExecutor(route Route) (OrderExecutor, error) {
 	return factory.OrderExecutor()
 }
 
+func (r *Registry) OrderCapabilityProvider(route Route) (OrderCapabilityProvider, error) {
+	factory, err := r.factory(route)
+	if err != nil {
+		return nil, err
+	}
+	return factory.OrderCapabilityProvider()
+}
+
 func (r *Registry) OrderStateReader(route Route) (OrderStateReader, error) {
 	factory, err := r.factory(route)
 	if err != nil {

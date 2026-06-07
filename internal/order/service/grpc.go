@@ -1051,6 +1051,15 @@ func normalizeOrderContract(req *orderv1.PlaceOrderRequest) (int32, string, stri
 		if req.Price != nil {
 			return 0, "", "", status.Error(codes.InvalidArgument, "market order must not set price")
 		}
+		if req.GetPostOnly() {
+			return 0, "", "", status.Error(codes.InvalidArgument, "market order must not set post_only")
+		}
+		if strings.TrimSpace(req.GetTimeInForce()) != "" {
+			return 0, "", "", status.Error(codes.InvalidArgument, "market order must not set time_in_force")
+		}
+		if req.GetGoodTillDate() != nil {
+			return 0, "", "", status.Error(codes.InvalidArgument, "market order must not set good_till_date")
+		}
 		return orderTypeMarket, "MARKET", "", nil
 	case "LIMIT":
 		if req.Price == nil || req.GetPrice() <= 0 {
@@ -1063,7 +1072,7 @@ func normalizeOrderContract(req *orderv1.PlaceOrderRequest) (int32, string, stri
 		if tif == "GTD" && req.GetGoodTillDate() == nil {
 			return 0, "", "", status.Error(codes.InvalidArgument, "gtd limit order requires good_till_date")
 		}
-		if tif != "GTC" && tif != "GTD" {
+		if tif != "GTC" && tif != "IOC" && tif != "FOK" && tif != "GTD" {
 			return 0, "", "", status.Errorf(codes.FailedPrecondition, "unsupported time_in_force: %s", tif)
 		}
 		return orderTypeLimit, "LIMIT", tif, nil

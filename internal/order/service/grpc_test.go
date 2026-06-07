@@ -228,6 +228,14 @@ func (s *stubRepo) ListOpenOrders(_ context.Context, _ int) ([]lifecycle.OpenOrd
 	return nil, nil
 }
 
+func (s *stubRepo) ListDueOpenOrders(_ context.Context, _ int) ([]lifecycle.OpenOrder, error) {
+	return nil, nil
+}
+
+func (s *stubRepo) MarkRecoveryExpired(_ context.Context, _ string, _ time.Time, _ string) error {
+	return nil
+}
+
 func (s *stubRepo) SaveLifecycleEvent(_ context.Context, event lifecycle.Event) (lifecycle.Event, error) {
 	event.EventID = int64(len(s.events) + 1)
 	s.events = append(s.events, event)
@@ -726,6 +734,64 @@ func TestPlaceOrder_fillPendingPersistsOrderWithoutSettleableFill(t *testing.T) 
 	}
 	if repo.orders[0].ErrorMessage == "" || repo.attempts[0].RecoveryError == "" {
 		t.Fatalf("order/attempt should carry fill-pending observability, orders=%+v attempts=%+v", repo.orders, repo.attempts)
+	}
+	if repo.orders[0].RecoveryStatus != "FILL_PENDING" {
+		t.Fatalf("recovery_status = %q, want FILL_PENDING", repo.orders[0].RecoveryStatus)
+	}
+	if repo.orders[0].RecoveryStartedAt == nil || repo.orders[0].NextCheckAt == nil || repo.orders[0].RecoveryDeadlineAt == nil {
+		t.Fatalf("recoverable order should carry started/next/deadline timestamps: %+v", repo.orders[0])
+	}
+	wantDeadline := repo.orders[0].Time.Add(14 * 24 * time.Hour)
+	if !repo.orders[0].RecoveryDeadlineAt.Equal(wantDeadline) {
+		t.Fatalf("recovery_deadline_at = %s, want %s", repo.orders[0].RecoveryDeadlineAt, wantDeadline)
+	}
+}
+
+func TestBuildPersistedExecutionSetsRecoveryDeadlineForPartialOrder(t *testing.T) {
+	meta := testOrderMeta(environmentDemo)
+	attempt := repository.OrderAttempt{
+		AttemptID:       "attempt-partial",
+		IntentID:        "intent-partial",
+		AccountID:       1,
+		VenueID:         meta.VenueID,
+		UserID:          meta.UserID,
+		StrategyID:      9,
+		SessionID:       "sess-partial",
+		Environment:     environmentDemo,
+		Exchange:        int32(domain.ExchangeBinance),
+		Market:          int32(domain.MarketPerpetualFutures),
+		PositionSide:    0,
+		Symbol:          "ETHUSDT",
+		Side:            "BUY",
+		RequestedQty:    0.5,
+		ClientOrderID:   "client-partial",
+		ExchangeOrderID: "ex-partial",
+	}
+	eventTime := time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC)
+	order, _ := buildPersistedExecution(meta, attempt, 9, "sess-partial", int32(domain.MarketPerpetualFutures), executor.OrderResult{
+		ExchangeOrderID: "ex-partial",
+		ClientOrderID:   "client-partial",
+		Symbol:          "ETHUSDT",
+		Side:            "BUY",
+		Status:          "PARTIALLY_FILLED",
+		OrigQty:         0.5,
+		ExecutedQty:     0.2,
+		RemainingQty:    0.3,
+		AvgPrice:        3000,
+	}, eventTime)
+
+	if order.RecoveryStatus != "PARTIALLY_FILLED" {
+		t.Fatalf("recovery_status = %q, want PARTIALLY_FILLED", order.RecoveryStatus)
+	}
+	if order.RecoveryStartedAt == nil || !order.RecoveryStartedAt.Equal(eventTime) {
+		t.Fatalf("recovery_started_at = %v, want %s", order.RecoveryStartedAt, eventTime)
+	}
+	if order.NextCheckAt == nil || order.NextCheckAt.Before(eventTime) || !order.NextCheckAt.Before(eventTime.Add(time.Minute)) {
+		t.Fatalf("next_check_at = %v, want shortly after %s", order.NextCheckAt, eventTime)
+	}
+	wantDeadline := eventTime.Add(14 * 24 * time.Hour)
+	if order.RecoveryDeadlineAt == nil || !order.RecoveryDeadlineAt.Equal(wantDeadline) {
+		t.Fatalf("recovery_deadline_at = %v, want %s", order.RecoveryDeadlineAt, wantDeadline)
 	}
 }
 

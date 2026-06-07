@@ -68,7 +68,7 @@ func (c orderCanceller) cancelRemote(ctx context.Context, req adapter.CancelOrde
 	query := params.Encode()
 	params.Set("signature", signQuery(query, apiSecret))
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.baseURL()+"/fapi/v1/order?"+params.Encode(), nil)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.baseURL()+c.orderPath()+"?"+params.Encode(), nil)
 	if err != nil {
 		return adapter.CancelOrderResult{}, err
 	}
@@ -106,10 +106,23 @@ func (c orderCanceller) cancelRemote(ctx context.Context, req adapter.CancelOrde
 }
 
 func (c orderCanceller) baseURL() string {
+	if c.route.Market == domain.MarketSpot {
+		if c.route.Environment == domain.EnvironmentDemo {
+			return legacyexchange.BinanceSpotTestnetURL
+		}
+		return legacyexchange.BinanceSpotBaseURL
+	}
 	if c.route.Environment == domain.EnvironmentLive {
 		return legacyexchange.BinanceLiveBaseURL
 	}
 	return legacyexchange.BinanceTestnetBaseURL
+}
+
+func (c orderCanceller) orderPath() string {
+	if c.route.Market == domain.MarketSpot {
+		return "/api/v3/order"
+	}
+	return "/fapi/v1/order"
 }
 
 func signQuery(query, secret string) string {

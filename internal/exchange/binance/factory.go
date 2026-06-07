@@ -113,7 +113,7 @@ func (f *Factory) OrderStateReader() (adapter.OrderStateReader, error) {
 }
 
 func (f *Factory) OrderCanceller() (adapter.OrderCanceller, error) {
-	if err := f.requirePerpetualFutures("order_canceller"); err != nil {
+	if err := f.requireOrderMarket("order_canceller"); err != nil {
 		return nil, err
 	}
 	return orderCanceller{route: f.route}, nil

@@ -8,11 +8,13 @@ import (
 	"github.com/hushine-tech/core-service/internal/domain"
 	exchangeadapter "github.com/hushine-tech/core-service/internal/exchange/adapter"
 	"github.com/hushine-tech/core-service/internal/order/accountmeta"
+	"github.com/hushine-tech/core-service/internal/order/lifecycle"
 )
 
 type stubAdapterFactory struct {
 	orderExecutor    exchangeadapter.OrderExecutor
 	orderStateReader exchangeadapter.OrderStateReader
+	orderCanceller   exchangeadapter.OrderCanceller
 }
 
 func (f stubAdapterFactory) CredentialValidator() (exchangeadapter.CredentialValidator, error) {
@@ -43,7 +45,10 @@ func (f stubAdapterFactory) OrderStateReader() (exchangeadapter.OrderStateReader
 }
 
 func (f stubAdapterFactory) OrderCanceller() (exchangeadapter.OrderCanceller, error) {
-	return nil, exchangeadapter.CapabilityUnsupported("order_canceller")
+	if f.orderCanceller == nil {
+		return nil, exchangeadapter.CapabilityUnsupported("order_canceller")
+	}
+	return f.orderCanceller, nil
 }
 
 type recordingAdapterOrderExecutor struct {
@@ -72,6 +77,29 @@ func (r stubAdapterOrderStateReader) QueryOrder(context.Context, exchangeadapter
 
 func (r stubAdapterOrderStateReader) QueryTrades(context.Context, exchangeadapter.QueryTradesRequest) ([]exchangeadapter.FillDelta, error) {
 	return r.trades, nil
+}
+
+type recordingAdapterCanceller struct {
+	lastReq exchangeadapter.CancelOrderRequest
+}
+
+func (c *recordingAdapterCanceller) CancelOrder(_ context.Context, req exchangeadapter.CancelOrderRequest) (exchangeadapter.CancelOrderResult, error) {
+	c.lastReq = req
+	return exchangeadapter.CancelOrderResult{
+		ExchangeOrderID: req.ExchangeOrderID,
+		ClientOrderID:   req.ClientOrderID,
+		Symbol:          req.Symbol,
+		Status:          "CANCELED",
+		CancelledAt:     time.Now().UTC(),
+	}, nil
+}
+
+type recoveryMetaGetterStub struct {
+	meta accountmeta.Meta
+}
+
+func (g recoveryMetaGetterStub) Get(context.Context, int64, int32, int32) (accountmeta.Meta, error) {
+	return g.meta, nil
 }
 
 func TestAdapterRouter_ForwardsAdvancedOrderContractFields(t *testing.T) {
@@ -118,6 +146,43 @@ func TestAdapterRouter_ForwardsAdvancedOrderContractFields(t *testing.T) {
 	}
 	if adapterExec.lastReq.GoodTillDate == nil || adapterExec.lastReq.GoodTillDate.Unix() != 1893456000 {
 		t.Fatalf("good_till_date = %v, want 1893456000", adapterExec.lastReq.GoodTillDate)
+	}
+}
+
+func TestAdapterRecoveryClientCancelOrderUsesAdapterCapability(t *testing.T) {
+	canceller := &recordingAdapterCanceller{}
+	registry := exchangeadapter.NewRegistry()
+	registry.Register(exchangeadapter.Route{
+		Exchange:    domain.ExchangeBinance,
+		Environment: domain.EnvironmentBacktest,
+		Market:      domain.MarketPerpetualFutures,
+	}, stubAdapterFactory{orderCanceller: canceller})
+	client := NewAdapterRecoveryClient(registry, recoveryMetaGetterStub{meta: accountmeta.Meta{
+		AccountID:   1,
+		VenueID:     10,
+		UserID:      77,
+		Environment: int32(domain.EnvironmentBacktest),
+		Exchange:    int32(domain.ExchangeBinance),
+		Market:      int32(domain.MarketPerpetualFutures),
+	}})
+
+	result, err := client.CancelOrder(context.Background(), lifecycle.OpenOrder{
+		AccountID:       1,
+		VenueID:         10,
+		Exchange:        int32(domain.ExchangeBinance),
+		Market:          int32(domain.MarketPerpetualFutures),
+		Symbol:          "ETHUSDT",
+		ClientOrderID:   "client-1",
+		ExchangeOrderID: "exchange-1",
+	})
+	if err != nil {
+		t.Fatalf("CancelOrder: %v", err)
+	}
+	if result.Status != "CANCELED" || result.ExchangeOrderID != "exchange-1" {
+		t.Fatalf("cancel result = %+v", result)
+	}
+	if canceller.lastReq.Symbol != "ETHUSDT" || canceller.lastReq.ClientOrderID != "client-1" || canceller.lastReq.ExchangeOrderID != "exchange-1" {
+		t.Fatalf("adapter cancel request = %+v", canceller.lastReq)
 	}
 }
 

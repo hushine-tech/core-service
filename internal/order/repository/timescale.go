@@ -818,22 +818,46 @@ func (r *TimescaleRepository) QueryOrderFillsPaginated(ctx context.Context, user
 }
 
 func (r *TimescaleRepository) ListOpenOrders(ctx context.Context, limit int) ([]lifecycle.OpenOrder, error) {
+	return r.listOpenOrders(ctx, limit, false)
+}
+
+func (r *TimescaleRepository) ListDueOpenOrders(ctx context.Context, limit int) ([]lifecycle.OpenOrder, error) {
+	return r.listOpenOrders(ctx, limit, true)
+}
+
+func (r *TimescaleRepository) listOpenOrders(ctx context.Context, limit int, dueOnly bool) ([]lifecycle.OpenOrder, error) {
 	if limit <= 0 {
 		limit = 50
 	}
 	if limit > 500 {
 		limit = 500
 	}
+	dueFilter := ""
+	if dueOnly {
+		dueFilter = "AND (o.next_check_at IS NULL OR o.next_check_at <= NOW())"
+	}
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT COALESCE(i.session_id, ''), i.account_id, i.venue_id, i.intent_id,
 		       i.environment, i.exchange, i.market, i.position_side,
 		       o.attempt_id, o.order_id, COALESCE(o.exchange_order_id, ''),
 		       COALESCE(NULLIF(o.client_order_id, ''), NULLIF(a.client_order_id, ''), ''),
-		       i.symbol, i.side
+		       i.symbol, i.side,
+		       COALESCE(NULLIF(o.recovery_status, ''), CASE
+		           WHEN o.status = $1 THEN 'OPEN'
+		           WHEN o.status = $2 THEN 'PARTIALLY_FILLED'
+		           ELSE ''
+		       END) AS recovery_status,
+		       o.recovery_started_at, o.next_check_at, o.recovery_deadline_at,
+		       COALESCE(o.last_recovery_error, '')
 		FROM orders o
 		JOIN order_intents i ON i.intent_id = o.intent_id
 		JOIN order_attempts a ON a.attempt_id = o.attempt_id
-		WHERE o.status IN ($1, $2)
+		WHERE COALESCE(NULLIF(o.recovery_status, ''), CASE
+		           WHEN o.status = $1 THEN 'OPEN'
+		           WHEN o.status = $2 THEN 'PARTIALLY_FILLED'
+			           ELSE ''
+			       END) IN ('OPEN', 'PARTIALLY_FILLED', 'FILL_PENDING', 'FEE_MISSING', 'RECOVERING')
+		  `+dueFilter+`
 		  AND i.venue_id > 0
 		  AND (
 		      COALESCE(o.exchange_order_id, '') <> ''
@@ -853,6 +877,7 @@ func (r *TimescaleRepository) ListOpenOrders(ctx context.Context, limit int) ([]
 	for rows.Next() {
 		var item lifecycle.OpenOrder
 		var sideCode int16
+		var recoveryStartedAt, nextCheckAt, recoveryDeadlineAt sql.NullTime
 		if err := rows.Scan(
 			&item.SessionID,
 			&item.AccountID,
@@ -868,13 +893,54 @@ func (r *TimescaleRepository) ListOpenOrders(ctx context.Context, limit int) ([]
 			&item.ClientOrderID,
 			&item.Symbol,
 			&sideCode,
+			&item.RecoveryStatus,
+			&recoveryStartedAt,
+			&nextCheckAt,
+			&recoveryDeadlineAt,
+			&item.LastRecoveryError,
 		); err != nil {
 			return nil, err
 		}
 		item.Side = orderSideText(sideCode)
+		if recoveryStartedAt.Valid {
+			item.RecoveryStartedAt = recoveryStartedAt.Time
+		}
+		if nextCheckAt.Valid {
+			item.NextCheckAt = nextCheckAt.Time
+		}
+		if recoveryDeadlineAt.Valid {
+			item.RecoveryDeadlineAt = recoveryDeadlineAt.Time
+		}
 		out = append(out, item)
 	}
 	return out, rows.Err()
+}
+
+func (r *TimescaleRepository) MarkRecoveryExpired(ctx context.Context, orderID string, forceClosedAt time.Time, lastError string) error {
+	orderID = strings.TrimSpace(orderID)
+	if orderID == "" {
+		return fmt.Errorf("order_id is required")
+	}
+	if forceClosedAt.IsZero() {
+		forceClosedAt = time.Now().UTC()
+	}
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE orders
+		SET recovery_status = 'RECOVERY_EXPIRED',
+		    next_check_at = NULL,
+		    force_closed_at = $2,
+		    last_recovery_error = $3,
+		    updated_at = $2
+		WHERE order_id = $1`,
+		orderID, forceClosedAt.UTC(), strings.TrimSpace(lastError),
+	)
+	if err != nil {
+		return fmt.Errorf("mark recovery expired: %w", err)
+	}
+	if rows, err := res.RowsAffected(); err == nil && rows == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 func (r *TimescaleRepository) SaveLifecycleEvent(ctx context.Context, event lifecycle.Event) (lifecycle.Event, error) {

@@ -345,7 +345,7 @@ Expected: pass.
 
 Modify `/Users/xdy/Workplace/hushine/db/README.md` in the order DB section to mention the new audit/recovery columns on `order_intents`, `order_attempts`, and `orders`.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 cd /Users/xdy/Workplace/hushine/core-service
@@ -714,9 +714,11 @@ git commit -m "接入 Binance 用户数据流订单事件"
 - Modify: `core-service/internal/order/lifecycle/scanner_test.go`
 - Modify: `core-service/internal/order/repository/repository.go`
 - Modify: `core-service/internal/order/repository/timescale.go`
+- Modify: `core-service/internal/order/service/grpc.go`
+- Create: `core-service/internal/order/executor/adapter_recovery_client.go`
 - Modify: `core-service/cmd/core-service/main.go`
 
-- [ ] **Step 1: Add deadline tests**
+- [x] **Step 1: Add deadline tests**
 
 In `core-service/internal/order/lifecycle/scanner_test.go`, add `TestScannerForceClosesAfterDeadline`. It should create an open order with `RecoveryDeadlineAt` before `now`, fake a successful cancel, fake final trades, and assert a terminal event with:
 
@@ -726,7 +728,7 @@ EventType: "terminal",
 OrderStatus: "RECOVERY_EXPIRED",
 ```
 
-- [ ] **Step 2: Run failing scanner test**
+- [x] **Step 2: Run failing scanner test**
 
 ```bash
 cd /Users/xdy/Workplace/hushine/core-service
@@ -735,7 +737,7 @@ go test ./internal/order/lifecycle -run TestScannerForceClosesAfterDeadline -cou
 
 Expected: fail because scanner does not know deadline fields.
 
-- [ ] **Step 3: Extend scanner open order model**
+- [x] **Step 3: Extend scanner open order model**
 
 Modify `OpenOrder` in `scanner.go`:
 
@@ -747,7 +749,7 @@ RecoveryDeadlineAt time.Time
 LastRecoveryError  string
 ```
 
-- [ ] **Step 4: Query only due orders**
+- [x] **Step 4: Query only due orders**
 
 Modify repository `ListOpenOrders` SQL so it returns orders where:
 
@@ -756,7 +758,7 @@ recovery_status IN ('OPEN', 'PARTIALLY_FILLED', 'FILL_PENDING', 'FEE_MISSING', '
 AND (next_check_at IS NULL OR next_check_at <= NOW())
 ```
 
-- [ ] **Step 5: Implement deadline path**
+- [x] **Step 5: Implement deadline path**
 
 In `Scanner.ScanOnce`, before normal REST query:
 
@@ -774,7 +776,7 @@ if !order.RecoveryDeadlineAt.IsZero() && !now.Before(order.RecoveryDeadlineAt) {
 
 `forceClose` must cancel, query final order state, query final trades, write final fill events, then write terminal event.
 
-- [ ] **Step 6: Run scanner tests**
+- [x] **Step 6: Run scanner tests**
 
 ```bash
 cd /Users/xdy/Workplace/hushine/core-service
@@ -783,7 +785,7 @@ go test ./internal/order/lifecycle ./internal/order/repository -count=1
 
 Expected: pass.
 
-- [ ] **Step 7: Wire scanner config**
+- [x] **Step 7: Wire scanner config**
 
 Modify `core-service/cmd/core-service/main.go` to construct the scanner with deadline-aware repository and adapter reader/canceller. Use config defaults:
 

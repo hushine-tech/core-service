@@ -54,6 +54,9 @@ const (
 	attemptStatusRecoveryFailed = "RECOVERY_FAILED"
 	attemptStatusRiskRejected   = "RISK_REJECTED"
 
+	defaultOrderRecoveryNextCheckDelay = 5 * time.Second
+	defaultOrderRecoveryDeadline       = 14 * 24 * time.Hour
+
 	environmentBacktest = int32(0)
 	environmentDemo     = int32(1)
 	environmentLive     = int32(2)
@@ -839,6 +842,7 @@ func buildPersistedExecution(
 		Status:          nonEmpty(result.Status, "NEW"),
 		ErrorMessage:    result.ErrorMessage,
 	}
+	applyRecoveryTracking(order, result, now)
 
 	fills := make([]repository.OrderFill, 0, len(result.Fills))
 	for _, fill := range result.Fills {
@@ -872,6 +876,40 @@ func buildPersistedExecution(
 		})
 	}
 	return order, fills
+}
+
+func applyRecoveryTracking(order *repository.Order, result executor.OrderResult, now time.Time) {
+	status := recoveryStatusForExecution(result)
+	if status == "" {
+		return
+	}
+	startedAt := now
+	nextCheckAt := now.Add(defaultOrderRecoveryNextCheckDelay)
+	deadlineAt := now.Add(defaultOrderRecoveryDeadline)
+	order.RecoveryStatus = status
+	order.RecoveryStartedAt = &startedAt
+	order.NextCheckAt = &nextCheckAt
+	order.RecoveryDeadlineAt = &deadlineAt
+	order.LastRecoveryError = strings.TrimSpace(result.ErrorMessage)
+}
+
+func recoveryStatusForExecution(result executor.OrderResult) string {
+	if result.FillPending {
+		return "FILL_PENDING"
+	}
+	for _, fill := range result.Fills {
+		if fill.FeeMissing {
+			return "FEE_MISSING"
+		}
+	}
+	switch strings.ToUpper(strings.TrimSpace(result.Status)) {
+	case "PARTIALLY_FILLED":
+		return "PARTIALLY_FILLED"
+	case "NEW":
+		return "OPEN"
+	default:
+		return ""
+	}
 }
 
 func (s *OrderGRPCService) loadPersistedExecution(ctx context.Context, attemptID string) (*repository.Order, []repository.OrderFill) {

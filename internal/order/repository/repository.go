@@ -142,6 +142,7 @@ type Repository interface {
 	QueryOrdersPaginated(ctx context.Context, userID, accountID, strategyID int64, sessionID, intentID, attemptID string, limit, offset int) ([]Order, int64, error)
 	QueryOrderFillsPaginated(ctx context.Context, userID, accountID, strategyID int64, sessionID, intentID, attemptID, orderID string, limit, offset int) ([]OrderFill, int64, error)
 	ListOpenOrders(ctx context.Context, limit int) ([]lifecycle.OpenOrder, error)
+	ListDueOpenOrders(ctx context.Context, limit int) ([]lifecycle.OpenOrder, error)
 	SaveLifecycleEvent(ctx context.Context, event lifecycle.Event) (lifecycle.Event, error)
 	ListLifecycleEvents(ctx context.Context, sessionID string, afterEventID int64, limit int) ([]lifecycle.Event, error)
 }

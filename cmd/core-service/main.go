@@ -31,6 +31,7 @@ import (
 	"github.com/hushine-tech/core-service/internal/notification"
 	orderaccountmeta "github.com/hushine-tech/core-service/internal/order/accountmeta"
 	orderexecutor "github.com/hushine-tech/core-service/internal/order/executor"
+	orderlifecycle "github.com/hushine-tech/core-service/internal/order/lifecycle"
 	ordernotify "github.com/hushine-tech/core-service/internal/order/notification"
 	orderrepository "github.com/hushine-tech/core-service/internal/order/repository"
 	orderrisk "github.com/hushine-tech/core-service/internal/order/risk"
@@ -205,6 +206,19 @@ func main() {
 		PendingReader:     orderrisk.NewOpenOrderPendingReader(orderRepository),
 		SymbolRulesReader: orderrisk.NewAdapterSymbolRulesReader(exchangeRegistry),
 	}))
+	orderRecoveryClient := orderexecutor.NewAdapterRecoveryClient(exchangeRegistry, orderMetaGetter)
+	orderRecoveryScanner := orderlifecycle.NewScanner(orderRepository, orderRecoveryClient, orderlifecycle.ScannerConfig{
+		BatchSize:        50,
+		InitialBackoff:   5 * time.Second,
+		MaxBackoff:       60 * time.Second,
+		RecoveryDeadline: 14 * 24 * time.Hour,
+	})
+	backgroundWG.Add(1)
+	go func() {
+		defer backgroundWG.Done()
+		runOrderRecoveryScanner(ctx, orderRecoveryScanner, 15*time.Second)
+	}()
+	logger.Info(ctx, "system", "order recovery scanner enabled: batch=50 backoff=5s/60s deadline=14d")
 
 	// ── HTTP Server ───────────────────────────────────────────────────────────
 	httpAddr := cfg.Server.HTTPAddr

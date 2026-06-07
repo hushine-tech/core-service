@@ -38,6 +38,7 @@ func TestBinanceSpotFactoryProvidesOrderExecutorAndCapabilityProvider(t *testing
 
 	assertCapability(t, factory.OrderExecutor)
 	assertCapability(t, factory.OrderStateReader)
+	assertCapability(t, factory.OrderCanceller)
 	provider, err := factory.OrderCapabilityProvider()
 	if err != nil {
 		t.Fatalf("OrderCapabilityProvider() error = %v", err)

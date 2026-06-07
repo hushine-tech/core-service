@@ -199,8 +199,9 @@ func (r *TimescaleRepository) UpsertOrderIntent(ctx context.Context, intent Orde
 		INSERT INTO order_intents (
 			intent_id, time, updated_at, account_id, venue_id, user_id, strategy_id, session_id,
 			environment, exchange, market, symbol, side, position_side, order_type,
-			requested_qty, requested_price, status, reject_code, reject_message
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+			requested_qty, requested_price, post_only, good_till_date, reduce_only,
+			status, reject_code, reject_message
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
 		ON CONFLICT (intent_id) DO UPDATE SET
 			updated_at = EXCLUDED.updated_at,
 			account_id = EXCLUDED.account_id,
@@ -217,13 +218,16 @@ func (r *TimescaleRepository) UpsertOrderIntent(ctx context.Context, intent Orde
 			order_type = EXCLUDED.order_type,
 			requested_qty = EXCLUDED.requested_qty,
 			requested_price = EXCLUDED.requested_price,
+			post_only = EXCLUDED.post_only,
+			good_till_date = EXCLUDED.good_till_date,
+			reduce_only = EXCLUDED.reduce_only,
 			status = EXCLUDED.status,
 			reject_code = EXCLUDED.reject_code,
 			reject_message = EXCLUDED.reject_message`,
 		intent.IntentID, intent.Time, intent.Time, intent.AccountID, intent.VenueID, intent.UserID, nullableInt64(intent.StrategyID),
 		nullableString(intent.SessionID), int16(intent.Environment), int16(intent.Exchange), int16(intent.Market),
 		intent.Symbol, sideCode, int16(intent.PositionSide), orderType,
-		intent.RequestedQty, nullableFloat64(intent.RequestedPrice), statusCode,
+		intent.RequestedQty, nullableFloat64(intent.RequestedPrice), intent.PostOnly, nullableTimePtr(intent.GoodTillDate), intent.ReduceOnly, statusCode,
 		intent.RejectCode, intent.RejectMessage,
 	)
 	return err
@@ -233,12 +237,15 @@ func (r *TimescaleRepository) CreateOrderAttempt(ctx context.Context, attempt Or
 	_, err := r.sqlExec.ExecContext(ctx, `
 			INSERT INTO order_attempts (
 				attempt_id, intent_id, time, updated_at, mark_price, client_order_id, status,
-				error_message, exchange_order_id, recovery_error
-			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+				error_message, exchange_order_id, recovery_error, post_only, good_till_date,
+				reduce_only, risk_status, risk_reasons_json
+			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb)`,
 		attempt.AttemptID, attempt.IntentID, attempt.Time, attempt.Time,
 		nullableFloat64(attempt.MarkPrice), nullableString(attempt.ClientOrderID),
 		attemptStatusCode(attempt.Status), attempt.ErrorMessage,
 		nullableString(attempt.ExchangeOrderID), attempt.RecoveryError,
+		attempt.PostOnly, nullableTimePtr(attempt.GoodTillDate), attempt.ReduceOnly,
+		attempt.RiskStatus, riskReasonsJSON(attempt.RiskReasonsJSON),
 	)
 	return err
 }
@@ -261,11 +268,18 @@ func (r *TimescaleRepository) FinalizeOrderAttempt(ctx context.Context, attempt 
 			    error_message = $4,
 			    client_order_id = $5,
 			    recovery_error = $6,
-			    exchange_order_id = $7
+			    exchange_order_id = $7,
+			    post_only = $8,
+			    good_till_date = $9,
+			    reduce_only = $10,
+			    risk_status = $11,
+			    risk_reasons_json = $12::jsonb
 			WHERE attempt_id = $1`,
 		attempt.AttemptID, attempt.Time, attemptStatusCode(attempt.Status), attempt.ErrorMessage,
 		nullableString(attempt.ClientOrderID), attempt.RecoveryError,
 		nullableString(attempt.ExchangeOrderID),
+		attempt.PostOnly, nullableTimePtr(attempt.GoodTillDate), attempt.ReduceOnly,
+		attempt.RiskStatus, riskReasonsJSON(attempt.RiskReasonsJSON),
 	); err != nil {
 		return fmt.Errorf("update order_attempts: %w", err)
 	}
@@ -274,8 +288,11 @@ func (r *TimescaleRepository) FinalizeOrderAttempt(ctx context.Context, attempt 
 		if _, err = tx.ExecContext(ctx, `
 				INSERT INTO orders (
 					order_id, exchange_order_id, attempt_id, intent_id, time, updated_at,
-					client_order_id, orig_qty, executed_qty, remaining_qty, avg_price, price, status, error_message
-				) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+					client_order_id, orig_qty, executed_qty, remaining_qty, avg_price, price,
+					post_only, good_till_date, reduce_only, status, error_message,
+					recovery_status, recovery_started_at, next_check_at, recovery_deadline_at,
+					last_recovery_error, force_closed_at
+				) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
 				ON CONFLICT (order_id) DO UPDATE SET
 					updated_at = EXCLUDED.updated_at,
 					exchange_order_id = EXCLUDED.exchange_order_id,
@@ -284,12 +301,24 @@ func (r *TimescaleRepository) FinalizeOrderAttempt(ctx context.Context, attempt 
 					remaining_qty = EXCLUDED.remaining_qty,
 					avg_price = EXCLUDED.avg_price,
 					price = EXCLUDED.price,
+					post_only = EXCLUDED.post_only,
+					good_till_date = EXCLUDED.good_till_date,
+					reduce_only = EXCLUDED.reduce_only,
 					status = EXCLUDED.status,
-					error_message = EXCLUDED.error_message`,
+					error_message = EXCLUDED.error_message,
+					recovery_status = EXCLUDED.recovery_status,
+					recovery_started_at = EXCLUDED.recovery_started_at,
+					next_check_at = EXCLUDED.next_check_at,
+					recovery_deadline_at = EXCLUDED.recovery_deadline_at,
+					last_recovery_error = EXCLUDED.last_recovery_error,
+					force_closed_at = EXCLUDED.force_closed_at`,
 			order.OrderID, nullableString(order.ExchangeOrderID), order.AttemptID, order.IntentID,
 			order.Time, order.Time, nullableString(order.ClientOrderID),
 			order.OrigQty, order.ExecutedQty, order.RemainingQty, order.AvgPrice,
-			nullableFloat64(order.Price), orderStatusCode(order.Status), order.ErrorMessage,
+			nullableFloat64(order.Price), order.PostOnly, nullableTimePtr(order.GoodTillDate), order.ReduceOnly,
+			orderStatusCode(order.Status), order.ErrorMessage,
+			order.RecoveryStatus, nullableTimePtr(order.RecoveryStartedAt), nullableTimePtr(order.NextCheckAt),
+			nullableTimePtr(order.RecoveryDeadlineAt), order.LastRecoveryError, nullableTimePtr(order.ForceClosedAt),
 		); err != nil {
 			return fmt.Errorf("upsert orders: %w", err)
 		}
@@ -323,7 +352,8 @@ func (r *TimescaleRepository) FindOrderAttempt(ctx context.Context, userID, acco
 		       COALESCE(i.strategy_id, 0), COALESCE(i.session_id, ''),
 		       COALESCE(a.client_order_id, ''), COALESCE(a.recovery_error, ''),
 		       COALESCE(o.order_id, ''), COALESCE(a.exchange_order_id, ''),
-		       i.environment, i.exchange, i.market, i.position_side, i.order_type
+		       i.environment, i.exchange, i.market, i.position_side, i.order_type,
+		       a.post_only, a.good_till_date, a.reduce_only, a.risk_status, a.risk_reasons_json::text
 		FROM order_attempts a
 		JOIN order_intents i ON i.intent_id = a.intent_id
 		LEFT JOIN orders o ON o.attempt_id = a.attempt_id
@@ -349,11 +379,13 @@ func (r *TimescaleRepository) FindOrderAttempt(ctx context.Context, userID, acco
 
 	var item OrderAttempt
 	var sideCode, statusCode, env, exchange, market, positionSide, orderType int16
+	var goodTillDate sql.NullTime
 	err := r.db.QueryRowContext(ctx, base, args...).Scan(
 		&item.Time, &item.AttemptID, &item.IntentID, &item.AccountID, &item.VenueID, &item.UserID, &item.Symbol, &sideCode,
 		&item.RequestedQty, &item.RequestedPrice, &item.MarkPrice, &statusCode, &item.ErrorMessage,
 		&item.StrategyID, &item.SessionID, &item.ClientOrderID, &item.RecoveryError, &item.OrderID, &item.ExchangeOrderID,
 		&env, &exchange, &market, &positionSide, &orderType,
+		&item.PostOnly, &goodTillDate, &item.ReduceOnly, &item.RiskStatus, &item.RiskReasonsJSON,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return OrderAttempt{}, ErrNotFound
@@ -368,6 +400,7 @@ func (r *TimescaleRepository) FindOrderAttempt(ctx context.Context, userID, acco
 	item.Market = int32(market)
 	item.PositionSide = int32(positionSide)
 	item.OrderType = int32(orderType)
+	item.GoodTillDate = timePtrFromNull(goodTillDate)
 	return item, nil
 }
 
@@ -377,17 +410,22 @@ func (r *TimescaleRepository) FindOrderByAttempt(ctx context.Context, attemptID 
 		       o.attempt_id, o.intent_id, i.account_id, i.venue_id, i.user_id,
 		       i.symbol, i.side, o.orig_qty, o.executed_qty, o.remaining_qty, o.avg_price,
 		       o.status, o.error_message, COALESCE(i.strategy_id, 0), i.environment,
-		       i.exchange, i.market, i.position_side, COALESCE(i.session_id, ''), COALESCE(o.price, 0)
+		       i.exchange, i.market, i.position_side, COALESCE(i.session_id, ''), COALESCE(o.price, 0),
+		       o.post_only, o.good_till_date, o.reduce_only, o.recovery_status, o.recovery_started_at,
+		       o.next_check_at, o.recovery_deadline_at, o.last_recovery_error, o.force_closed_at
 		FROM orders o
 		JOIN order_intents i ON i.intent_id = o.intent_id
 		WHERE o.attempt_id = $1
 		LIMIT 1`
 	var item Order
 	var sideCode, statusCode, env, exchange, market, positionSide int16
+	var goodTillDate, recoveryStartedAt, nextCheckAt, recoveryDeadlineAt, forceClosedAt sql.NullTime
 	err := r.db.QueryRowContext(ctx, query, attemptID).Scan(
 		&item.Time, &item.OrderID, &item.ExchangeOrderID, &item.ClientOrderID, &item.AttemptID, &item.IntentID, &item.AccountID, &item.VenueID, &item.UserID,
 		&item.Symbol, &sideCode, &item.OrigQty, &item.ExecutedQty, &item.RemainingQty, &item.AvgPrice, &statusCode, &item.ErrorMessage,
 		&item.StrategyID, &env, &exchange, &market, &positionSide, &item.SessionID, &item.Price,
+		&item.PostOnly, &goodTillDate, &item.ReduceOnly, &item.RecoveryStatus, &recoveryStartedAt,
+		&nextCheckAt, &recoveryDeadlineAt, &item.LastRecoveryError, &forceClosedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Order{}, ErrNotFound
@@ -401,6 +439,11 @@ func (r *TimescaleRepository) FindOrderByAttempt(ctx context.Context, attemptID 
 	item.Exchange = int32(exchange)
 	item.Market = int32(market)
 	item.PositionSide = int32(positionSide)
+	item.GoodTillDate = timePtrFromNull(goodTillDate)
+	item.RecoveryStartedAt = timePtrFromNull(recoveryStartedAt)
+	item.NextCheckAt = timePtrFromNull(nextCheckAt)
+	item.RecoveryDeadlineAt = timePtrFromNull(recoveryDeadlineAt)
+	item.ForceClosedAt = timePtrFromNull(forceClosedAt)
 	return item, nil
 }
 
@@ -515,7 +558,7 @@ func (r *TimescaleRepository) QueryOrderIntentsPaginated(ctx context.Context, us
 		SELECT time, intent_id, account_id, venue_id, user_id, COALESCE(strategy_id, 0),
 		       COALESCE(session_id, ''), environment, exchange, market, symbol, side,
 		       position_side, order_type, requested_qty, COALESCE(requested_price, 0),
-		       status, reject_code, reject_message
+		       post_only, good_till_date, reduce_only, status, reject_code, reject_message
 		FROM order_intents ` + where + " ORDER BY time DESC, intent_id DESC"
 	query, pageArgs := applyLimitOffset(query, args, limit, offset)
 	rows, err := r.db.QueryContext(ctx, query, pageArgs...)
@@ -528,11 +571,12 @@ func (r *TimescaleRepository) QueryOrderIntentsPaginated(ctx context.Context, us
 	for rows.Next() {
 		var item OrderIntent
 		var sideCode, statusCode, env, exchange, market, positionSide, orderType int16
+		var goodTillDate sql.NullTime
 		if err := rows.Scan(
 			&item.Time, &item.IntentID, &item.AccountID, &item.VenueID, &item.UserID, &item.StrategyID,
 			&item.SessionID, &env, &exchange, &market, &item.Symbol, &sideCode,
 			&positionSide, &orderType, &item.RequestedQty, &item.RequestedPrice,
-			&statusCode, &item.RejectCode, &item.RejectMessage,
+			&item.PostOnly, &goodTillDate, &item.ReduceOnly, &statusCode, &item.RejectCode, &item.RejectMessage,
 		); err != nil {
 			return nil, 0, err
 		}
@@ -542,6 +586,7 @@ func (r *TimescaleRepository) QueryOrderIntentsPaginated(ctx context.Context, us
 		item.Side = orderSideText(sideCode)
 		item.PositionSide = int32(positionSide)
 		item.OrderType = int32(orderType)
+		item.GoodTillDate = timePtrFromNull(goodTillDate)
 		item.Status = intentStatusText(statusCode)
 		out = append(out, item)
 	}
@@ -565,7 +610,8 @@ func (r *TimescaleRepository) QueryOrderAttemptsPaginated(ctx context.Context, u
 		       COALESCE(i.requested_price, 0), COALESCE(a.mark_price, 0), a.status, a.error_message,
 		       COALESCE(i.strategy_id, 0), i.environment, i.exchange, i.market, i.position_side, i.order_type,
 		       COALESCE(i.session_id, ''), COALESCE(a.client_order_id, ''), COALESCE(a.recovery_error, ''),
-		       COALESCE(o.order_id, ''), COALESCE(a.exchange_order_id, '')
+		       COALESCE(o.order_id, ''), COALESCE(a.exchange_order_id, ''),
+		       a.post_only, a.good_till_date, a.reduce_only, a.risk_status, a.risk_reasons_json::text
 		FROM order_attempts a
 		JOIN order_intents i ON i.intent_id = a.intent_id
 		LEFT JOIN orders o ON o.attempt_id = a.attempt_id ` + where + " ORDER BY a.time DESC"
@@ -580,11 +626,13 @@ func (r *TimescaleRepository) QueryOrderAttemptsPaginated(ctx context.Context, u
 	for rows.Next() {
 		var item OrderAttempt
 		var sideCode, statusCode, env, exchange, market, positionSide, orderType int16
+		var goodTillDate sql.NullTime
 		if err := rows.Scan(
 			&item.Time, &item.AttemptID, &item.IntentID, &item.AccountID, &item.VenueID, &item.UserID, &item.Symbol, &sideCode,
 			&item.RequestedQty, &item.RequestedPrice, &item.MarkPrice, &statusCode, &item.ErrorMessage,
 			&item.StrategyID, &env, &exchange, &market, &positionSide, &orderType,
 			&item.SessionID, &item.ClientOrderID, &item.RecoveryError, &item.OrderID, &item.ExchangeOrderID,
+			&item.PostOnly, &goodTillDate, &item.ReduceOnly, &item.RiskStatus, &item.RiskReasonsJSON,
 		); err != nil {
 			return nil, 0, err
 		}
@@ -595,6 +643,7 @@ func (r *TimescaleRepository) QueryOrderAttemptsPaginated(ctx context.Context, u
 		item.Market = int32(market)
 		item.PositionSide = int32(positionSide)
 		item.OrderType = int32(orderType)
+		item.GoodTillDate = timePtrFromNull(goodTillDate)
 		out = append(out, item)
 	}
 	return out, total, rows.Err()
@@ -618,7 +667,9 @@ func (r *TimescaleRepository) QueryOrdersPaginated(ctx context.Context, userID, 
 		       o.attempt_id, o.intent_id, i.account_id, i.venue_id, i.user_id,
 		       i.symbol, i.side, o.orig_qty, o.executed_qty, o.remaining_qty, o.avg_price,
 		       o.status, o.error_message, COALESCE(i.strategy_id, 0), i.environment, i.exchange, i.market,
-		       i.position_side, COALESCE(i.session_id, ''), COALESCE(o.price, 0)
+		       i.position_side, COALESCE(i.session_id, ''), COALESCE(o.price, 0),
+		       o.post_only, o.good_till_date, o.reduce_only, o.recovery_status, o.recovery_started_at,
+		       o.next_check_at, o.recovery_deadline_at, o.last_recovery_error, o.force_closed_at
 		FROM orders o
 		JOIN order_intents i ON i.intent_id = o.intent_id ` + where + " ORDER BY o.time DESC"
 	query, pageArgs := applyLimitOffset(query, args, limit, offset)
@@ -632,10 +683,13 @@ func (r *TimescaleRepository) QueryOrdersPaginated(ctx context.Context, userID, 
 	for rows.Next() {
 		var item Order
 		var sideCode, statusCode, env, exchange, market, positionSide int16
+		var goodTillDate, recoveryStartedAt, nextCheckAt, recoveryDeadlineAt, forceClosedAt sql.NullTime
 		if err := rows.Scan(
 			&item.Time, &item.OrderID, &item.ExchangeOrderID, &item.ClientOrderID, &item.AttemptID, &item.IntentID, &item.AccountID, &item.VenueID, &item.UserID,
 			&item.Symbol, &sideCode, &item.OrigQty, &item.ExecutedQty, &item.RemainingQty, &item.AvgPrice,
 			&statusCode, &item.ErrorMessage, &item.StrategyID, &env, &exchange, &market, &positionSide, &item.SessionID, &item.Price,
+			&item.PostOnly, &goodTillDate, &item.ReduceOnly, &item.RecoveryStatus, &recoveryStartedAt,
+			&nextCheckAt, &recoveryDeadlineAt, &item.LastRecoveryError, &forceClosedAt,
 		); err != nil {
 			return nil, 0, err
 		}
@@ -645,6 +699,11 @@ func (r *TimescaleRepository) QueryOrdersPaginated(ctx context.Context, userID, 
 		item.Exchange = int32(exchange)
 		item.Market = int32(market)
 		item.PositionSide = int32(positionSide)
+		item.GoodTillDate = timePtrFromNull(goodTillDate)
+		item.RecoveryStartedAt = timePtrFromNull(recoveryStartedAt)
+		item.NextCheckAt = timePtrFromNull(nextCheckAt)
+		item.RecoveryDeadlineAt = timePtrFromNull(recoveryDeadlineAt)
+		item.ForceClosedAt = timePtrFromNull(forceClosedAt)
 		out = append(out, item)
 	}
 	return out, total, rows.Err()
@@ -917,6 +976,28 @@ func nullableFloat64(v float64) any {
 		return nil
 	}
 	return v
+}
+
+func nullableTimePtr(value *time.Time) any {
+	if value == nil || value.IsZero() {
+		return nil
+	}
+	return *value
+}
+
+func timePtrFromNull(value sql.NullTime) *time.Time {
+	if !value.Valid || value.Time.IsZero() {
+		return nil
+	}
+	t := value.Time
+	return &t
+}
+
+func riskReasonsJSON(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return "[]"
+	}
+	return value
 }
 
 func orderSideCode(side string) (int16, error) {

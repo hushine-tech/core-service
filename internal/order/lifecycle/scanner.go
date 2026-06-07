@@ -3,6 +3,7 @@ package lifecycle
 import (
 	"context"
 	"errors"
+	"math"
 	"strings"
 	"time"
 )
@@ -35,6 +36,7 @@ type ScannerStore interface {
 	EventStore
 	ListDueOpenOrders(ctx context.Context, limit int) ([]OpenOrder, error)
 	MarkRecoveryExpired(ctx context.Context, orderID string, forceClosedAt time.Time, lastError string) error
+	MarkRecoveryResolved(ctx context.Context, orderID string, state OrderState, resolvedAt time.Time) error
 }
 
 type OrderStateReader interface {
@@ -116,19 +118,33 @@ func (s *Scanner) ScanOnce(ctx context.Context, now time.Time) (int, error) {
 			s.backoffVenue(order.VenueID, now)
 			continue
 		}
-		if !hasFillDelta(state) {
-			continue
-		}
+		state = enrichOrderStateFromOpenOrder(order, state, now)
 		tradeOrder := enrichOpenOrderFromState(order, state)
-		trades, err := s.reader.QueryTrades(ctx, tradeOrder)
-		if err != nil {
-			s.backoffVenue(order.VenueID, now)
-			continue
+		if hasFillDelta(state) {
+			trades, err := s.reader.QueryTrades(ctx, tradeOrder)
+			if err != nil {
+				s.backoffVenue(order.VenueID, now)
+				continue
+			}
+			if !hasCompleteFillDetails(state, trades) {
+				continue
+			}
+			writtenForOrder, err := s.writeFillEvents(ctx, tradeOrder, state, trades, EventSourceRESTRecovery, now)
+			written += writtenForOrder
+			if err != nil {
+				return written, err
+			}
 		}
-		writtenForOrder, err := s.writeFillEvents(ctx, tradeOrder, state, trades, EventSourceRESTRecovery, now)
-		written += writtenForOrder
-		if err != nil {
-			return written, err
+		if isTerminalOrderState(state) {
+			state.Status = terminalOrderStatus(state)
+			writtenForOrder, err := s.writeTerminalEvent(ctx, tradeOrder, state, EventSourceRESTRecovery, state.Status, state.UpdatedAt)
+			written += writtenForOrder
+			if err != nil {
+				return written, err
+			}
+			if err := s.store.MarkRecoveryResolved(ctx, order.OrderID, state, state.UpdatedAt); err != nil {
+				return written, err
+			}
 		}
 	}
 	return written, nil
@@ -225,11 +241,30 @@ func isTerminalOrderState(state OrderState) bool {
 	}
 }
 
+func terminalOrderStatus(state OrderState) string {
+	status := strings.ToUpper(strings.TrimSpace(state.Status))
+	if status == "" && state.OrigQty > 0 && state.RemainingQty <= 0 {
+		return "FILLED"
+	}
+	return status
+}
+
 func enrichOpenOrderFromState(order OpenOrder, state OrderState) OpenOrder {
 	order.ExchangeOrderID = firstNonEmpty(order.ExchangeOrderID, state.ExchangeOrderID)
 	order.ClientOrderID = firstNonEmpty(order.ClientOrderID, state.ClientOrderID)
 	order.Symbol = firstNonEmpty(order.Symbol, state.Symbol)
 	return order
+}
+
+func enrichOrderStateFromOpenOrder(order OpenOrder, state OrderState, now time.Time) OrderState {
+	state.ExchangeOrderID = firstNonEmpty(state.ExchangeOrderID, order.ExchangeOrderID)
+	state.ClientOrderID = firstNonEmpty(state.ClientOrderID, order.ClientOrderID)
+	state.Symbol = firstNonEmpty(state.Symbol, order.Symbol)
+	state.Status = strings.ToUpper(strings.TrimSpace(state.Status))
+	if state.UpdatedAt.IsZero() {
+		state.UpdatedAt = now
+	}
+	return state
 }
 
 func (s *Scanner) writeFillEvents(ctx context.Context, order OpenOrder, state OrderState, trades []FillDelta, source string, now time.Time) (int, error) {
@@ -270,6 +305,38 @@ func (s *Scanner) writeFillEvents(ctx context.Context, order OpenOrder, state Or
 	return written, nil
 }
 
+func (s *Scanner) writeTerminalEvent(ctx context.Context, order OpenOrder, state OrderState, source, orderStatus string, occurredAt time.Time) (int, error) {
+	if occurredAt.IsZero() {
+		occurredAt = time.Now().UTC()
+	}
+	terminal := Event{
+		SessionID:       order.SessionID,
+		AccountID:       order.AccountID,
+		VenueID:         order.VenueID,
+		Environment:     order.Environment,
+		Exchange:        order.Exchange,
+		Market:          order.Market,
+		PositionSide:    order.PositionSide,
+		Side:            order.Side,
+		IntentID:        order.IntentID,
+		AttemptID:       order.AttemptID,
+		OrderID:         order.OrderID,
+		ExchangeOrderID: firstNonEmpty(state.ExchangeOrderID, order.ExchangeOrderID),
+		EventType:       "terminal",
+		EventSource:     source,
+		OrderStatus:     orderStatus,
+		OrderState:      state,
+		OccurredAt:      occurredAt,
+	}
+	if err := ValidateEventRouteFacts(terminal); err != nil {
+		return 0, err
+	}
+	if _, err := s.store.SaveLifecycleEvent(ctx, terminal); err != nil {
+		return 0, err
+	}
+	return 1, nil
+}
+
 func (s *Scanner) backoffVenue(venueID int64, now time.Time) {
 	delay := s.cfg.InitialBackoff
 	if delay > s.cfg.MaxBackoff {
@@ -279,10 +346,21 @@ func (s *Scanner) backoffVenue(venueID int64, now time.Time) {
 }
 
 func hasFillDelta(state OrderState) bool {
-	switch state.Status {
+	switch strings.ToUpper(strings.TrimSpace(state.Status)) {
 	case "FILLED", "PARTIALLY_FILLED":
 		return state.ExecutedQty > 0
 	default:
 		return false
 	}
+}
+
+func hasCompleteFillDetails(state OrderState, trades []FillDelta) bool {
+	if state.ExecutedQty <= 0 {
+		return true
+	}
+	total := 0.0
+	for _, trade := range trades {
+		total += math.Abs(trade.Qty)
+	}
+	return total+1e-12 >= state.ExecutedQty
 }

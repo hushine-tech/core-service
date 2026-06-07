@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/hushine-tech/core-service/internal/order/lifecycle"
 )
 
 func TestOrderRepositoryPersistsRiskRecoveryContract(t *testing.T) {
@@ -395,6 +397,139 @@ func TestListOpenOrdersReturnsDueRecoveryFields(t *testing.T) {
 		if got.OrderID == orderID {
 			t.Fatalf("expired recovery order should not remain due: %+v", got)
 		}
+	}
+}
+
+func TestMarkRecoveryResolvedClearsDueOpenOrder(t *testing.T) {
+	repo, ctx := lifecycleTestRepo(t)
+
+	seed := time.Now().UnixNano()
+	accountID := int64(951000000000 + seed%100000000)
+	userID := int64(961000000000 + seed%100000000)
+	venueID := int64(971000000000 + seed%100000000)
+	strategyID := int64(981000000000 + seed%100000000)
+	sessionID := fmt.Sprintf("resolved-recovery-%d", seed)
+	intentID := fmt.Sprintf("intent-resolved-%d", seed)
+	attemptID := fmt.Sprintf("attempt-resolved-%d", seed)
+	orderID := fmt.Sprintf("order-resolved-%d", seed)
+	exchangeOrderID := fmt.Sprintf("exchange-resolved-%d", seed)
+	clientOrderID := fmt.Sprintf("client-resolved-%d", seed)
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	recoveryStartedAt := now.Add(-time.Hour)
+	nextCheckAt := now.Add(-time.Minute)
+	recoveryDeadlineAt := now.Add(13 * 24 * time.Hour)
+
+	if err := repo.UpsertOrderIntent(ctx, OrderIntent{
+		IntentID:     intentID,
+		Time:         now.Add(-2 * time.Hour),
+		AccountID:    accountID,
+		VenueID:      venueID,
+		UserID:       userID,
+		StrategyID:   strategyID,
+		SessionID:    sessionID,
+		Environment:  2,
+		Exchange:     1,
+		Market:       2,
+		PositionSide: 0,
+		OrderType:    1,
+		Symbol:       "ETHUSDT",
+		Side:         "BUY",
+		RequestedQty: 0.5,
+		Status:       "REQUESTED",
+	}); err != nil {
+		t.Fatalf("UpsertOrderIntent: %v", err)
+	}
+	attempt := OrderAttempt{
+		AttemptID:       attemptID,
+		IntentID:        intentID,
+		Time:            now.Add(-90 * time.Minute),
+		AccountID:       accountID,
+		VenueID:         venueID,
+		UserID:          userID,
+		StrategyID:      strategyID,
+		SessionID:       sessionID,
+		Environment:     2,
+		Exchange:        1,
+		Market:          2,
+		PositionSide:    0,
+		OrderType:       1,
+		Symbol:          "ETHUSDT",
+		Side:            "BUY",
+		RequestedQty:    0.5,
+		Status:          "PENDING",
+		ClientOrderID:   clientOrderID,
+		OrderID:         orderID,
+		ExchangeOrderID: exchangeOrderID,
+	}
+	if err := repo.CreateOrderAttempt(ctx, attempt); err != nil {
+		t.Fatalf("CreateOrderAttempt: %v", err)
+	}
+	attempt.Status = "ACCEPTED"
+	if err := repo.FinalizeOrderAttempt(ctx, attempt, &Order{
+		OrderID:            orderID,
+		ExchangeOrderID:    exchangeOrderID,
+		ClientOrderID:      clientOrderID,
+		AttemptID:          attemptID,
+		IntentID:           intentID,
+		Time:               now.Add(-time.Hour),
+		AccountID:          accountID,
+		VenueID:            venueID,
+		UserID:             userID,
+		StrategyID:         strategyID,
+		SessionID:          sessionID,
+		Environment:        2,
+		Exchange:           1,
+		Market:             2,
+		PositionSide:       0,
+		Symbol:             "ETHUSDT",
+		Side:               "BUY",
+		OrigQty:            0.5,
+		ExecutedQty:        0.2,
+		RemainingQty:       0.3,
+		Status:             "PARTIALLY_FILLED",
+		RecoveryStatus:     "PARTIALLY_FILLED",
+		RecoveryStartedAt:  &recoveryStartedAt,
+		NextCheckAt:        &nextCheckAt,
+		RecoveryDeadlineAt: &recoveryDeadlineAt,
+		LastRecoveryError:  "fee pending",
+	}, nil); err != nil {
+		t.Fatalf("FinalizeOrderAttempt: %v", err)
+	}
+
+	resolvedAt := now.Add(2 * time.Minute)
+	if err := repo.MarkRecoveryResolved(ctx, orderID, lifecycle.OrderState{
+		ExchangeOrderID: exchangeOrderID,
+		ClientOrderID:   clientOrderID,
+		Symbol:          "ETHUSDT",
+		Status:          "FILLED",
+		OrigQty:         0.5,
+		ExecutedQty:     0.5,
+		RemainingQty:    0,
+		AvgPrice:        3006,
+		UpdatedAt:       resolvedAt,
+	}, resolvedAt); err != nil {
+		t.Fatalf("MarkRecoveryResolved: %v", err)
+	}
+
+	orders, err := repo.ListDueOpenOrders(ctx, 500)
+	if err != nil {
+		t.Fatalf("ListDueOpenOrders after resolved: %v", err)
+	}
+	for _, got := range orders {
+		if got.OrderID == orderID {
+			t.Fatalf("resolved recovery order should not remain due: %+v", got)
+		}
+	}
+
+	got, err := repo.FindOrderByAttempt(ctx, attemptID)
+	if err != nil {
+		t.Fatalf("FindOrderByAttempt: %v", err)
+	}
+	if got.Status != "FILLED" || got.RecoveryStatus != "FILLED" || got.NextCheckAt != nil || got.LastRecoveryError != "" {
+		t.Fatalf("resolved order fields = %+v, want FILLED recovery with no next check/error", got)
+	}
+	if got.OrigQty != 0.5 || got.ExecutedQty != 0.5 || got.RemainingQty != 0 || got.AvgPrice != 3006 {
+		t.Fatalf("resolved order quantities = %+v", got)
 	}
 }
 

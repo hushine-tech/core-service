@@ -943,6 +943,62 @@ func (r *TimescaleRepository) MarkRecoveryExpired(ctx context.Context, orderID s
 	return nil
 }
 
+func (r *TimescaleRepository) MarkRecoveryResolved(ctx context.Context, orderID string, state lifecycle.OrderState, resolvedAt time.Time) error {
+	orderID = strings.TrimSpace(orderID)
+	if orderID == "" {
+		return fmt.Errorf("order_id is required")
+	}
+	status := strings.ToUpper(strings.TrimSpace(state.Status))
+	if status == "" && state.OrigQty > 0 && state.RemainingQty <= 0 {
+		status = "FILLED"
+	}
+	if status == "" {
+		return fmt.Errorf("order status is required")
+	}
+	if resolvedAt.IsZero() {
+		resolvedAt = state.UpdatedAt
+	}
+	if resolvedAt.IsZero() {
+		resolvedAt = time.Now().UTC()
+	}
+	hasQtyState := state.OrigQty > 0
+	hasAvgPrice := state.AvgPrice > 0
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE orders
+		SET updated_at = $2,
+		    status = $3,
+		    exchange_order_id = COALESCE(NULLIF($4, ''), exchange_order_id),
+		    client_order_id = COALESCE(NULLIF($5, ''), client_order_id),
+		    orig_qty = CASE WHEN $6 THEN $7 ELSE orig_qty END,
+		    executed_qty = CASE WHEN $6 THEN $8 ELSE executed_qty END,
+		    remaining_qty = CASE WHEN $6 THEN $9 ELSE remaining_qty END,
+		    avg_price = CASE WHEN $10 THEN $11 ELSE avg_price END,
+		    recovery_status = $12,
+		    next_check_at = NULL,
+		    last_recovery_error = ''
+		WHERE order_id = $1`,
+		orderID,
+		resolvedAt.UTC(),
+		orderStatusCode(status),
+		strings.TrimSpace(state.ExchangeOrderID),
+		strings.TrimSpace(state.ClientOrderID),
+		hasQtyState,
+		state.OrigQty,
+		state.ExecutedQty,
+		state.RemainingQty,
+		hasAvgPrice,
+		state.AvgPrice,
+		status,
+	)
+	if err != nil {
+		return fmt.Errorf("mark recovery resolved: %w", err)
+	}
+	if rows, err := res.RowsAffected(); err == nil && rows == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 func (r *TimescaleRepository) SaveLifecycleEvent(ctx context.Context, event lifecycle.Event) (lifecycle.Event, error) {
 	event.EventType = strings.TrimSpace(event.EventType)
 	event.EventSource = strings.TrimSpace(event.EventSource)

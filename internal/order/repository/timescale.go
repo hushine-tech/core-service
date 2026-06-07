@@ -173,6 +173,7 @@ const (
 	attemptStatusRecovering     int16 = 5
 	attemptStatusRecovered      int16 = 6
 	attemptStatusRecoveryFailed int16 = 7
+	attemptStatusRiskRejected   int16 = 8
 
 	orderStatusNew             int16 = 1
 	orderStatusPartiallyFilled int16 = 2
@@ -340,6 +341,62 @@ func (r *TimescaleRepository) FinalizeOrderAttempt(ctx context.Context, attempt 
 
 	if err = tx.Commit(); err != nil {
 		return fmt.Errorf("commit finalize attempt: %w", err)
+	}
+	return nil
+}
+
+func (r *TimescaleRepository) FinalizeRiskRejectedAttempt(ctx context.Context, intent OrderIntent, attempt OrderAttempt) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin finalize risk rejected attempt: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	if _, err = tx.ExecContext(ctx, `
+			UPDATE order_intents
+			SET updated_at = $2,
+			    status = $3,
+			    reject_code = $4,
+			    reject_message = $5,
+			    post_only = $6,
+			    good_till_date = $7,
+			    reduce_only = $8
+			WHERE intent_id = $1`,
+		intent.IntentID, attempt.Time, intentStatusCode(intent.Status), intent.RejectCode, intent.RejectMessage,
+		intent.PostOnly, nullableTimePtr(intent.GoodTillDate), intent.ReduceOnly,
+	); err != nil {
+		return fmt.Errorf("update risk rejected order_intents: %w", err)
+	}
+
+	if _, err = tx.ExecContext(ctx, `
+			UPDATE order_attempts
+			SET updated_at = $2,
+			    status = $3,
+			    error_message = $4,
+			    client_order_id = $5,
+			    recovery_error = $6,
+			    exchange_order_id = $7,
+			    post_only = $8,
+			    good_till_date = $9,
+			    reduce_only = $10,
+			    risk_status = $11,
+			    risk_reasons_json = $12::jsonb
+			WHERE attempt_id = $1`,
+		attempt.AttemptID, attempt.Time, attemptStatusCode(attempt.Status), attempt.ErrorMessage,
+		nullableString(attempt.ClientOrderID), attempt.RecoveryError,
+		nullableString(attempt.ExchangeOrderID),
+		attempt.PostOnly, nullableTimePtr(attempt.GoodTillDate), attempt.ReduceOnly,
+		attempt.RiskStatus, riskReasonsJSON(attempt.RiskReasonsJSON),
+	); err != nil {
+		return fmt.Errorf("update risk rejected order_attempts: %w", err)
+	}
+
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("commit finalize risk rejected attempt: %w", err)
 	}
 	return nil
 }
@@ -1054,6 +1111,8 @@ func attemptStatusCode(status string) int16 {
 		return attemptStatusRecovered
 	case "RECOVERY_FAILED":
 		return attemptStatusRecoveryFailed
+	case "RISK_REJECTED":
+		return attemptStatusRiskRejected
 	default:
 		return attemptStatusPending
 	}
@@ -1073,6 +1132,8 @@ func attemptStatusText(code int16) string {
 		return "RECOVERED"
 	case attemptStatusRecoveryFailed:
 		return "RECOVERY_FAILED"
+	case attemptStatusRiskRejected:
+		return "RISK_REJECTED"
 	default:
 		return "PENDING"
 	}

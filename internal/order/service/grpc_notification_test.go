@@ -11,6 +11,7 @@ import (
 	"github.com/hushine-tech/core-service/internal/order/accountmeta"
 	"github.com/hushine-tech/core-service/internal/order/executor"
 	ordernotify "github.com/hushine-tech/core-service/internal/order/notification"
+	orderrisk "github.com/hushine-tech/core-service/internal/order/risk"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -120,6 +121,54 @@ func TestPlaceOrderPublishesFailedNotification(t *testing.T) {
 	}
 	if len(pub.events) != 1 || pub.events[0].EventType != ordernotify.EventOrderFailed || pub.events[0].Severity != ordernotify.SeverityError {
 		t.Fatalf("events = %+v, want order.failed", pub.events)
+	}
+}
+
+func TestPlaceOrderPublishesRiskRejectedNotification(t *testing.T) {
+	pub := &recordingNotificationPublisher{}
+	repo := &stubRepo{}
+	router := &stubRouterExec{}
+	svc := NewOrderGRPCService(
+		&stubMetaGetter{meta: notificationMeta(environmentDemo)},
+		router,
+		repo,
+		pub,
+	)
+	svc.SetRiskGate(&stubRiskGate{decision: orderrisk.Decision{
+		Status:     orderrisk.DecisionReject,
+		ReasonCode: "ROUTE_PENDING_EXECUTION",
+		Violations: []orderrisk.Violation{{
+			Code:    "ROUTE_PENDING_EXECUTION",
+			Message: "route has pending execution",
+		}},
+	}})
+
+	req := notificationRequest()
+	req.StrategyId = 9
+	req.SessionId = "sess-risk"
+	req.IntentId = "intent-risk"
+	resp, err := svc.PlaceOrder(context.Background(), req)
+	if err != nil {
+		t.Fatalf("PlaceOrder: %v", err)
+	}
+	if resp.GetAttemptStatus() != attemptStatusRiskRejected {
+		t.Fatalf("attempt status = %s, want %s", resp.GetAttemptStatus(), attemptStatusRiskRejected)
+	}
+	if router.executeCalls != 0 {
+		t.Fatalf("execute calls = %d, want 0", router.executeCalls)
+	}
+	if len(pub.events) != 1 {
+		t.Fatalf("events = %d, want 1", len(pub.events))
+	}
+	event := pub.events[0]
+	if event.EventType != ordernotify.EventOrderFailed ||
+		event.Severity != ordernotify.SeverityError ||
+		event.Title != "Order risk rejected" ||
+		event.Metadata["attempt_status"] != attemptStatusRiskRejected {
+		t.Fatalf("event = %+v, want risk rejected order.failed notification", event)
+	}
+	if !strings.Contains(event.Message, "ROUTE_PENDING_EXECUTION") {
+		t.Fatalf("message %q does not include risk reject code", event.Message)
 	}
 }
 

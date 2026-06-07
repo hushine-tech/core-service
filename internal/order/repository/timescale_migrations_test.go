@@ -106,3 +106,32 @@ func TestOrderMigrationsIncludeRiskRecoveryContractColumns(t *testing.T) {
 		}
 	}
 }
+
+func TestOrderMigrationsAllowRiskRejectedAttemptStatus(t *testing.T) {
+	t.Setenv("ORDER_MIGRATIONS", "")
+
+	migrationsDir, err := resolveMigrationsDir()
+	if err != nil {
+		t.Fatalf("resolveMigrationsDir: %v", err)
+	}
+	entries, err := os.ReadDir(migrationsDir)
+	if err != nil {
+		t.Fatalf("read migrations dir: %v", err)
+	}
+	var combined strings.Builder
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".sql") {
+			continue
+		}
+		content, err := os.ReadFile(filepath.Join(migrationsDir, entry.Name()))
+		if err != nil {
+			t.Fatalf("read migration %s: %v", entry.Name(), err)
+		}
+		combined.Write(content)
+		combined.WriteByte('\n')
+	}
+	pattern := regexp.MustCompile(`(?is)ALTER\s+TABLE\s+order_attempts[^;]*ADD\s+CONSTRAINT\s+chk_order_attempts_status[^;]*status\s+IN\s*\([^)]*\b8\b[^)]*\)`)
+	if !pattern.MatchString(combined.String()) {
+		t.Fatal("migrations must update chk_order_attempts_status to allow RISK_REJECTED=8")
+	}
+}

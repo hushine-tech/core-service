@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -168,6 +169,99 @@ func TestOrderRepositoryPersistsRiskRecoveryContract(t *testing.T) {
 		t.Fatalf("orders total=%d len=%d, want 1/1", total, len(orders))
 	}
 	assertOrderRecoveryFields(t, "query order", orders[0], *order)
+}
+
+func TestOrderRepositoryPersistsRiskRejectedAttempt(t *testing.T) {
+	repo, ctx := lifecycleTestRepo(t)
+
+	seed := time.Now().UnixNano()
+	accountID := int64(950000000000 + seed%100000000)
+	userID := int64(960000000000 + seed%100000000)
+	venueID := int64(970000000000 + seed%100000000)
+	sessionID := fmt.Sprintf("risk-rejected-%d", seed)
+	intentID := fmt.Sprintf("risk-intent-%d", seed)
+	attemptID := fmt.Sprintf("risk-attempt-%d", seed)
+	baseTime := time.Date(2026, 6, 7, 13, 0, 0, 0, time.UTC)
+
+	intent := OrderIntent{
+		IntentID:       intentID,
+		Time:           baseTime,
+		AccountID:      accountID,
+		VenueID:        venueID,
+		UserID:         userID,
+		SessionID:      sessionID,
+		Environment:    2,
+		Exchange:       1,
+		Market:         2,
+		PositionSide:   0,
+		OrderType:      1,
+		Symbol:         "ETHUSDT",
+		Side:           "BUY",
+		RequestedQty:   0.5,
+		RequestedPrice: 3000,
+		Status:         "REQUESTED",
+	}
+	if err := repo.UpsertOrderIntent(ctx, intent); err != nil {
+		t.Fatalf("UpsertOrderIntent: %v", err)
+	}
+
+	attempt := OrderAttempt{
+		AttemptID:      attemptID,
+		IntentID:       intentID,
+		Time:           baseTime.Add(time.Second),
+		AccountID:      accountID,
+		VenueID:        venueID,
+		UserID:         userID,
+		SessionID:      sessionID,
+		Environment:    2,
+		Exchange:       1,
+		Market:         2,
+		PositionSide:   0,
+		OrderType:      1,
+		Symbol:         "ETHUSDT",
+		Side:           "BUY",
+		RequestedQty:   0.5,
+		RequestedPrice: 3000,
+		MarkPrice:      3000,
+		Status:         "PENDING",
+		ClientOrderID:  fmt.Sprintf("risk-client-%d", seed),
+	}
+	if err := repo.CreateOrderAttempt(ctx, attempt); err != nil {
+		t.Fatalf("CreateOrderAttempt: %v", err)
+	}
+
+	intent.Status = "REJECTED"
+	intent.RejectCode = "ROUTE_PENDING_EXECUTION"
+	intent.RejectMessage = "route has pending execution"
+	attempt.Status = "RISK_REJECTED"
+	attempt.ErrorMessage = "ROUTE_PENDING_EXECUTION"
+	attempt.RiskStatus = "REJECT"
+	attempt.RiskReasonsJSON = `[{"code":"ROUTE_PENDING_EXECUTION","message":"route has pending execution"}]`
+	if err := repo.FinalizeRiskRejectedAttempt(ctx, intent, attempt); err != nil {
+		t.Fatalf("FinalizeRiskRejectedAttempt: %v", err)
+	}
+
+	intents, total, err := repo.QueryOrderIntentsPaginated(ctx, userID, accountID, 0, sessionID, 10, 0)
+	if err != nil {
+		t.Fatalf("QueryOrderIntentsPaginated: %v", err)
+	}
+	if total != 1 || len(intents) != 1 {
+		t.Fatalf("intents total=%d len=%d, want 1/1", total, len(intents))
+	}
+	if intents[0].Status != "REJECTED" || intents[0].RejectCode != intent.RejectCode || intents[0].RejectMessage != intent.RejectMessage {
+		t.Fatalf("intent reject fields = %+v", intents[0])
+	}
+
+	gotAttempt, err := repo.FindOrderAttempt(ctx, userID, accountID, "", attemptID, "")
+	if err != nil {
+		t.Fatalf("FindOrderAttempt: %v", err)
+	}
+	if gotAttempt.Status != "RISK_REJECTED" || gotAttempt.RiskStatus != "REJECT" {
+		t.Fatalf("attempt risk fields = %+v", gotAttempt)
+	}
+	if !strings.Contains(gotAttempt.RiskReasonsJSON, "ROUTE_PENDING_EXECUTION") {
+		t.Fatalf("risk_reasons_json = %s, want route pending code", gotAttempt.RiskReasonsJSON)
+	}
 }
 
 func assertAttemptRiskFields(t *testing.T, label string, got OrderAttempt, wantGoodTillDate time.Time, wantRiskReasons string) {

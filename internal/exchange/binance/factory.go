@@ -54,6 +54,9 @@ func (f *Factory) SymbolRulesReader() (adapter.SymbolRulesReader, error) {
 	if err := f.requirePerpetualFutures("symbol_rules_reader"); err != nil {
 		return nil, err
 	}
+	if f.route.Environment == domain.EnvironmentBacktest {
+		return backtestSymbolRulesReader{}, nil
+	}
 	return symbolRulesReader{baseURL: f.futuresBaseURL()}, nil
 }
 

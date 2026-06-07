@@ -103,6 +103,26 @@ func TestBinanceBacktestOrderCapabilityKeepsGTDUnsupported(t *testing.T) {
 	}
 }
 
+func TestBinanceBacktestSymbolRulesReaderIsLocalNoop(t *testing.T) {
+	factory := NewBacktestFactory(adapter.Route{
+		Exchange:    domain.ExchangeBinance,
+		Environment: domain.EnvironmentBacktest,
+		Market:      domain.MarketPerpetualFutures,
+	})
+
+	reader, err := factory.SymbolRulesReader()
+	if err != nil {
+		t.Fatalf("SymbolRulesReader() error = %v", err)
+	}
+	rules, err := reader.ReadSymbolRules(context.Background(), adapter.SymbolRulesRequest{Symbols: []string{"ETHUSDT"}})
+	if err != nil {
+		t.Fatalf("ReadSymbolRules() error = %v", err)
+	}
+	if len(rules.Symbols) != 0 {
+		t.Fatalf("rules = %+v, want empty local backtest rules", rules.Symbols)
+	}
+}
+
 func TestBinanceBacktestFactoryUsesSimulatedExecutor(t *testing.T) {
 	factory := NewBacktestFactory(adapter.Route{
 		Exchange:    domain.ExchangeBinance,

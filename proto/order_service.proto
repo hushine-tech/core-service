@@ -107,6 +107,9 @@ message OrderIntentEntry {
   int32 environment = 12;
   int32 exchange = 13;
   int32 position_side = 14;
+  string status = 15;
+  string reject_code = 16;
+  string reject_message = 17;
 }
 
 message QueryOrderAttemptsRequest {
@@ -180,6 +183,8 @@ message OrderAttemptEntry {
   int64 venue_id = 20;
   int32 exchange = 21;
   int32 position_side = 22;
+  string risk_status = 23;
+  string risk_reasons_json = 24;
 }
 
 message ExchangeOrderEntry {

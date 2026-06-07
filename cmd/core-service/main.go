@@ -33,6 +33,7 @@ import (
 	orderexecutor "github.com/hushine-tech/core-service/internal/order/executor"
 	ordernotify "github.com/hushine-tech/core-service/internal/order/notification"
 	orderrepository "github.com/hushine-tech/core-service/internal/order/repository"
+	orderrisk "github.com/hushine-tech/core-service/internal/order/risk"
 	ordersvc "github.com/hushine-tech/core-service/internal/order/service"
 	"github.com/hushine-tech/core-service/internal/reconciliation"
 	"github.com/hushine-tech/core-service/internal/repository"
@@ -198,6 +199,12 @@ func main() {
 
 	orderMetaGetter := orderaccountmeta.NewAdapter(repo, credentialManager)
 	orderService := ordersvc.NewOrderGRPCService(orderMetaGetter, orderRouter, orderRepository, orderPublisher)
+	orderService.SetRiskGate(orderrisk.NewDefaultGate(orderrisk.DefaultGateConfig{
+		CapabilityReader:  orderrisk.NewAdapterCapabilityReader(exchangeRegistry),
+		SnapshotReader:    orderrisk.NewVenueWalletSnapshotReader(repo),
+		PendingReader:     orderrisk.NewOpenOrderPendingReader(orderRepository),
+		SymbolRulesReader: orderrisk.NewAdapterSymbolRulesReader(exchangeRegistry),
+	}))
 
 	// ── HTTP Server ───────────────────────────────────────────────────────────
 	httpAddr := cfg.Server.HTTPAddr

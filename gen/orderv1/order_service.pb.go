@@ -606,6 +606,9 @@ type OrderIntentEntry struct {
 	Environment    int32                  `protobuf:"varint,12,opt,name=environment,proto3" json:"environment,omitempty"`
 	Exchange       int32                  `protobuf:"varint,13,opt,name=exchange,proto3" json:"exchange,omitempty"`
 	PositionSide   int32                  `protobuf:"varint,14,opt,name=position_side,json=positionSide,proto3" json:"position_side,omitempty"`
+	Status         string                 `protobuf:"bytes,15,opt,name=status,proto3" json:"status,omitempty"`
+	RejectCode     string                 `protobuf:"bytes,16,opt,name=reject_code,json=rejectCode,proto3" json:"reject_code,omitempty"`
+	RejectMessage  string                 `protobuf:"bytes,17,opt,name=reject_message,json=rejectMessage,proto3" json:"reject_message,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -736,6 +739,27 @@ func (x *OrderIntentEntry) GetPositionSide() int32 {
 		return x.PositionSide
 	}
 	return 0
+}
+
+func (x *OrderIntentEntry) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *OrderIntentEntry) GetRejectCode() string {
+	if x != nil {
+		return x.RejectCode
+	}
+	return ""
+}
+
+func (x *OrderIntentEntry) GetRejectMessage() string {
+	if x != nil {
+		return x.RejectMessage
+	}
+	return ""
 }
 
 type QueryOrderAttemptsRequest struct {
@@ -1218,6 +1242,8 @@ type OrderAttemptEntry struct {
 	VenueId         int64                  `protobuf:"varint,20,opt,name=venue_id,json=venueId,proto3" json:"venue_id,omitempty"`
 	Exchange        int32                  `protobuf:"varint,21,opt,name=exchange,proto3" json:"exchange,omitempty"`
 	PositionSide    int32                  `protobuf:"varint,22,opt,name=position_side,json=positionSide,proto3" json:"position_side,omitempty"`
+	RiskStatus      string                 `protobuf:"bytes,23,opt,name=risk_status,json=riskStatus,proto3" json:"risk_status,omitempty"`
+	RiskReasonsJson string                 `protobuf:"bytes,24,opt,name=risk_reasons_json,json=riskReasonsJson,proto3" json:"risk_reasons_json,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -1404,6 +1430,20 @@ func (x *OrderAttemptEntry) GetPositionSide() int32 {
 		return x.PositionSide
 	}
 	return 0
+}
+
+func (x *OrderAttemptEntry) GetRiskStatus() string {
+	if x != nil {
+		return x.RiskStatus
+	}
+	return ""
+}
+
+func (x *OrderAttemptEntry) GetRiskReasonsJson() string {
+	if x != nil {
+		return x.RiskReasonsJson
+	}
+	return ""
 }
 
 type ExchangeOrderEntry struct {
@@ -2418,7 +2458,7 @@ const file_order_service_proto_rawDesc = "" +
 	"\auser_id\x18d \x01(\x03R\x06userId\"g\n" +
 	"\x19QueryOrderIntentsResponse\x124\n" +
 	"\aintents\x18\x01 \x03(\v2\x1a.order.v1.OrderIntentEntryR\aintents\x12\x14\n" +
-	"\x05total\x18\x02 \x01(\x03R\x05total\"\xce\x03\n" +
+	"\x05total\x18\x02 \x01(\x03R\x05total\"\xae\x04\n" +
 	"\x10OrderIntentEntry\x12.\n" +
 	"\x04time\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\x04time\x12\x1b\n" +
 	"\tintent_id\x18\x02 \x01(\tR\bintentId\x12\x1d\n" +
@@ -2437,7 +2477,11 @@ const file_order_service_proto_rawDesc = "" +
 	"\bvenue_id\x18\v \x01(\x03R\avenueId\x12 \n" +
 	"\venvironment\x18\f \x01(\x05R\venvironment\x12\x1a\n" +
 	"\bexchange\x18\r \x01(\x05R\bexchange\x12#\n" +
-	"\rposition_side\x18\x0e \x01(\x05R\fpositionSide\"\xde\x01\n" +
+	"\rposition_side\x18\x0e \x01(\x05R\fpositionSide\x12\x16\n" +
+	"\x06status\x18\x0f \x01(\tR\x06status\x12\x1f\n" +
+	"\vreject_code\x18\x10 \x01(\tR\n" +
+	"rejectCode\x12%\n" +
+	"\x0ereject_message\x18\x11 \x01(\tR\rrejectMessage\"\xde\x01\n" +
 	"\x19QueryOrderAttemptsRequest\x12\x1d\n" +
 	"\n" +
 	"account_id\x18\x01 \x01(\x03R\taccountId\x12\x1f\n" +
@@ -2484,7 +2528,7 @@ const file_order_service_proto_rawDesc = "" +
 	"\auser_id\x18d \x01(\x03R\x06userId\"_\n" +
 	"\x17QueryOrderFillsResponse\x12.\n" +
 	"\x05fills\x18\x01 \x03(\v2\x18.order.v1.OrderFillEntryR\x05fills\x12\x14\n" +
-	"\x05total\x18\x02 \x01(\x03R\x05total\"\xe0\x05\n" +
+	"\x05total\x18\x02 \x01(\x03R\x05total\"\xad\x06\n" +
 	"\x11OrderAttemptEntry\x12.\n" +
 	"\x04time\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\x04time\x12\x1d\n" +
 	"\n" +
@@ -2513,7 +2557,10 @@ const file_order_service_proto_rawDesc = "" +
 	"\x0erecovery_error\x18\x13 \x01(\tR\rrecoveryError\x12\x19\n" +
 	"\bvenue_id\x18\x14 \x01(\x03R\avenueId\x12\x1a\n" +
 	"\bexchange\x18\x15 \x01(\x05R\bexchange\x12#\n" +
-	"\rposition_side\x18\x16 \x01(\x05R\fpositionSide\"\xe3\x05\n" +
+	"\rposition_side\x18\x16 \x01(\x05R\fpositionSide\x12\x1f\n" +
+	"\vrisk_status\x18\x17 \x01(\tR\n" +
+	"riskStatus\x12*\n" +
+	"\x11risk_reasons_json\x18\x18 \x01(\tR\x0friskReasonsJson\"\xe3\x05\n" +
 	"\x12ExchangeOrderEntry\x12.\n" +
 	"\x04time\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\x04time\x12\x19\n" +
 	"\border_id\x18\x02 \x01(\tR\aorderId\x12*\n" +

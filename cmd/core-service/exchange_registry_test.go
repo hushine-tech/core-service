@@ -5,6 +5,7 @@ import (
 
 	"github.com/hushine-tech/core-service/internal/domain"
 	exchangeadapter "github.com/hushine-tech/core-service/internal/exchange/adapter"
+	orderrisk "github.com/hushine-tech/core-service/internal/order/risk"
 )
 
 func TestRegisterExchangeFactoriesIncludesBinanceSpotOrderRoutes(t *testing.T) {
@@ -37,5 +38,25 @@ func TestRegisterExchangeFactoriesIncludesBinanceSpotOrderRoutes(t *testing.T) {
 		if capability.Market != domain.MarketSpot {
 			t.Fatalf("Market = %v, want spot", capability.Market)
 		}
+	}
+}
+
+func TestRegisterExchangeFactoriesBacktestSymbolRulesAreLocalNoop(t *testing.T) {
+	registry := exchangeadapter.NewRegistry()
+	registerExchangeFactories(registry, nil)
+
+	rules, err := orderrisk.NewAdapterSymbolRulesReader(registry).ReadSymbolRules(t.Context(), orderrisk.SnapshotRequest{
+		RouteKey: orderrisk.RouteKey{
+			Exchange:    int32(domain.ExchangeBinance),
+			Environment: int32(domain.EnvironmentBacktest),
+			Market:      int32(domain.MarketPerpetualFutures),
+		},
+		Symbol: "ETHUSDT",
+	})
+	if err != nil {
+		t.Fatalf("ReadSymbolRules(backtest) error = %v", err)
+	}
+	if len(rules) != 0 {
+		t.Fatalf("rules = %+v, want empty local backtest rules", rules)
 	}
 }

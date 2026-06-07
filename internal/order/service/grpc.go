@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/hushine-tech/core-service/internal/order/lifecycle"
 	ordernotify "github.com/hushine-tech/core-service/internal/order/notification"
 	"github.com/hushine-tech/core-service/internal/order/repository"
+	orderrisk "github.com/hushine-tech/core-service/internal/order/risk"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -39,6 +41,7 @@ type OrderGRPCService struct {
 	routerExec RouterExecutor
 	repo       repository.Repository
 	notifier   ordernotify.Publisher
+	riskGate   orderrisk.Gate
 }
 
 const (
@@ -49,6 +52,7 @@ const (
 	attemptStatusRecovering     = "RECOVERING"
 	attemptStatusRecovered      = "RECOVERED"
 	attemptStatusRecoveryFailed = "RECOVERY_FAILED"
+	attemptStatusRiskRejected   = "RISK_REJECTED"
 
 	environmentBacktest = int32(0)
 	environmentDemo     = int32(1)
@@ -74,7 +78,15 @@ func NewOrderGRPCService(meta MetaGetter, router RouterExecutor, repo repository
 	if len(notifierOpt) > 0 && notifierOpt[0] != nil {
 		notifier = notifierOpt[0]
 	}
-	return &OrderGRPCService{metaGetter: meta, routerExec: router, repo: repo, notifier: notifier}
+	return &OrderGRPCService{metaGetter: meta, routerExec: router, repo: repo, notifier: notifier, riskGate: orderrisk.AllowGate{}}
+}
+
+func (s *OrderGRPCService) SetRiskGate(gate orderrisk.Gate) {
+	if gate == nil {
+		s.riskGate = orderrisk.AllowGate{}
+		return
+	}
+	s.riskGate = gate
 }
 
 func (s *OrderGRPCService) PlaceOrder(ctx context.Context, req *orderv1.PlaceOrderRequest) (*orderv1.PlaceOrderResponse, error) {
@@ -111,6 +123,17 @@ func (s *OrderGRPCService) PlaceOrder(ctx context.Context, req *orderv1.PlaceOrd
 		return nil, err
 	}
 
+	var price *float64
+	if req.Price != nil {
+		p := req.GetPrice()
+		price = &p
+	}
+	var goodTillDate *time.Time
+	if req.GetGoodTillDate() != nil {
+		t := req.GetGoodTillDate().AsTime().UTC()
+		goodTillDate = &t
+	}
+
 	now := time.Now().UTC()
 	eventTime := marketTimeOrNow(req.GetMarketTime(), now)
 	intentID := strings.TrimSpace(req.GetIntentId())
@@ -138,6 +161,9 @@ func (s *OrderGRPCService) PlaceOrder(ctx context.Context, req *orderv1.PlaceOrd
 		Side:           side,
 		RequestedQty:   req.GetQty(),
 		RequestedPrice: req.GetPrice(),
+		PostOnly:       req.GetPostOnly(),
+		GoodTillDate:   goodTillDate,
+		ReduceOnly:     req.GetReduceOnly(),
 		Status:         "REQUESTED",
 	}
 	if err := s.repo.UpsertOrderIntent(ctx, intent); err != nil {
@@ -162,6 +188,9 @@ func (s *OrderGRPCService) PlaceOrder(ctx context.Context, req *orderv1.PlaceOrd
 		Side:           side,
 		RequestedQty:   req.GetQty(),
 		RequestedPrice: req.GetPrice(),
+		PostOnly:       req.GetPostOnly(),
+		GoodTillDate:   goodTillDate,
+		ReduceOnly:     req.GetReduceOnly(),
 		MarkPrice:      req.GetMarkPrice(),
 		Status:         attemptStatusPending,
 		ClientOrderID:  clientOrderID,
@@ -170,16 +199,6 @@ func (s *OrderGRPCService) PlaceOrder(ctx context.Context, req *orderv1.PlaceOrd
 		return nil, status.Errorf(codes.Internal, "create order attempt: %v", err)
 	}
 
-	var price *float64
-	if req.Price != nil {
-		p := req.GetPrice()
-		price = &p
-	}
-	var goodTillDate *time.Time
-	if req.GetGoodTillDate() != nil {
-		t := req.GetGoodTillDate().AsTime().UTC()
-		goodTillDate = &t
-	}
 	orderReq := executor.OrderRequest{
 		AccountID:     accountID,
 		Symbol:        req.GetSymbol(),
@@ -196,6 +215,34 @@ func (s *OrderGRPCService) PlaceOrder(ctx context.Context, req *orderv1.PlaceOrd
 		PostOnly:      req.GetPostOnly(),
 		GoodTillDate:  goodTillDate,
 		ReduceOnly:    req.GetReduceOnly(),
+	}
+
+	riskDecision, riskErr := s.reviewRisk(ctx, req, meta, side, orderTypeText, timeInForce, price, goodTillDate)
+	if riskErr != nil {
+		riskDecision = orderrisk.Decision{
+			Status:     orderrisk.DecisionReject,
+			ReasonCode: "RISK_REVIEW_ERROR",
+			Violations: []orderrisk.Violation{{
+				Code:    "RISK_REVIEW_ERROR",
+				Message: riskErr.Error(),
+			}},
+			ReviewedAt: time.Now().UTC(),
+		}
+	}
+	attempt.RiskStatus = string(riskDecision.Status)
+	attempt.RiskReasonsJSON = marshalRiskReasons(riskDecision)
+	if riskDecision.Status == orderrisk.DecisionReject {
+		attempt.Status = attemptStatusRiskRejected
+		attempt.ErrorMessage = nonEmpty(riskDecision.ReasonCode, "RISK_REJECTED")
+		attempt.Time = time.Now().UTC()
+		intent.Status = "REJECTED"
+		intent.RejectCode = attempt.ErrorMessage
+		intent.RejectMessage = riskRejectMessage(riskDecision)
+		if err := s.finalizeRiskRejectedAttempt(ctx, intent, attempt); err != nil {
+			return nil, status.Errorf(codes.Internal, "finalize risk rejected attempt: %v", err)
+		}
+		s.publishOrderNotification(ctx, attempt, nil)
+		return buildPlaceOrderResponse(attempt, nil, nil), nil
 	}
 
 	result, execErr := s.routerExec.Execute(ctx, orderReq, meta)
@@ -339,6 +386,77 @@ func (s *OrderGRPCService) ListOrderLifecycleEvents(ctx context.Context, req *or
 	return &orderv1.ListOrderLifecycleEventsResponse{Events: out}, nil
 }
 
+func (s *OrderGRPCService) reviewRisk(
+	ctx context.Context,
+	req *orderv1.PlaceOrderRequest,
+	meta accountmeta.Meta,
+	side string,
+	orderType string,
+	timeInForce string,
+	price *float64,
+	goodTillDate *time.Time,
+) (orderrisk.Decision, error) {
+	gate := s.riskGate
+	if gate == nil {
+		gate = orderrisk.AllowGate{}
+	}
+	return gate.Review(ctx, orderrisk.ReviewRequest{
+		AccountID:    req.GetAccountId(),
+		VenueID:      meta.VenueID,
+		UserID:       meta.UserID,
+		Environment:  meta.Environment,
+		Exchange:     meta.Exchange,
+		Market:       meta.Market,
+		PositionSide: req.GetPositionSide(),
+		Symbol:       req.GetSymbol(),
+		Side:         side,
+		Qty:          req.GetQty(),
+		Price:        price,
+		MarkPrice:    req.GetMarkPrice(),
+		OrderType:    orderType,
+		TimeInForce:  timeInForce,
+		PostOnly:     req.GetPostOnly(),
+		GoodTillDate: goodTillDate,
+		ReduceOnly:   req.GetReduceOnly(),
+	})
+}
+
+type riskRejectedAttemptFinalizer interface {
+	FinalizeRiskRejectedAttempt(ctx context.Context, intent repository.OrderIntent, attempt repository.OrderAttempt) error
+}
+
+func (s *OrderGRPCService) finalizeRiskRejectedAttempt(ctx context.Context, intent repository.OrderIntent, attempt repository.OrderAttempt) error {
+	if finalizer, ok := s.repo.(riskRejectedAttemptFinalizer); ok {
+		return finalizer.FinalizeRiskRejectedAttempt(ctx, intent, attempt)
+	}
+	if err := s.repo.UpsertOrderIntent(ctx, intent); err != nil {
+		return err
+	}
+	return s.repo.FinalizeOrderAttempt(ctx, attempt, nil, nil)
+}
+
+func marshalRiskReasons(decision orderrisk.Decision) string {
+	violations := decision.Violations
+	if len(violations) == 0 && strings.TrimSpace(decision.ReasonCode) != "" {
+		violations = []orderrisk.Violation{{Code: decision.ReasonCode}}
+	}
+	if len(violations) == 0 {
+		return "[]"
+	}
+	payload, err := json.Marshal(violations)
+	if err != nil {
+		return "[]"
+	}
+	return string(payload)
+}
+
+func riskRejectMessage(decision orderrisk.Decision) string {
+	if len(decision.Violations) > 0 {
+		return decision.Violations[0].Message
+	}
+	return decision.ReasonCode
+}
+
 func (s *OrderGRPCService) ResolveOrderAttempt(ctx context.Context, req *orderv1.ResolveOrderAttemptRequest) (*orderv1.ResolveOrderAttemptResponse, error) {
 	accountID := req.GetAccountId()
 	if accountID == 0 {
@@ -361,7 +479,7 @@ func (s *OrderGRPCService) ResolveOrderAttempt(ctx context.Context, req *orderv1
 		return nil, status.Errorf(codes.Internal, "find order attempt: %v", err)
 	}
 
-	if attempt.Status == attemptStatusFailed || attempt.Status == attemptStatusAccepted || attempt.Status == attemptStatusRecovered {
+	if attempt.Status == attemptStatusFailed || attempt.Status == attemptStatusAccepted || attempt.Status == attemptStatusRecovered || attempt.Status == attemptStatusRiskRejected {
 		order, fills := s.loadPersistedExecution(ctx, attempt.AttemptID)
 		resp := buildPlaceOrderResponse(attempt, order, fills)
 		return &orderv1.ResolveOrderAttemptResponse{
@@ -621,6 +739,8 @@ func orderNotificationClass(status string) (eventType, severity, title string, o
 			return ordernotify.EventOrderRecovered, ordernotify.SeverityInfo, "Order recovered", true
 		}
 		return ordernotify.EventOrderAccepted, ordernotify.SeverityInfo, "Order accepted", true
+	case attemptStatusRiskRejected:
+		return ordernotify.EventOrderFailed, ordernotify.SeverityError, "Order risk rejected", true
 	case attemptStatusFailed, attemptStatusRecoveryFailed:
 		if status == attemptStatusRecoveryFailed {
 			return ordernotify.EventOrderRecoveryFailed, ordernotify.SeverityError, "Order recovery failed", true
@@ -712,6 +832,9 @@ func buildPersistedExecution(
 		RemainingQty:    fallbackRemaining(result.OrigQty, result.ExecutedQty, result.RemainingQty, abs(attempt.RequestedQty)),
 		AvgPrice:        result.AvgPrice,
 		Price:           result.Price,
+		PostOnly:        attempt.PostOnly,
+		GoodTillDate:    attempt.GoodTillDate,
+		ReduceOnly:      attempt.ReduceOnly,
 		Status:          nonEmpty(result.Status, "NEW"),
 		ErrorMessage:    result.ErrorMessage,
 	}
@@ -825,6 +948,9 @@ func toProtoIntent(item repository.OrderIntent) *orderv1.OrderIntentEntry {
 		Market:         item.Market,
 		PositionSide:   item.PositionSide,
 		SessionId:      item.SessionID,
+		Status:         item.Status,
+		RejectCode:     item.RejectCode,
+		RejectMessage:  item.RejectMessage,
 	}
 }
 
@@ -852,6 +978,8 @@ func toProtoAttempt(item repository.OrderAttempt) *orderv1.OrderAttemptEntry {
 		VenueId:         item.VenueID,
 		Exchange:        item.Exchange,
 		PositionSide:    item.PositionSide,
+		RiskStatus:      item.RiskStatus,
+		RiskReasonsJson: item.RiskReasonsJSON,
 	}
 }
 

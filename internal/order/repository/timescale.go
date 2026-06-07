@@ -879,6 +879,13 @@ func (r *TimescaleRepository) ListOpenOrders(ctx context.Context, limit int) ([]
 
 func (r *TimescaleRepository) SaveLifecycleEvent(ctx context.Context, event lifecycle.Event) (lifecycle.Event, error) {
 	event.EventType = strings.TrimSpace(event.EventType)
+	event.EventSource = strings.TrimSpace(event.EventSource)
+	event.ExchangeOrderID = strings.TrimSpace(firstNonEmptyString(
+		event.ExchangeOrderID,
+		event.FillDelta.ExchangeOrderID,
+		event.OrderState.ExchangeOrderID,
+	))
+	event.ExchangeTradeID = strings.TrimSpace(firstNonEmptyString(event.ExchangeTradeID, event.FillDelta.ExchangeTradeID))
 	if event.EventType == "" {
 		return lifecycle.Event{}, fmt.Errorf("event_type is required")
 	}
@@ -896,27 +903,54 @@ func (r *TimescaleRepository) SaveLifecycleEvent(ctx context.Context, event life
 	if err != nil {
 		return lifecycle.Event{}, fmt.Errorf("marshal order state: %w", err)
 	}
+	eventIdentity := lifecycle.EventIdentityKey(event)
 
-	err = r.db.QueryRowContext(ctx, `
+	query := `
 		INSERT INTO order_lifecycle_events (
 			session_id, account_id, venue_id, environment, exchange, market, position_side, side,
 			intent_id, attempt_id, order_id,
-			exchange_order_id, exchange_trade_id, event_type, order_status,
-			fill_delta_json, order_state_json, occurred_at
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb,$17::jsonb,$18)
-		ON CONFLICT (venue_id, exchange_order_id, exchange_trade_id)
-			WHERE exchange_order_id IS NOT NULL AND exchange_trade_id IS NOT NULL
+			exchange_order_id, exchange_trade_id, event_type, event_source, order_status,
+			fill_delta_json, order_state_json, occurred_at, event_identity
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18::jsonb,$19,$20)
+	`
+	conflictUpdate := `
 		DO UPDATE SET
+			session_id = COALESCE(EXCLUDED.session_id, order_lifecycle_events.session_id),
+			account_id = EXCLUDED.account_id,
 			environment = EXCLUDED.environment,
 			exchange = EXCLUDED.exchange,
 			market = EXCLUDED.market,
 			position_side = EXCLUDED.position_side,
 			side = EXCLUDED.side,
+			intent_id = COALESCE(EXCLUDED.intent_id, order_lifecycle_events.intent_id),
+			attempt_id = COALESCE(EXCLUDED.attempt_id, order_lifecycle_events.attempt_id),
+			order_id = COALESCE(EXCLUDED.order_id, order_lifecycle_events.order_id),
+			exchange_order_id = COALESCE(EXCLUDED.exchange_order_id, order_lifecycle_events.exchange_order_id),
+			exchange_trade_id = COALESCE(EXCLUDED.exchange_trade_id, order_lifecycle_events.exchange_trade_id),
+			event_type = EXCLUDED.event_type,
+			event_source = EXCLUDED.event_source,
 			order_status = EXCLUDED.order_status,
 			fill_delta_json = EXCLUDED.fill_delta_json,
 			order_state_json = EXCLUDED.order_state_json,
-			occurred_at = EXCLUDED.occurred_at
-		RETURNING event_id, created_at`,
+			occurred_at = EXCLUDED.occurred_at,
+			event_identity = COALESCE(EXCLUDED.event_identity, order_lifecycle_events.event_identity)
+	`
+	switch {
+	case event.ExchangeOrderID != "" && event.ExchangeTradeID != "":
+		query += `
+		ON CONFLICT (venue_id, exchange_order_id, exchange_trade_id)
+			WHERE exchange_order_id IS NOT NULL AND exchange_trade_id IS NOT NULL
+		` + conflictUpdate
+	case eventIdentity != "":
+		query += `
+		ON CONFLICT (venue_id, event_identity)
+			WHERE event_identity IS NOT NULL
+		` + conflictUpdate
+	}
+	query += `
+		RETURNING event_id, created_at`
+
+	err = r.db.QueryRowContext(ctx, query,
 		nullableString(event.SessionID),
 		event.AccountID,
 		event.VenueID,
@@ -931,10 +965,12 @@ func (r *TimescaleRepository) SaveLifecycleEvent(ctx context.Context, event life
 		nullableString(event.ExchangeOrderID),
 		nullableString(event.ExchangeTradeID),
 		event.EventType,
+		event.EventSource,
 		event.OrderStatus,
 		string(fillJSON),
 		string(stateJSON),
 		event.OccurredAt,
+		nullableString(eventIdentity),
 	).Scan(&event.EventID, &event.CreatedAt)
 	if err != nil {
 		return lifecycle.Event{}, fmt.Errorf("save lifecycle event: %w", err)
@@ -958,7 +994,7 @@ func (r *TimescaleRepository) ListLifecycleEvents(ctx context.Context, sessionID
 		       environment, exchange, market, position_side, side,
 		       COALESCE(intent_id, ''), COALESCE(attempt_id, ''), COALESCE(order_id, ''),
 		       COALESCE(exchange_order_id, ''), COALESCE(exchange_trade_id, ''),
-		       event_type, order_status, fill_delta_json, order_state_json, occurred_at, created_at
+		       event_type, COALESCE(event_source, ''), order_status, fill_delta_json, order_state_json, occurred_at, created_at
 		FROM order_lifecycle_events
 		WHERE session_id = $1 AND event_id > $2
 		ORDER BY event_id ASC
@@ -988,6 +1024,7 @@ func (r *TimescaleRepository) ListLifecycleEvents(ctx context.Context, sessionID
 			&event.ExchangeOrderID,
 			&event.ExchangeTradeID,
 			&event.EventType,
+			&event.EventSource,
 			&event.OrderStatus,
 			&fillJSON,
 			&stateJSON,
@@ -1019,6 +1056,15 @@ func nullableString(v string) any {
 		return nil
 	}
 	return v
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func nullableInt64(v int64) any {

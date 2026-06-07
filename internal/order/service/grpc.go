@@ -654,6 +654,7 @@ func (s *OrderGRPCService) emitLifecycleEvents(ctx context.Context, order *repos
 			ExchangeOrderID: fill.ExchangeOrderID,
 			ExchangeTradeID: fill.ExchangeTradeID,
 			EventType:       "fill",
+			EventSource:     lifecycle.EventSourcePlaceOrder,
 			OrderStatus:     order.Status,
 			FillDelta: lifecycle.FillDelta{
 				ExchangeTradeID: fill.ExchangeTradeID,
@@ -1054,6 +1055,7 @@ func toProtoLifecycleEvent(item lifecycle.Event) *orderv1.OrderLifecycleEventEnt
 		ExchangeOrderId: item.ExchangeOrderID,
 		ExchangeTradeId: item.ExchangeTradeID,
 		EventType:       item.EventType,
+		EventSource:     item.EventSource,
 		OrderStatus:     item.OrderStatus,
 		FillDelta: &orderv1.FillDeltaEntry{
 			ExchangeTradeId: item.FillDelta.ExchangeTradeID,

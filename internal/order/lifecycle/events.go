@@ -2,6 +2,7 @@ package lifecycle
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -46,6 +47,7 @@ type Event struct {
 	ExchangeOrderID string
 	ExchangeTradeID string
 	EventType       string
+	EventSource     string
 	OrderStatus     string
 	FillDelta       FillDelta
 	OrderState      OrderState
@@ -53,9 +55,19 @@ type Event struct {
 	CreatedAt       time.Time
 }
 
+const (
+	EventSourcePlaceOrder   = "place_order"
+	EventSourceWebsocket    = "websocket"
+	EventSourceRESTRecovery = "rest_recovery"
+	EventSourceForceClose   = "force_close"
+)
+
 func ValidateEventRouteFacts(event Event) error {
 	if strings.TrimSpace(event.EventType) == "" {
 		return fmt.Errorf("event_type is required")
+	}
+	if !isAllowedEventSource(event.EventSource) {
+		return fmt.Errorf("unsupported event_source: %s", event.EventSource)
 	}
 	if event.AccountID <= 0 {
 		return fmt.Errorf("account_id is required")
@@ -81,6 +93,50 @@ func ValidateEventRouteFacts(event Event) error {
 		return fmt.Errorf("symbol is required")
 	}
 	return nil
+}
+
+func isAllowedEventSource(source string) bool {
+	switch strings.TrimSpace(source) {
+	case EventSourcePlaceOrder, EventSourceWebsocket, EventSourceRESTRecovery, EventSourceForceClose:
+		return true
+	default:
+		return false
+	}
+}
+
+func EventIdentityKey(event Event) string {
+	orderID := strings.TrimSpace(firstNonEmpty(
+		event.ExchangeOrderID,
+		event.FillDelta.ExchangeOrderID,
+		event.OrderState.ExchangeOrderID,
+	))
+	tradeID := strings.TrimSpace(firstNonEmpty(event.ExchangeTradeID, event.FillDelta.ExchangeTradeID))
+	if orderID == "" {
+		return ""
+	}
+	if tradeID != "" {
+		return strings.Join([]string{
+			"trade",
+			strings.ToUpper(orderID),
+			strings.ToUpper(tradeID),
+		}, "|")
+	}
+
+	status := strings.TrimSpace(firstNonEmpty(event.OrderStatus, event.OrderState.Status))
+	identityTime := event.OrderState.UpdatedAt
+	if identityTime.IsZero() {
+		identityTime = event.OccurredAt
+	}
+	if status == "" || identityTime.IsZero() {
+		return ""
+	}
+	return strings.Join([]string{
+		"state",
+		strings.ToUpper(orderID),
+		strings.ToUpper(status),
+		strconv.FormatFloat(event.OrderState.ExecutedQty, 'f', -1, 64),
+		identityTime.UTC().Format(time.RFC3339Nano),
+	}, "|")
 }
 
 func firstNonEmpty(values ...string) string {

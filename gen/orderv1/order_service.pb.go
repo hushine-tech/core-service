@@ -1996,6 +1996,7 @@ type OrderLifecycleEventEntry struct {
 	Market          int32                  `protobuf:"varint,18,opt,name=market,proto3" json:"market,omitempty"`
 	PositionSide    int32                  `protobuf:"varint,19,opt,name=position_side,json=positionSide,proto3" json:"position_side,omitempty"`
 	Side            string                 `protobuf:"bytes,20,opt,name=side,proto3" json:"side,omitempty"`
+	EventSource     string                 `protobuf:"bytes,21,opt,name=event_source,json=eventSource,proto3" json:"event_source,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -2166,6 +2167,13 @@ func (x *OrderLifecycleEventEntry) GetPositionSide() int32 {
 func (x *OrderLifecycleEventEntry) GetSide() string {
 	if x != nil {
 		return x.Side
+	}
+	return ""
+}
+
+func (x *OrderLifecycleEventEntry) GetEventSource() string {
+	if x != nil {
+		return x.EventSource
 	}
 	return ""
 }
@@ -2624,7 +2632,7 @@ const file_order_service_proto_rawDesc = "" +
 	"\x0eafter_event_id\x18\x02 \x01(\x03R\fafterEventId\x12\x14\n" +
 	"\x05limit\x18\x03 \x01(\x05R\x05limit\"^\n" +
 	" ListOrderLifecycleEventsResponse\x12:\n" +
-	"\x06events\x18\x01 \x03(\v2\".order.v1.OrderLifecycleEventEntryR\x06events\"\xfb\x05\n" +
+	"\x06events\x18\x01 \x03(\v2\".order.v1.OrderLifecycleEventEntryR\x06events\"\x9e\x06\n" +
 	"\x18OrderLifecycleEventEntry\x12\x19\n" +
 	"\bevent_id\x18\x01 \x01(\x03R\aeventId\x12\x1d\n" +
 	"\n" +
@@ -2654,7 +2662,8 @@ const file_order_service_proto_rawDesc = "" +
 	"\bexchange\x18\x11 \x01(\x05R\bexchange\x12\x16\n" +
 	"\x06market\x18\x12 \x01(\x05R\x06market\x12#\n" +
 	"\rposition_side\x18\x13 \x01(\x05R\fpositionSide\x12\x12\n" +
-	"\x04side\x18\x14 \x01(\tR\x04side\"\xbc\x02\n" +
+	"\x04side\x18\x14 \x01(\tR\x04side\x12!\n" +
+	"\fevent_source\x18\x15 \x01(\tR\veventSource\"\xbc\x02\n" +
 	"\x0eFillDeltaEntry\x12*\n" +
 	"\x11exchange_trade_id\x18\x01 \x01(\tR\x0fexchangeTradeId\x12*\n" +
 	"\x11exchange_order_id\x18\x02 \x01(\tR\x0fexchangeOrderId\x12\x16\n" +

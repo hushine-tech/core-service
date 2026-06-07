@@ -92,6 +92,8 @@ func TestOrderMigrationsIncludeRiskRecoveryContractColumns(t *testing.T) {
 		"orders.recovery_deadline_at",
 		"orders.last_recovery_error",
 		"orders.force_closed_at",
+		"order_lifecycle_events.event_source",
+		"order_lifecycle_events.event_identity",
 	}
 	for _, required := range requiredColumns {
 		table, column, ok := strings.Cut(required, ".")
@@ -104,6 +106,35 @@ func TestOrderMigrationsIncludeRiskRecoveryContractColumns(t *testing.T) {
 		if !regexp.MustCompile(statementPattern).MatchString(combined.String()) {
 			t.Fatalf("migrations missing column reference %s", required)
 		}
+	}
+}
+
+func TestOrderMigrationsIncludeLifecycleEventIdentityIndex(t *testing.T) {
+	t.Setenv("ORDER_MIGRATIONS", "")
+
+	migrationsDir, err := resolveMigrationsDir()
+	if err != nil {
+		t.Fatalf("resolveMigrationsDir: %v", err)
+	}
+	entries, err := os.ReadDir(migrationsDir)
+	if err != nil {
+		t.Fatalf("read migrations dir: %v", err)
+	}
+	var combined strings.Builder
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".sql") {
+			continue
+		}
+		content, err := os.ReadFile(filepath.Join(migrationsDir, entry.Name()))
+		if err != nil {
+			t.Fatalf("read migration %s: %v", entry.Name(), err)
+		}
+		combined.Write(content)
+		combined.WriteByte('\n')
+	}
+	pattern := regexp.MustCompile(`(?is)CREATE\s+UNIQUE\s+INDEX(?:\s+IF\s+NOT\s+EXISTS)?\s+uidx_order_lifecycle_event_identity\s+ON\s+order_lifecycle_events\s*\(\s*venue_id\s*,\s*event_identity\s*\)\s+WHERE\s+event_identity\s+IS\s+NOT\s+NULL`)
+	if !pattern.MatchString(combined.String()) {
+		t.Fatal("migrations must add unique lifecycle event_identity index")
 	}
 }
 

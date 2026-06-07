@@ -72,6 +72,9 @@ func TestScannerWritesFillLifecycleEvent(t *testing.T) {
 	if event.EventType != "fill" || event.ExchangeTradeID != "trade-1" || event.OrderStatus != "FILLED" {
 		t.Fatalf("event = %+v, want fill lifecycle event", event)
 	}
+	if event.EventSource != EventSourceRESTRecovery {
+		t.Fatalf("event_source = %q, want %s", event.EventSource, EventSourceRESTRecovery)
+	}
 	if event.PositionSide != 0 {
 		t.Fatalf("position_side = %d, want BOTH/0 to be valid", event.PositionSide)
 	}
@@ -88,6 +91,7 @@ func TestValidateEventRouteFactsAllowsPositionSideBoth(t *testing.T) {
 		PositionSide: 0,
 		Side:         "BUY",
 		EventType:    "fill",
+		EventSource:  EventSourceRESTRecovery,
 		OrderStatus:  "FILLED",
 		FillDelta:    FillDelta{Symbol: "ETHUSDT", Qty: 0.2, FillPrice: 3000},
 		OrderState:   OrderState{Symbol: "ETHUSDT", Status: "FILLED"},
@@ -132,11 +136,33 @@ func TestValidateEventRouteFactsRejectsMissingSymbol(t *testing.T) {
 		PositionSide: 0,
 		Side:         "BUY",
 		EventType:    "fill",
+		EventSource:  EventSourceRESTRecovery,
 		OrderStatus:  "FILLED",
 		OccurredAt:   time.Now().UTC(),
 	})
 	if err == nil {
 		t.Fatal("expected missing symbol to be rejected")
+	}
+}
+
+func TestValidateEventRouteFactsRejectsUnsupportedEventSource(t *testing.T) {
+	err := ValidateEventRouteFacts(Event{
+		SessionID:    "sess-1",
+		AccountID:    1,
+		VenueID:      10,
+		Environment:  0,
+		Exchange:     1,
+		Market:       2,
+		PositionSide: 0,
+		Side:         "BUY",
+		EventType:    "fill",
+		EventSource:  "unknown",
+		OrderStatus:  "FILLED",
+		FillDelta:    FillDelta{Symbol: "ETHUSDT", Qty: 0.2, FillPrice: 3000},
+		OccurredAt:   time.Now().UTC(),
+	})
+	if err == nil {
+		t.Fatal("expected unsupported event source to be rejected")
 	}
 }
 

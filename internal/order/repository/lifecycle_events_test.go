@@ -41,6 +41,7 @@ func lifecycleTestEvent(sessionID string, seq int) lifecycle.Event {
 		ExchangeOrderID: fmt.Sprintf("exchange-order-%s-%d", sessionID, seq),
 		ExchangeTradeID: fmt.Sprintf("trade-%s-%d", sessionID, seq),
 		EventType:       "fill",
+		EventSource:     lifecycle.EventSourceRESTRecovery,
 		OrderStatus:     "FILLED",
 		FillDelta: lifecycle.FillDelta{
 			ExchangeTradeID: fmt.Sprintf("trade-%s-%d", sessionID, seq),
@@ -60,6 +61,37 @@ func lifecycleTestEvent(sessionID string, seq int) lifecycle.Event {
 			ExecutedQty:     0.1,
 			RemainingQty:    0,
 			AvgPrice:        3000 + float64(seq),
+			UpdatedAt:       now,
+		},
+		OccurredAt: now,
+	}
+}
+
+func lifecycleTestStateEvent(sessionID string, seq int) lifecycle.Event {
+	now := time.Now().UTC().Truncate(time.Microsecond).Add(time.Duration(seq) * time.Millisecond)
+	return lifecycle.Event{
+		SessionID:       sessionID,
+		AccountID:       100 + int64(seq),
+		VenueID:         200,
+		Environment:     2,
+		Exchange:        1,
+		Market:          2,
+		PositionSide:    0,
+		Side:            "BUY",
+		IntentID:        fmt.Sprintf("intent-state-%s-%d", sessionID, seq),
+		AttemptID:       fmt.Sprintf("attempt-state-%s-%d", sessionID, seq),
+		OrderID:         fmt.Sprintf("order-state-%s-%d", sessionID, seq),
+		ExchangeOrderID: fmt.Sprintf("exchange-order-state-%s", sessionID),
+		EventType:       "terminal",
+		EventSource:     lifecycle.EventSourceWebsocket,
+		OrderStatus:     "CANCELED",
+		OrderState: lifecycle.OrderState{
+			ExchangeOrderID: fmt.Sprintf("exchange-order-state-%s", sessionID),
+			Symbol:          "ETHUSDT",
+			Status:          "CANCELED",
+			OrigQty:         0.3,
+			ExecutedQty:     0.1,
+			RemainingQty:    0.2,
 			UpdatedAt:       now,
 		},
 		OccurredAt: now,
@@ -92,6 +124,9 @@ func TestSaveLifecycleEventPersistsFillDelta(t *testing.T) {
 	if got.Environment != 2 || got.Exchange != 1 || got.Market != 2 || got.PositionSide != 0 || got.Side != "BUY" {
 		t.Fatalf("route facts not persisted: %+v", got)
 	}
+	if got.EventSource != lifecycle.EventSourceRESTRecovery {
+		t.Fatalf("event_source = %q, want %s", got.EventSource, lifecycle.EventSourceRESTRecovery)
+	}
 }
 
 func TestSaveLifecycleEventDeduplicatesExchangeTrade(t *testing.T) {
@@ -122,6 +157,37 @@ func TestSaveLifecycleEventDeduplicatesExchangeTrade(t *testing.T) {
 	}
 	if !events[0].FillDelta.FeeMissing || events[0].OrderStatus != "PARTIALLY_FILLED" {
 		t.Fatalf("duplicate event did not update lifecycle payload: %+v", events[0])
+	}
+}
+
+func TestSaveLifecycleEventDeduplicatesOrderStateWithoutTradeID(t *testing.T) {
+	repo, ctx := lifecycleTestRepo(t)
+	sessionID := fmt.Sprintf("life-state-dedupe-%d", time.Now().UnixNano())
+	event := lifecycleTestStateEvent(sessionID, 1)
+
+	first, err := repo.SaveLifecycleEvent(ctx, event)
+	if err != nil {
+		t.Fatalf("first SaveLifecycleEvent: %v", err)
+	}
+	event.EventSource = lifecycle.EventSourceRESTRecovery
+	event.OrderState.RemainingQty = 0.15
+	second, err := repo.SaveLifecycleEvent(ctx, event)
+	if err != nil {
+		t.Fatalf("second SaveLifecycleEvent: %v", err)
+	}
+	if second.EventID != first.EventID {
+		t.Fatalf("duplicate state event produced new event_id: first=%d second=%d", first.EventID, second.EventID)
+	}
+
+	events, err := repo.ListLifecycleEvents(ctx, sessionID, 0, 10)
+	if err != nil {
+		t.Fatalf("ListLifecycleEvents: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("events len = %d, want 1", len(events))
+	}
+	if events[0].EventSource != lifecycle.EventSourceRESTRecovery || events[0].OrderState.RemainingQty != 0.15 {
+		t.Fatalf("duplicate state event did not update lifecycle payload: %+v", events[0])
 	}
 }
 

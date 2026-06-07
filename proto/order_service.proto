@@ -268,6 +268,7 @@ message OrderLifecycleEventEntry {
   int32 market = 18;
   int32 position_side = 19;
   string side = 20;
+  string event_source = 21;
 }
 
 message FillDeltaEntry {

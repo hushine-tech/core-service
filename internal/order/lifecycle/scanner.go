@@ -106,6 +106,7 @@ func (s *Scanner) ScanOnce(ctx context.Context, now time.Time) (int, error) {
 				ExchangeOrderID: firstNonEmpty(fill.ExchangeOrderID, state.ExchangeOrderID, order.ExchangeOrderID),
 				ExchangeTradeID: fill.ExchangeTradeID,
 				EventType:       "fill",
+				EventSource:     EventSourceRESTRecovery,
 				OrderStatus:     state.Status,
 				FillDelta:       fill,
 				OrderState:      state,

@@ -609,6 +609,9 @@ type OrderIntentEntry struct {
 	Status         string                 `protobuf:"bytes,15,opt,name=status,proto3" json:"status,omitempty"`
 	RejectCode     string                 `protobuf:"bytes,16,opt,name=reject_code,json=rejectCode,proto3" json:"reject_code,omitempty"`
 	RejectMessage  string                 `protobuf:"bytes,17,opt,name=reject_message,json=rejectMessage,proto3" json:"reject_message,omitempty"`
+	PostOnly       bool                   `protobuf:"varint,18,opt,name=post_only,json=postOnly,proto3" json:"post_only,omitempty"`
+	GoodTillDate   *timestamppb.Timestamp `protobuf:"bytes,19,opt,name=good_till_date,json=goodTillDate,proto3" json:"good_till_date,omitempty"`
+	ReduceOnly     bool                   `protobuf:"varint,20,opt,name=reduce_only,json=reduceOnly,proto3" json:"reduce_only,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -760,6 +763,27 @@ func (x *OrderIntentEntry) GetRejectMessage() string {
 		return x.RejectMessage
 	}
 	return ""
+}
+
+func (x *OrderIntentEntry) GetPostOnly() bool {
+	if x != nil {
+		return x.PostOnly
+	}
+	return false
+}
+
+func (x *OrderIntentEntry) GetGoodTillDate() *timestamppb.Timestamp {
+	if x != nil {
+		return x.GoodTillDate
+	}
+	return nil
+}
+
+func (x *OrderIntentEntry) GetReduceOnly() bool {
+	if x != nil {
+		return x.ReduceOnly
+	}
+	return false
 }
 
 type QueryOrderAttemptsRequest struct {
@@ -1244,6 +1268,9 @@ type OrderAttemptEntry struct {
 	PositionSide    int32                  `protobuf:"varint,22,opt,name=position_side,json=positionSide,proto3" json:"position_side,omitempty"`
 	RiskStatus      string                 `protobuf:"bytes,23,opt,name=risk_status,json=riskStatus,proto3" json:"risk_status,omitempty"`
 	RiskReasonsJson string                 `protobuf:"bytes,24,opt,name=risk_reasons_json,json=riskReasonsJson,proto3" json:"risk_reasons_json,omitempty"`
+	PostOnly        bool                   `protobuf:"varint,25,opt,name=post_only,json=postOnly,proto3" json:"post_only,omitempty"`
+	GoodTillDate    *timestamppb.Timestamp `protobuf:"bytes,26,opt,name=good_till_date,json=goodTillDate,proto3" json:"good_till_date,omitempty"`
+	ReduceOnly      bool                   `protobuf:"varint,27,opt,name=reduce_only,json=reduceOnly,proto3" json:"reduce_only,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -1446,33 +1473,62 @@ func (x *OrderAttemptEntry) GetRiskReasonsJson() string {
 	return ""
 }
 
+func (x *OrderAttemptEntry) GetPostOnly() bool {
+	if x != nil {
+		return x.PostOnly
+	}
+	return false
+}
+
+func (x *OrderAttemptEntry) GetGoodTillDate() *timestamppb.Timestamp {
+	if x != nil {
+		return x.GoodTillDate
+	}
+	return nil
+}
+
+func (x *OrderAttemptEntry) GetReduceOnly() bool {
+	if x != nil {
+		return x.ReduceOnly
+	}
+	return false
+}
+
 type ExchangeOrderEntry struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
-	Time            *timestamppb.Timestamp `protobuf:"bytes,1,opt,name=time,proto3" json:"time,omitempty"`
-	OrderId         string                 `protobuf:"bytes,2,opt,name=order_id,json=orderId,proto3" json:"order_id,omitempty"`
-	ExchangeOrderId string                 `protobuf:"bytes,3,opt,name=exchange_order_id,json=exchangeOrderId,proto3" json:"exchange_order_id,omitempty"`
-	ClientOrderId   string                 `protobuf:"bytes,20,opt,name=client_order_id,json=clientOrderId,proto3" json:"client_order_id,omitempty"`
-	AttemptId       string                 `protobuf:"bytes,4,opt,name=attempt_id,json=attemptId,proto3" json:"attempt_id,omitempty"`
-	IntentId        string                 `protobuf:"bytes,5,opt,name=intent_id,json=intentId,proto3" json:"intent_id,omitempty"`
-	AccountId       int64                  `protobuf:"varint,6,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
-	Symbol          string                 `protobuf:"bytes,7,opt,name=symbol,proto3" json:"symbol,omitempty"`
-	Side            string                 `protobuf:"bytes,8,opt,name=side,proto3" json:"side,omitempty"`
-	OrigQty         float64                `protobuf:"fixed64,9,opt,name=orig_qty,json=origQty,proto3" json:"orig_qty,omitempty"`
-	ExecutedQty     float64                `protobuf:"fixed64,10,opt,name=executed_qty,json=executedQty,proto3" json:"executed_qty,omitempty"`
-	RemainingQty    float64                `protobuf:"fixed64,11,opt,name=remaining_qty,json=remainingQty,proto3" json:"remaining_qty,omitempty"`
-	AvgPrice        float64                `protobuf:"fixed64,12,opt,name=avg_price,json=avgPrice,proto3" json:"avg_price,omitempty"`
-	Status          string                 `protobuf:"bytes,13,opt,name=status,proto3" json:"status,omitempty"`
-	Environment     int32                  `protobuf:"varint,14,opt,name=environment,proto3" json:"environment,omitempty"`
-	ErrorMessage    string                 `protobuf:"bytes,15,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
-	StrategyId      int64                  `protobuf:"varint,16,opt,name=strategy_id,json=strategyId,proto3" json:"strategy_id,omitempty"`
-	Market          int32                  `protobuf:"varint,17,opt,name=market,proto3" json:"market,omitempty"`
-	SessionId       string                 `protobuf:"bytes,18,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	Price           float64                `protobuf:"fixed64,19,opt,name=price,proto3" json:"price,omitempty"`
-	VenueId         int64                  `protobuf:"varint,21,opt,name=venue_id,json=venueId,proto3" json:"venue_id,omitempty"`
-	Exchange        int32                  `protobuf:"varint,22,opt,name=exchange,proto3" json:"exchange,omitempty"`
-	PositionSide    int32                  `protobuf:"varint,23,opt,name=position_side,json=positionSide,proto3" json:"position_side,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	Time               *timestamppb.Timestamp `protobuf:"bytes,1,opt,name=time,proto3" json:"time,omitempty"`
+	OrderId            string                 `protobuf:"bytes,2,opt,name=order_id,json=orderId,proto3" json:"order_id,omitempty"`
+	ExchangeOrderId    string                 `protobuf:"bytes,3,opt,name=exchange_order_id,json=exchangeOrderId,proto3" json:"exchange_order_id,omitempty"`
+	ClientOrderId      string                 `protobuf:"bytes,20,opt,name=client_order_id,json=clientOrderId,proto3" json:"client_order_id,omitempty"`
+	AttemptId          string                 `protobuf:"bytes,4,opt,name=attempt_id,json=attemptId,proto3" json:"attempt_id,omitempty"`
+	IntentId           string                 `protobuf:"bytes,5,opt,name=intent_id,json=intentId,proto3" json:"intent_id,omitempty"`
+	AccountId          int64                  `protobuf:"varint,6,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
+	Symbol             string                 `protobuf:"bytes,7,opt,name=symbol,proto3" json:"symbol,omitempty"`
+	Side               string                 `protobuf:"bytes,8,opt,name=side,proto3" json:"side,omitempty"`
+	OrigQty            float64                `protobuf:"fixed64,9,opt,name=orig_qty,json=origQty,proto3" json:"orig_qty,omitempty"`
+	ExecutedQty        float64                `protobuf:"fixed64,10,opt,name=executed_qty,json=executedQty,proto3" json:"executed_qty,omitempty"`
+	RemainingQty       float64                `protobuf:"fixed64,11,opt,name=remaining_qty,json=remainingQty,proto3" json:"remaining_qty,omitempty"`
+	AvgPrice           float64                `protobuf:"fixed64,12,opt,name=avg_price,json=avgPrice,proto3" json:"avg_price,omitempty"`
+	Status             string                 `protobuf:"bytes,13,opt,name=status,proto3" json:"status,omitempty"`
+	Environment        int32                  `protobuf:"varint,14,opt,name=environment,proto3" json:"environment,omitempty"`
+	ErrorMessage       string                 `protobuf:"bytes,15,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	StrategyId         int64                  `protobuf:"varint,16,opt,name=strategy_id,json=strategyId,proto3" json:"strategy_id,omitempty"`
+	Market             int32                  `protobuf:"varint,17,opt,name=market,proto3" json:"market,omitempty"`
+	SessionId          string                 `protobuf:"bytes,18,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	Price              float64                `protobuf:"fixed64,19,opt,name=price,proto3" json:"price,omitempty"`
+	VenueId            int64                  `protobuf:"varint,21,opt,name=venue_id,json=venueId,proto3" json:"venue_id,omitempty"`
+	Exchange           int32                  `protobuf:"varint,22,opt,name=exchange,proto3" json:"exchange,omitempty"`
+	PositionSide       int32                  `protobuf:"varint,23,opt,name=position_side,json=positionSide,proto3" json:"position_side,omitempty"`
+	PostOnly           bool                   `protobuf:"varint,24,opt,name=post_only,json=postOnly,proto3" json:"post_only,omitempty"`
+	GoodTillDate       *timestamppb.Timestamp `protobuf:"bytes,25,opt,name=good_till_date,json=goodTillDate,proto3" json:"good_till_date,omitempty"`
+	ReduceOnly         bool                   `protobuf:"varint,26,opt,name=reduce_only,json=reduceOnly,proto3" json:"reduce_only,omitempty"`
+	RecoveryStatus     string                 `protobuf:"bytes,27,opt,name=recovery_status,json=recoveryStatus,proto3" json:"recovery_status,omitempty"`
+	NextCheckAt        *timestamppb.Timestamp `protobuf:"bytes,28,opt,name=next_check_at,json=nextCheckAt,proto3" json:"next_check_at,omitempty"`
+	RecoveryDeadlineAt *timestamppb.Timestamp `protobuf:"bytes,29,opt,name=recovery_deadline_at,json=recoveryDeadlineAt,proto3" json:"recovery_deadline_at,omitempty"`
+	LastRecoveryError  string                 `protobuf:"bytes,30,opt,name=last_recovery_error,json=lastRecoveryError,proto3" json:"last_recovery_error,omitempty"`
+	ForceClosedAt      *timestamppb.Timestamp `protobuf:"bytes,31,opt,name=force_closed_at,json=forceClosedAt,proto3" json:"force_closed_at,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *ExchangeOrderEntry) Reset() {
@@ -1664,6 +1720,62 @@ func (x *ExchangeOrderEntry) GetPositionSide() int32 {
 		return x.PositionSide
 	}
 	return 0
+}
+
+func (x *ExchangeOrderEntry) GetPostOnly() bool {
+	if x != nil {
+		return x.PostOnly
+	}
+	return false
+}
+
+func (x *ExchangeOrderEntry) GetGoodTillDate() *timestamppb.Timestamp {
+	if x != nil {
+		return x.GoodTillDate
+	}
+	return nil
+}
+
+func (x *ExchangeOrderEntry) GetReduceOnly() bool {
+	if x != nil {
+		return x.ReduceOnly
+	}
+	return false
+}
+
+func (x *ExchangeOrderEntry) GetRecoveryStatus() string {
+	if x != nil {
+		return x.RecoveryStatus
+	}
+	return ""
+}
+
+func (x *ExchangeOrderEntry) GetNextCheckAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.NextCheckAt
+	}
+	return nil
+}
+
+func (x *ExchangeOrderEntry) GetRecoveryDeadlineAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.RecoveryDeadlineAt
+	}
+	return nil
+}
+
+func (x *ExchangeOrderEntry) GetLastRecoveryError() string {
+	if x != nil {
+		return x.LastRecoveryError
+	}
+	return ""
+}
+
+func (x *ExchangeOrderEntry) GetForceClosedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.ForceClosedAt
+	}
+	return nil
 }
 
 type OrderFillEntry struct {
@@ -2466,7 +2578,7 @@ const file_order_service_proto_rawDesc = "" +
 	"\auser_id\x18d \x01(\x03R\x06userId\"g\n" +
 	"\x19QueryOrderIntentsResponse\x124\n" +
 	"\aintents\x18\x01 \x03(\v2\x1a.order.v1.OrderIntentEntryR\aintents\x12\x14\n" +
-	"\x05total\x18\x02 \x01(\x03R\x05total\"\xae\x04\n" +
+	"\x05total\x18\x02 \x01(\x03R\x05total\"\xae\x05\n" +
 	"\x10OrderIntentEntry\x12.\n" +
 	"\x04time\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\x04time\x12\x1b\n" +
 	"\tintent_id\x18\x02 \x01(\tR\bintentId\x12\x1d\n" +
@@ -2489,7 +2601,11 @@ const file_order_service_proto_rawDesc = "" +
 	"\x06status\x18\x0f \x01(\tR\x06status\x12\x1f\n" +
 	"\vreject_code\x18\x10 \x01(\tR\n" +
 	"rejectCode\x12%\n" +
-	"\x0ereject_message\x18\x11 \x01(\tR\rrejectMessage\"\xde\x01\n" +
+	"\x0ereject_message\x18\x11 \x01(\tR\rrejectMessage\x12\x1b\n" +
+	"\tpost_only\x18\x12 \x01(\bR\bpostOnly\x12@\n" +
+	"\x0egood_till_date\x18\x13 \x01(\v2\x1a.google.protobuf.TimestampR\fgoodTillDate\x12\x1f\n" +
+	"\vreduce_only\x18\x14 \x01(\bR\n" +
+	"reduceOnly\"\xde\x01\n" +
 	"\x19QueryOrderAttemptsRequest\x12\x1d\n" +
 	"\n" +
 	"account_id\x18\x01 \x01(\x03R\taccountId\x12\x1f\n" +
@@ -2536,7 +2652,7 @@ const file_order_service_proto_rawDesc = "" +
 	"\auser_id\x18d \x01(\x03R\x06userId\"_\n" +
 	"\x17QueryOrderFillsResponse\x12.\n" +
 	"\x05fills\x18\x01 \x03(\v2\x18.order.v1.OrderFillEntryR\x05fills\x12\x14\n" +
-	"\x05total\x18\x02 \x01(\x03R\x05total\"\xad\x06\n" +
+	"\x05total\x18\x02 \x01(\x03R\x05total\"\xad\a\n" +
 	"\x11OrderAttemptEntry\x12.\n" +
 	"\x04time\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\x04time\x12\x1d\n" +
 	"\n" +
@@ -2568,7 +2684,11 @@ const file_order_service_proto_rawDesc = "" +
 	"\rposition_side\x18\x16 \x01(\x05R\fpositionSide\x12\x1f\n" +
 	"\vrisk_status\x18\x17 \x01(\tR\n" +
 	"riskStatus\x12*\n" +
-	"\x11risk_reasons_json\x18\x18 \x01(\tR\x0friskReasonsJson\"\xe3\x05\n" +
+	"\x11risk_reasons_json\x18\x18 \x01(\tR\x0friskReasonsJson\x12\x1b\n" +
+	"\tpost_only\x18\x19 \x01(\bR\bpostOnly\x12@\n" +
+	"\x0egood_till_date\x18\x1a \x01(\v2\x1a.google.protobuf.TimestampR\fgoodTillDate\x12\x1f\n" +
+	"\vreduce_only\x18\x1b \x01(\bR\n" +
+	"reduceOnly\"\x8e\t\n" +
 	"\x12ExchangeOrderEntry\x12.\n" +
 	"\x04time\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\x04time\x12\x19\n" +
 	"\border_id\x18\x02 \x01(\tR\aorderId\x12*\n" +
@@ -2597,7 +2717,16 @@ const file_order_service_proto_rawDesc = "" +
 	"\x05price\x18\x13 \x01(\x01R\x05price\x12\x19\n" +
 	"\bvenue_id\x18\x15 \x01(\x03R\avenueId\x12\x1a\n" +
 	"\bexchange\x18\x16 \x01(\x05R\bexchange\x12#\n" +
-	"\rposition_side\x18\x17 \x01(\x05R\fpositionSide\"\x84\x05\n" +
+	"\rposition_side\x18\x17 \x01(\x05R\fpositionSide\x12\x1b\n" +
+	"\tpost_only\x18\x18 \x01(\bR\bpostOnly\x12@\n" +
+	"\x0egood_till_date\x18\x19 \x01(\v2\x1a.google.protobuf.TimestampR\fgoodTillDate\x12\x1f\n" +
+	"\vreduce_only\x18\x1a \x01(\bR\n" +
+	"reduceOnly\x12'\n" +
+	"\x0frecovery_status\x18\x1b \x01(\tR\x0erecoveryStatus\x12>\n" +
+	"\rnext_check_at\x18\x1c \x01(\v2\x1a.google.protobuf.TimestampR\vnextCheckAt\x12L\n" +
+	"\x14recovery_deadline_at\x18\x1d \x01(\v2\x1a.google.protobuf.TimestampR\x12recoveryDeadlineAt\x12.\n" +
+	"\x13last_recovery_error\x18\x1e \x01(\tR\x11lastRecoveryError\x12B\n" +
+	"\x0fforce_closed_at\x18\x1f \x01(\v2\x1a.google.protobuf.TimestampR\rforceClosedAt\"\x84\x05\n" +
 	"\x0eOrderFillEntry\x12.\n" +
 	"\x04time\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\x04time\x12\x17\n" +
 	"\afill_id\x18\x02 \x01(\tR\x06fillId\x12*\n" +
@@ -2744,38 +2873,44 @@ var file_order_service_proto_depIdxs = []int32{
 	15, // 5: order.v1.ResolveOrderAttemptResponse.fill_deltas:type_name -> order.v1.OrderFillEntry
 	6,  // 6: order.v1.QueryOrderIntentsResponse.intents:type_name -> order.v1.OrderIntentEntry
 	21, // 7: order.v1.OrderIntentEntry.time:type_name -> google.protobuf.Timestamp
-	13, // 8: order.v1.QueryOrderAttemptsResponse.attempts:type_name -> order.v1.OrderAttemptEntry
-	14, // 9: order.v1.QueryOrdersResponse.orders:type_name -> order.v1.ExchangeOrderEntry
-	15, // 10: order.v1.QueryOrderFillsResponse.fills:type_name -> order.v1.OrderFillEntry
-	21, // 11: order.v1.OrderAttemptEntry.time:type_name -> google.protobuf.Timestamp
-	21, // 12: order.v1.ExchangeOrderEntry.time:type_name -> google.protobuf.Timestamp
-	21, // 13: order.v1.OrderFillEntry.time:type_name -> google.protobuf.Timestamp
-	18, // 14: order.v1.ListOrderLifecycleEventsResponse.events:type_name -> order.v1.OrderLifecycleEventEntry
-	19, // 15: order.v1.OrderLifecycleEventEntry.fill_delta:type_name -> order.v1.FillDeltaEntry
-	20, // 16: order.v1.OrderLifecycleEventEntry.order_state:type_name -> order.v1.OrderStateEntry
-	21, // 17: order.v1.OrderLifecycleEventEntry.occurred_at:type_name -> google.protobuf.Timestamp
-	21, // 18: order.v1.OrderLifecycleEventEntry.created_at:type_name -> google.protobuf.Timestamp
-	21, // 19: order.v1.FillDeltaEntry.trade_time:type_name -> google.protobuf.Timestamp
-	21, // 20: order.v1.OrderStateEntry.updated_at:type_name -> google.protobuf.Timestamp
-	0,  // 21: order.v1.OrderService.PlaceOrder:input_type -> order.v1.PlaceOrderRequest
-	4,  // 22: order.v1.OrderService.QueryOrderIntents:input_type -> order.v1.QueryOrderIntentsRequest
-	7,  // 23: order.v1.OrderService.QueryOrderAttempts:input_type -> order.v1.QueryOrderAttemptsRequest
-	9,  // 24: order.v1.OrderService.QueryOrders:input_type -> order.v1.QueryOrdersRequest
-	11, // 25: order.v1.OrderService.QueryOrderFills:input_type -> order.v1.QueryOrderFillsRequest
-	2,  // 26: order.v1.OrderService.ResolveOrderAttempt:input_type -> order.v1.ResolveOrderAttemptRequest
-	16, // 27: order.v1.OrderService.ListOrderLifecycleEvents:input_type -> order.v1.ListOrderLifecycleEventsRequest
-	1,  // 28: order.v1.OrderService.PlaceOrder:output_type -> order.v1.PlaceOrderResponse
-	5,  // 29: order.v1.OrderService.QueryOrderIntents:output_type -> order.v1.QueryOrderIntentsResponse
-	8,  // 30: order.v1.OrderService.QueryOrderAttempts:output_type -> order.v1.QueryOrderAttemptsResponse
-	10, // 31: order.v1.OrderService.QueryOrders:output_type -> order.v1.QueryOrdersResponse
-	12, // 32: order.v1.OrderService.QueryOrderFills:output_type -> order.v1.QueryOrderFillsResponse
-	3,  // 33: order.v1.OrderService.ResolveOrderAttempt:output_type -> order.v1.ResolveOrderAttemptResponse
-	17, // 34: order.v1.OrderService.ListOrderLifecycleEvents:output_type -> order.v1.ListOrderLifecycleEventsResponse
-	28, // [28:35] is the sub-list for method output_type
-	21, // [21:28] is the sub-list for method input_type
-	21, // [21:21] is the sub-list for extension type_name
-	21, // [21:21] is the sub-list for extension extendee
-	0,  // [0:21] is the sub-list for field type_name
+	21, // 8: order.v1.OrderIntentEntry.good_till_date:type_name -> google.protobuf.Timestamp
+	13, // 9: order.v1.QueryOrderAttemptsResponse.attempts:type_name -> order.v1.OrderAttemptEntry
+	14, // 10: order.v1.QueryOrdersResponse.orders:type_name -> order.v1.ExchangeOrderEntry
+	15, // 11: order.v1.QueryOrderFillsResponse.fills:type_name -> order.v1.OrderFillEntry
+	21, // 12: order.v1.OrderAttemptEntry.time:type_name -> google.protobuf.Timestamp
+	21, // 13: order.v1.OrderAttemptEntry.good_till_date:type_name -> google.protobuf.Timestamp
+	21, // 14: order.v1.ExchangeOrderEntry.time:type_name -> google.protobuf.Timestamp
+	21, // 15: order.v1.ExchangeOrderEntry.good_till_date:type_name -> google.protobuf.Timestamp
+	21, // 16: order.v1.ExchangeOrderEntry.next_check_at:type_name -> google.protobuf.Timestamp
+	21, // 17: order.v1.ExchangeOrderEntry.recovery_deadline_at:type_name -> google.protobuf.Timestamp
+	21, // 18: order.v1.ExchangeOrderEntry.force_closed_at:type_name -> google.protobuf.Timestamp
+	21, // 19: order.v1.OrderFillEntry.time:type_name -> google.protobuf.Timestamp
+	18, // 20: order.v1.ListOrderLifecycleEventsResponse.events:type_name -> order.v1.OrderLifecycleEventEntry
+	19, // 21: order.v1.OrderLifecycleEventEntry.fill_delta:type_name -> order.v1.FillDeltaEntry
+	20, // 22: order.v1.OrderLifecycleEventEntry.order_state:type_name -> order.v1.OrderStateEntry
+	21, // 23: order.v1.OrderLifecycleEventEntry.occurred_at:type_name -> google.protobuf.Timestamp
+	21, // 24: order.v1.OrderLifecycleEventEntry.created_at:type_name -> google.protobuf.Timestamp
+	21, // 25: order.v1.FillDeltaEntry.trade_time:type_name -> google.protobuf.Timestamp
+	21, // 26: order.v1.OrderStateEntry.updated_at:type_name -> google.protobuf.Timestamp
+	0,  // 27: order.v1.OrderService.PlaceOrder:input_type -> order.v1.PlaceOrderRequest
+	4,  // 28: order.v1.OrderService.QueryOrderIntents:input_type -> order.v1.QueryOrderIntentsRequest
+	7,  // 29: order.v1.OrderService.QueryOrderAttempts:input_type -> order.v1.QueryOrderAttemptsRequest
+	9,  // 30: order.v1.OrderService.QueryOrders:input_type -> order.v1.QueryOrdersRequest
+	11, // 31: order.v1.OrderService.QueryOrderFills:input_type -> order.v1.QueryOrderFillsRequest
+	2,  // 32: order.v1.OrderService.ResolveOrderAttempt:input_type -> order.v1.ResolveOrderAttemptRequest
+	16, // 33: order.v1.OrderService.ListOrderLifecycleEvents:input_type -> order.v1.ListOrderLifecycleEventsRequest
+	1,  // 34: order.v1.OrderService.PlaceOrder:output_type -> order.v1.PlaceOrderResponse
+	5,  // 35: order.v1.OrderService.QueryOrderIntents:output_type -> order.v1.QueryOrderIntentsResponse
+	8,  // 36: order.v1.OrderService.QueryOrderAttempts:output_type -> order.v1.QueryOrderAttemptsResponse
+	10, // 37: order.v1.OrderService.QueryOrders:output_type -> order.v1.QueryOrdersResponse
+	12, // 38: order.v1.OrderService.QueryOrderFills:output_type -> order.v1.QueryOrderFillsResponse
+	3,  // 39: order.v1.OrderService.ResolveOrderAttempt:output_type -> order.v1.ResolveOrderAttemptResponse
+	17, // 40: order.v1.OrderService.ListOrderLifecycleEvents:output_type -> order.v1.ListOrderLifecycleEventsResponse
+	34, // [34:41] is the sub-list for method output_type
+	27, // [27:34] is the sub-list for method input_type
+	27, // [27:27] is the sub-list for extension type_name
+	27, // [27:27] is the sub-list for extension extendee
+	0,  // [0:27] is the sub-list for field type_name
 }
 
 func init() { file_order_service_proto_init() }

@@ -993,14 +993,33 @@ func TestQueryOrderAttempts_requiresUserID(t *testing.T) {
 
 func TestQueryOrderAttemptsAndOrdersAndFills(t *testing.T) {
 	svc, repo := newTestSvc(accountmeta.Meta{}, nil, executor.OrderResult{}, nil)
+	goodTillDate := time.Unix(1893456000, 0).UTC()
+	nextCheckAt := time.Unix(1893456060, 0).UTC()
+	recoveryDeadlineAt := time.Unix(1894665600, 0).UTC()
+	forceClosedAt := time.Unix(1894665660, 0).UTC()
 	repo.attempts = append(repo.attempts, repository.OrderAttempt{
 		AttemptID:       "a1",
 		IntentID:        "i1",
 		Status:          "RISK_REJECTED",
+		PostOnly:        true,
+		GoodTillDate:    &goodTillDate,
+		ReduceOnly:      true,
 		RiskStatus:      "REJECT",
 		RiskReasonsJSON: `[{"code":"ROUTE_PENDING_EXECUTION"}]`,
 	})
-	repo.orders = append(repo.orders, repository.Order{OrderID: "o1", IntentID: "i1", Status: "NEW"})
+	repo.orders = append(repo.orders, repository.Order{
+		OrderID:            "o1",
+		IntentID:           "i1",
+		Status:             "NEW",
+		PostOnly:           true,
+		GoodTillDate:       &goodTillDate,
+		ReduceOnly:         true,
+		RecoveryStatus:     "PARTIALLY_FILLED",
+		NextCheckAt:        &nextCheckAt,
+		RecoveryDeadlineAt: &recoveryDeadlineAt,
+		LastRecoveryError:  "trade fee pending",
+		ForceClosedAt:      &forceClosedAt,
+	})
 	repo.fills = append(repo.fills, repository.OrderFill{FillID: "f1", OrderID: "o1", IntentID: "i1"})
 
 	attemptsResp, err := svc.QueryOrderAttempts(context.Background(), &orderv1.QueryOrderAttemptsRequest{UserId: 1, Limit: 10})
@@ -1013,6 +1032,10 @@ func TestQueryOrderAttemptsAndOrdersAndFills(t *testing.T) {
 	if attemptsResp.GetAttempts()[0].GetRiskStatus() != "REJECT" || !strings.Contains(attemptsResp.GetAttempts()[0].GetRiskReasonsJson(), "ROUTE_PENDING_EXECUTION") {
 		t.Fatalf("attempt risk fields = %+v", attemptsResp.GetAttempts()[0])
 	}
+	attempt := attemptsResp.GetAttempts()[0]
+	if !attempt.GetPostOnly() || !attempt.GetReduceOnly() || attempt.GetGoodTillDate().AsTime().Unix() != goodTillDate.Unix() {
+		t.Fatalf("attempt order semantics = %+v, want post_only/reduce_only/good_till_date", attempt)
+	}
 
 	ordersResp, err := svc.QueryOrders(context.Background(), &orderv1.QueryOrdersRequest{UserId: 1, Limit: 10})
 	if err != nil {
@@ -1020,6 +1043,17 @@ func TestQueryOrderAttemptsAndOrdersAndFills(t *testing.T) {
 	}
 	if ordersResp.GetTotal() != 1 || len(ordersResp.GetOrders()) != 1 {
 		t.Fatalf("orders total/items = %d/%d", ordersResp.GetTotal(), len(ordersResp.GetOrders()))
+	}
+	order := ordersResp.GetOrders()[0]
+	if !order.GetPostOnly() || !order.GetReduceOnly() || order.GetGoodTillDate().AsTime().Unix() != goodTillDate.Unix() {
+		t.Fatalf("order semantics = %+v, want post_only/reduce_only/good_till_date", order)
+	}
+	if order.GetRecoveryStatus() != "PARTIALLY_FILLED" ||
+		order.GetNextCheckAt().AsTime().Unix() != nextCheckAt.Unix() ||
+		order.GetRecoveryDeadlineAt().AsTime().Unix() != recoveryDeadlineAt.Unix() ||
+		order.GetLastRecoveryError() != "trade fee pending" ||
+		order.GetForceClosedAt().AsTime().Unix() != forceClosedAt.Unix() {
+		t.Fatalf("order recovery fields = %+v", order)
 	}
 
 	fillsResp, err := svc.QueryOrderFills(context.Background(), &orderv1.QueryOrderFillsRequest{UserId: 1, Limit: 10})
@@ -1044,12 +1078,16 @@ func TestQueryOrderIntents_requiresUserID(t *testing.T) {
 
 func TestQueryOrderIntents_returnsItemsAndTotal(t *testing.T) {
 	svc, repo := newTestSvc(accountmeta.Meta{}, nil, executor.OrderResult{}, nil)
+	goodTillDate := time.Unix(1893456000, 0).UTC()
 	repo.intents = append(repo.intents,
 		repository.OrderIntent{
 			IntentID:      "i1",
 			Symbol:        "BTCUSDT",
 			Side:          "BUY",
 			RequestedQty:  1,
+			PostOnly:      true,
+			GoodTillDate:  &goodTillDate,
+			ReduceOnly:    true,
 			SessionID:     "sess-1",
 			Status:        "REJECTED",
 			RejectCode:    "ROUTE_PENDING_EXECUTION",
@@ -1066,6 +1104,9 @@ func TestQueryOrderIntents_returnsItemsAndTotal(t *testing.T) {
 	}
 	if resp.GetIntents()[0].GetStatus() != "REJECTED" || resp.GetIntents()[0].GetRejectCode() != "ROUTE_PENDING_EXECUTION" {
 		t.Fatalf("intent reject fields = %+v", resp.GetIntents()[0])
+	}
+	if !resp.GetIntents()[0].GetPostOnly() || !resp.GetIntents()[0].GetReduceOnly() || resp.GetIntents()[0].GetGoodTillDate().AsTime().Unix() != goodTillDate.Unix() {
+		t.Fatalf("intent order semantics = %+v, want post_only/reduce_only/good_till_date", resp.GetIntents()[0])
 	}
 }
 

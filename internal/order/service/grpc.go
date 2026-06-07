@@ -990,6 +990,9 @@ func toProtoIntent(item repository.OrderIntent) *orderv1.OrderIntentEntry {
 		Status:         item.Status,
 		RejectCode:     item.RejectCode,
 		RejectMessage:  item.RejectMessage,
+		PostOnly:       item.PostOnly,
+		GoodTillDate:   timestampPtrOrNil(item.GoodTillDate),
+		ReduceOnly:     item.ReduceOnly,
 	}
 }
 
@@ -1019,34 +1022,45 @@ func toProtoAttempt(item repository.OrderAttempt) *orderv1.OrderAttemptEntry {
 		PositionSide:    item.PositionSide,
 		RiskStatus:      item.RiskStatus,
 		RiskReasonsJson: item.RiskReasonsJSON,
+		PostOnly:        item.PostOnly,
+		GoodTillDate:    timestampPtrOrNil(item.GoodTillDate),
+		ReduceOnly:      item.ReduceOnly,
 	}
 }
 
 func toProtoOrder(item repository.Order) *orderv1.ExchangeOrderEntry {
 	return &orderv1.ExchangeOrderEntry{
-		Time:            timestamppb.New(item.Time),
-		OrderId:         item.OrderID,
-		ExchangeOrderId: item.ExchangeOrderID,
-		ClientOrderId:   item.ClientOrderID,
-		AttemptId:       item.AttemptID,
-		IntentId:        item.IntentID,
-		AccountId:       item.AccountID,
-		Symbol:          item.Symbol,
-		Side:            item.Side,
-		OrigQty:         item.OrigQty,
-		ExecutedQty:     item.ExecutedQty,
-		RemainingQty:    item.RemainingQty,
-		AvgPrice:        item.AvgPrice,
-		Status:          item.Status,
-		Environment:     item.Environment,
-		ErrorMessage:    item.ErrorMessage,
-		StrategyId:      item.StrategyID,
-		Market:          item.Market,
-		SessionId:       item.SessionID,
-		Price:           item.Price,
-		VenueId:         item.VenueID,
-		Exchange:        item.Exchange,
-		PositionSide:    item.PositionSide,
+		Time:               timestamppb.New(item.Time),
+		OrderId:            item.OrderID,
+		ExchangeOrderId:    item.ExchangeOrderID,
+		ClientOrderId:      item.ClientOrderID,
+		AttemptId:          item.AttemptID,
+		IntentId:           item.IntentID,
+		AccountId:          item.AccountID,
+		Symbol:             item.Symbol,
+		Side:               item.Side,
+		OrigQty:            item.OrigQty,
+		ExecutedQty:        item.ExecutedQty,
+		RemainingQty:       item.RemainingQty,
+		AvgPrice:           item.AvgPrice,
+		Status:             item.Status,
+		Environment:        item.Environment,
+		ErrorMessage:       item.ErrorMessage,
+		StrategyId:         item.StrategyID,
+		Market:             item.Market,
+		SessionId:          item.SessionID,
+		Price:              item.Price,
+		VenueId:            item.VenueID,
+		Exchange:           item.Exchange,
+		PositionSide:       item.PositionSide,
+		PostOnly:           item.PostOnly,
+		GoodTillDate:       timestampPtrOrNil(item.GoodTillDate),
+		ReduceOnly:         item.ReduceOnly,
+		RecoveryStatus:     item.RecoveryStatus,
+		NextCheckAt:        timestampPtrOrNil(item.NextCheckAt),
+		RecoveryDeadlineAt: timestampPtrOrNil(item.RecoveryDeadlineAt),
+		LastRecoveryError:  item.LastRecoveryError,
+		ForceClosedAt:      timestampPtrOrNil(item.ForceClosedAt),
 	}
 }
 
@@ -1127,6 +1141,13 @@ func timestampOrNil(value time.Time) *timestamppb.Timestamp {
 		return nil
 	}
 	return timestamppb.New(value)
+}
+
+func timestampPtrOrNil(value *time.Time) *timestamppb.Timestamp {
+	if value == nil {
+		return nil
+	}
+	return timestampOrNil(*value)
 }
 
 func marketTimeOrNow(value *timestamppb.Timestamp, fallback time.Time) time.Time {

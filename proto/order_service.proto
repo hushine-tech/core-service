@@ -110,6 +110,9 @@ message OrderIntentEntry {
   string status = 15;
   string reject_code = 16;
   string reject_message = 17;
+  bool post_only = 18;
+  google.protobuf.Timestamp good_till_date = 19;
+  bool reduce_only = 20;
 }
 
 message QueryOrderAttemptsRequest {
@@ -185,6 +188,9 @@ message OrderAttemptEntry {
   int32 position_side = 22;
   string risk_status = 23;
   string risk_reasons_json = 24;
+  bool post_only = 25;
+  google.protobuf.Timestamp good_till_date = 26;
+  bool reduce_only = 27;
 }
 
 message ExchangeOrderEntry {
@@ -211,6 +217,14 @@ message ExchangeOrderEntry {
   int64 venue_id = 21;
   int32 exchange = 22;
   int32 position_side = 23;
+  bool post_only = 24;
+  google.protobuf.Timestamp good_till_date = 25;
+  bool reduce_only = 26;
+  string recovery_status = 27;
+  google.protobuf.Timestamp next_check_at = 28;
+  google.protobuf.Timestamp recovery_deadline_at = 29;
+  string last_recovery_error = 30;
+  google.protobuf.Timestamp force_closed_at = 31;
 }
 
 message OrderFillEntry {

@@ -83,7 +83,14 @@ func ParseSpotUserDataOrderEvent(payload []byte) (UserDataOrderEvent, error) {
 	if strings.TrimSpace(raw.EventType) != "executionReport" {
 		return UserDataOrderEvent{}, fmt.Errorf("unsupported spot user data event type: %s", raw.EventType)
 	}
-	return normalizeSpotUserDataOrder(raw)
+	event, err := normalizeSpotUserDataOrder(raw)
+	if err != nil {
+		return UserDataOrderEvent{}, err
+	}
+	if err := validateUserDataOrderEvent(event); err != nil {
+		return UserDataOrderEvent{}, err
+	}
+	return event, nil
 }
 
 func ParseFuturesUserDataOrderEvent(payload []byte) (UserDataOrderEvent, error) {
@@ -94,7 +101,14 @@ func ParseFuturesUserDataOrderEvent(payload []byte) (UserDataOrderEvent, error) 
 	if strings.TrimSpace(raw.EventType) != "ORDER_TRADE_UPDATE" {
 		return UserDataOrderEvent{}, fmt.Errorf("unsupported futures user data event type: %s", raw.EventType)
 	}
-	return normalizeFuturesUserDataOrder(raw.EventTime, raw.Order)
+	event, err := normalizeFuturesUserDataOrder(raw.EventTime, raw.Order)
+	if err != nil {
+		return UserDataOrderEvent{}, err
+	}
+	if err := validateUserDataOrderEvent(event); err != nil {
+		return UserDataOrderEvent{}, err
+	}
+	return event, nil
 }
 
 func normalizeSpotUserDataOrder(raw spotUserDataOrderPayload) (UserDataOrderEvent, error) {
@@ -183,6 +197,13 @@ func parseUserDataFloat(raw, label string) (float64, error) {
 		return 0, fmt.Errorf("invalid %s: %q", label, raw)
 	}
 	return value, nil
+}
+
+func validateUserDataOrderEvent(event UserDataOrderEvent) error {
+	if event.TimeInForce == "FOK" && event.OrderStatus == "PARTIALLY_FILLED" {
+		return fmt.Errorf("invalid websocket order update: FOK order cannot be PARTIALLY_FILLED")
+	}
+	return nil
 }
 
 func normalizeUserDataText(value string) string {

@@ -287,3 +287,110 @@ func TestLaunchAsync_HappyPathPersistsRun(t *testing.T) {
 		t.Errorf("exchange snapshot not captured correctly: %+v", run.ExchangeSnapshot)
 	}
 }
+
+func TestLaunchAsync_PersistsVenueDiffsAndOverallPassIncludesVenueFailures(t *testing.T) {
+	repo := &fakeRepo{}
+	s := NewService(baseCfg(), repo)
+
+	localAccount := identicalSnapshot()
+	exchangeAccount := identicalSnapshot()
+	localVenue := domain.VenueWalletSnapshot{
+		VenueID:     88,
+		Exchange:    domain.ExchangeBinance,
+		Environment: domain.EnvironmentDemo,
+		Market:      domain.MarketPerpetualFutures,
+		Snapshot: domain.OnlineAccountInfo{
+			AccountID:   42,
+			Environment: domain.EnvironmentDemo,
+			Futures: domain.FuturesWallet{
+				WalletBalance: 900,
+			},
+		},
+	}
+	exchangeVenue := localVenue
+	exchangeVenue.Snapshot.Futures.WalletBalance = 1000
+
+	s.LaunchAsync(Task{
+		Account:        simpleAccount(),
+		Local:          localAccount,
+		Exchange:       exchangeAccount,
+		LocalVenues:    []domain.VenueWalletSnapshot{localVenue},
+		ExchangeVenues: []domain.VenueWalletSnapshot{exchangeVenue},
+		SessionID:      "sess-venue",
+		StrategyID:     11,
+		SnapshotReason: domain.SnapshotReasonOrderFill,
+		TriggerTime:    time.Now().UTC(),
+	})
+	waitForRuns(t, repo, 1, 500*time.Millisecond)
+
+	repo.mu.Lock()
+	run := repo.runs[0]
+	repo.mu.Unlock()
+
+	if run.SoftPass {
+		t.Fatalf("overall soft_pass must include venue-level soft failures: %+v", run)
+	}
+	if len(run.VenueDiffs) != 1 {
+		t.Fatalf("venue_diffs len = %d, want 1", len(run.VenueDiffs))
+	}
+	venueDiff := run.VenueDiffs[0]
+	if venueDiff.VenueID != 88 || venueDiff.Market != domain.MarketPerpetualFutures {
+		t.Fatalf("venue diff metadata = %+v, want venue 88 perpetual futures", venueDiff)
+	}
+	if venueDiff.SoftPass {
+		t.Fatalf("venue soft_pass = true, want false because wallet_balance differs")
+	}
+	if len(venueDiff.FieldDiffs) == 0 || venueDiff.FieldDiffs[0].Field != "futures.wallet_balance" {
+		t.Fatalf("venue field diffs = %+v, want futures.wallet_balance", venueDiff.FieldDiffs)
+	}
+	if len(run.FieldDiffs) != 0 {
+		t.Fatalf("account field diffs len = %d, want 0 because reconciliation is venue-only", len(run.FieldDiffs))
+	}
+	if len(run.AdvisoryDiffs) != 0 {
+		t.Fatalf("account advisory diffs len = %d, want 0 because reconciliation is venue-only", len(run.AdvisoryDiffs))
+	}
+}
+
+func TestLaunchAsync_AccountAggregateDiffDoesNotAffectVenueOnlyPass(t *testing.T) {
+	repo := &fakeRepo{}
+	s := NewService(baseCfg(), repo)
+
+	localAccount := identicalSnapshot()
+	localAccount.Futures.WalletBalance = 900
+	exchangeAccount := identicalSnapshot()
+	exchangeAccount.Futures.WalletBalance = 1000
+	venue := domain.VenueWalletSnapshot{
+		VenueID:     88,
+		Exchange:    domain.ExchangeBinance,
+		Environment: domain.EnvironmentDemo,
+		Market:      domain.MarketPerpetualFutures,
+		Snapshot:    identicalSnapshot(),
+	}
+
+	s.LaunchAsync(Task{
+		Account:        simpleAccount(),
+		Local:          localAccount,
+		Exchange:       exchangeAccount,
+		LocalVenues:    []domain.VenueWalletSnapshot{venue},
+		ExchangeVenues: []domain.VenueWalletSnapshot{venue},
+		SessionID:      "sess-account-aggregate",
+		StrategyID:     11,
+		SnapshotReason: domain.SnapshotReasonOrderFill,
+		TriggerTime:    time.Now().UTC(),
+	})
+	waitForRuns(t, repo, 1, 500*time.Millisecond)
+
+	repo.mu.Lock()
+	run := repo.runs[0]
+	repo.mu.Unlock()
+
+	if !run.HardPass || !run.SoftPass {
+		t.Fatalf("venue-only reconciliation should ignore account aggregate drift: %+v", run)
+	}
+	if len(run.FieldDiffs) != 0 || len(run.AdvisoryDiffs) != 0 {
+		t.Fatalf("account diffs = %d/%d, want both empty", len(run.FieldDiffs), len(run.AdvisoryDiffs))
+	}
+	if len(run.VenueDiffs) != 1 {
+		t.Fatalf("venue diffs len = %d, want 1", len(run.VenueDiffs))
+	}
+}

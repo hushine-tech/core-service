@@ -31,6 +31,8 @@ type Task struct {
 	Account        domain.Account
 	Local          domain.OnlineAccountInfo // strategy-computed canonical state
 	Exchange       domain.OnlineAccountInfo // exchange authoritative, already fetched by main flow
+	LocalVenues    []domain.VenueWalletSnapshot
+	ExchangeVenues []domain.VenueWalletSnapshot
 	SessionID      string
 	StrategyID     int64
 	SnapshotReason domain.SnapshotReason
@@ -111,17 +113,32 @@ func (s *Service) runIsolated(task Task) {
 	// soft-fail-ratio observation.
 	emitCounter(ctx, MetricRunsTotal, task.Account.AccountID, task.Account.UserID, string(runType), nil)
 
-	// Compute diff.
-	result := Compare(task.Local, task.Exchange, s.thresholds)
+	// Reconciliation is venue-scoped. Account snapshots are persisted as raw
+	// audit context, but account-level aggregate fields are not compared.
+	venueDiffs := CompareVenues(task.LocalVenues, task.ExchangeVenues, s.thresholds)
+	result := CompareResult{
+		FieldDiffs:    []domain.FieldDiff{},
+		AdvisoryDiffs: []domain.FieldDiff{},
+		HardPass:      true,
+		SoftPass:      true,
+	}
+	for _, venueDiff := range venueDiffs {
+		if !venueDiff.HardPass {
+			result.HardPass = false
+		}
+		if !venueDiff.SoftPass {
+			result.SoftPass = false
+		}
+	}
 
 	// Decide log level + DB-write policy by severity.
 	allPass := result.HardPass && result.SoftPass
 	summary := fmt.Sprintf(
-		"reconciliation account=%d user=%d session=%s reason=%d run_type=%s hard=%t soft=%t field_diffs=%d advisory=%d",
+		"reconciliation account=%d user=%d session=%s reason=%d run_type=%s hard=%t soft=%t field_diffs=%d advisory=%d venue_diffs=%d",
 		task.Account.AccountID, task.Account.UserID, task.SessionID,
 		task.SnapshotReason, runType,
 		result.HardPass, result.SoftPass,
-		len(result.FieldDiffs), len(result.AdvisoryDiffs),
+		len(result.FieldDiffs), len(result.AdvisoryDiffs), len(venueDiffs),
 	)
 	switch {
 	case !result.HardPass:
@@ -148,6 +165,7 @@ func (s *Service) runIsolated(task Task) {
 		RunType:          runType,
 		ExchangeSnapshot: task.Exchange,
 		LocalSnapshot:    task.Local,
+		VenueDiffs:       venueDiffs,
 		FieldDiffs:       result.FieldDiffs,
 		AdvisoryDiffs:    result.AdvisoryDiffs,
 		HardPass:         result.HardPass,
@@ -169,4 +187,68 @@ func (s *Service) runIsolated(task Task) {
 		))
 	}
 	_ = allPass // summary was already logged above; keep local for clarity
+}
+
+func CompareVenues(local, exchange []domain.VenueWalletSnapshot, t Thresholds) []domain.VenueReconciliationDiff {
+	if len(local) == 0 && len(exchange) == 0 {
+		return nil
+	}
+	localByVenue := make(map[int64]domain.VenueWalletSnapshot, len(local))
+	exchangeByVenue := make(map[int64]domain.VenueWalletSnapshot, len(exchange))
+	keys := make(map[int64]struct{}, len(local)+len(exchange))
+	for _, item := range local {
+		localByVenue[item.VenueID] = item
+		keys[item.VenueID] = struct{}{}
+	}
+	for _, item := range exchange {
+		exchangeByVenue[item.VenueID] = item
+		keys[item.VenueID] = struct{}{}
+	}
+
+	out := make([]domain.VenueReconciliationDiff, 0, len(keys))
+	for venueID := range keys {
+		localItem, hasLocal := localByVenue[venueID]
+		exchangeItem, hasExchange := exchangeByVenue[venueID]
+		meta := localItem
+		if !hasLocal {
+			meta = exchangeItem
+		}
+		diff := domain.VenueReconciliationDiff{
+			VenueID:     venueID,
+			Exchange:    meta.Exchange,
+			Environment: meta.Environment,
+			Market:      meta.Market,
+			HardPass:    true,
+			SoftPass:    true,
+		}
+		if hasLocal {
+			diff.LocalSnapshot = localItem.Snapshot
+		}
+		if hasExchange {
+			diff.ExchangeSnapshot = exchangeItem.Snapshot
+		}
+		if !hasLocal || !hasExchange {
+			diff.HardPass = false
+			diff.SoftPass = false
+			diff.FieldDiffs = append(diff.FieldDiffs, domain.FieldDiff{
+				Field:     "venue.exists",
+				Severity:  domain.FieldDiffHard,
+				Exchange:  boolToFloat(hasExchange),
+				Local:     boolToFloat(hasLocal),
+				DiffAbs:   1,
+				DiffRatio: 0,
+				Threshold: map[string]any{"rule": "exact_match_required"},
+				Passed:    false,
+			})
+			out = append(out, diff)
+			continue
+		}
+		result := Compare(localItem.Snapshot, exchangeItem.Snapshot, t)
+		diff.FieldDiffs = result.FieldDiffs
+		diff.AdvisoryDiffs = result.AdvisoryDiffs
+		diff.HardPass = result.HardPass
+		diff.SoftPass = result.SoftPass
+		out = append(out, diff)
+	}
+	return out
 }

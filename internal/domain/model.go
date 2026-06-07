@@ -458,6 +458,31 @@ type FieldDiff struct {
 	Passed    bool              `json:"passed"`              // true = within threshold
 }
 
+// VenueWalletSnapshot is the canonical wallet state for one bound venue.
+// Reconciliation compares these first, then compares the merged account view.
+type VenueWalletSnapshot struct {
+	VenueID     int64             `json:"venue_id"`
+	Exchange    Exchange          `json:"exchange"`
+	Environment Environment       `json:"environment"`
+	Market      Market            `json:"market"`
+	Snapshot    OnlineAccountInfo `json:"snapshot"`
+}
+
+// VenueReconciliationDiff is one venue-level compare result.
+// Written into reconciliation_runs.venue_diffs_json.
+type VenueReconciliationDiff struct {
+	VenueID          int64             `json:"venue_id"`
+	Exchange         Exchange          `json:"exchange"`
+	Environment      Environment       `json:"environment"`
+	Market           Market            `json:"market"`
+	ExchangeSnapshot OnlineAccountInfo `json:"exchange_snapshot"`
+	LocalSnapshot    OnlineAccountInfo `json:"local_snapshot"`
+	FieldDiffs       []FieldDiff       `json:"field_diffs"`
+	AdvisoryDiffs    []FieldDiff       `json:"advisory_diffs"`
+	HardPass         bool              `json:"hard_pass"`
+	SoftPass         bool              `json:"soft_pass"`
+}
+
 // ReconciliationRun is one compare execution — Phase C shadow-compare record.
 // Written by core-service's reconciliation goroutine (never by main flow).
 type ReconciliationRun struct {
@@ -472,8 +497,9 @@ type ReconciliationRun struct {
 	RunType          ReconciliationRunType
 	ExchangeSnapshot OnlineAccountInfo // canonical
 	LocalSnapshot    OnlineAccountInfo // canonical
-	FieldDiffs       []FieldDiff       // Hard + Soft tier diffs only
-	AdvisoryDiffs    []FieldDiff       // Advisory tier (not gated)
+	VenueDiffs       []VenueReconciliationDiff
+	FieldDiffs       []FieldDiff // Hard + Soft tier diffs only
+	AdvisoryDiffs    []FieldDiff // Advisory tier (not gated)
 	HardPass         bool
 	SoftPass         bool
 }

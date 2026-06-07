@@ -581,7 +581,7 @@ func (s *OrderGRPCService) publishOrderNotification(ctx context.Context, attempt
 		SessionID:     attempt.SessionID,
 		AttemptID:     attempt.AttemptID,
 		Title:         title,
-		Message:       orderNotificationMessage(attempt),
+		Message:       orderNotificationMessage(attempt, order),
 		DedupeKey:     fmt.Sprintf("order:%s:%s", attempt.AttemptID, eventType),
 		Metadata: map[string]string{
 			"attempt_id":      attempt.AttemptID,
@@ -591,6 +591,9 @@ func (s *OrderGRPCService) publishOrderNotification(ctx context.Context, attempt
 			"attempt_status":  attempt.Status,
 			"client_order_id": attempt.ClientOrderID,
 		},
+	}
+	if triggerTime := orderNotificationTriggerTime(attempt, order); !triggerTime.IsZero() {
+		event.Metadata["trigger_time"] = triggerTime.UTC().Format(time.RFC3339)
 	}
 	if order != nil {
 		event.OrderID = order.OrderID
@@ -622,12 +625,46 @@ func orderNotificationClass(status string) (eventType, severity, title string, o
 	}
 }
 
-func orderNotificationMessage(attempt repository.OrderAttempt) string {
+func orderNotificationMessage(attempt repository.OrderAttempt, order *repository.Order) string {
 	base := fmt.Sprintf("%s %s qty=%g status=%s", attempt.Side, attempt.Symbol, attempt.RequestedQty, attempt.Status)
 	if msg := strings.TrimSpace(nonEmpty(attempt.ErrorMessage, attempt.RecoveryError)); msg != "" {
-		return fmt.Sprintf("%s: %s", base, msg)
+		base = fmt.Sprintf("%s: %s", base, msg)
 	}
-	return base
+	return base + "\n" + orderNotificationDetails(attempt, order)
+}
+
+func orderNotificationDetails(attempt repository.OrderAttempt, order *repository.Order) string {
+	orderID := strings.TrimSpace(attempt.OrderID)
+	exchangeOrderID := strings.TrimSpace(attempt.ExchangeOrderID)
+	if order != nil {
+		orderID = nonEmpty(order.OrderID, orderID)
+		exchangeOrderID = nonEmpty(order.ExchangeOrderID, exchangeOrderID)
+	}
+	if orderID == "" {
+		orderID = "-"
+	}
+	if exchangeOrderID == "" {
+		exchangeOrderID = "-"
+	}
+	triggerTime := orderNotificationTriggerTime(attempt, order)
+	triggerText := "-"
+	if !triggerTime.IsZero() {
+		triggerText = triggerTime.UTC().Format(time.RFC3339)
+	}
+	return fmt.Sprintf(
+		"order_id=%s exchange_order_id=%s attempt_id=%s trigger_time=%s",
+		orderID,
+		exchangeOrderID,
+		attempt.AttemptID,
+		triggerText,
+	)
+}
+
+func orderNotificationTriggerTime(attempt repository.OrderAttempt, order *repository.Order) time.Time {
+	if order != nil && !order.Time.IsZero() {
+		return order.Time
+	}
+	return attempt.Time
 }
 
 func buildPersistedExecution(

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -72,6 +73,7 @@ func main() {
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+	var backgroundWG sync.WaitGroup
 
 	logger.Info(ctx, "system", "core-service starting")
 
@@ -152,22 +154,31 @@ func main() {
 		)
 		telegramSender = telegramClient
 	}
+	notificationDeliveryEnabled := cfg.Notification.Delivery.Enabled
 	notificationSvc := notification.NewService(repo, telegramSender, notification.Config{
 		BotUsername:      cfg.Notification.Telegram.BotUsername,
 		BindCodeTTL:      time.Duration(cfg.Notification.Telegram.BindCodeTTLSeconds) * time.Second,
 		SendTimeout:      time.Duration(cfg.Notification.Delivery.SendTimeoutSeconds) * time.Second,
 		CustomRateWindow: time.Minute,
+		DeliveryEnabled:  &notificationDeliveryEnabled,
 	}, time.Now)
 	if cfg.Notification.Enabled {
+		backgroundWG.Add(1)
 		go func() {
+			defer backgroundWG.Done()
 			if err := notification.RunKafkaConsumer(ctx, cfg.Notification.Kafka.Brokers, cfg.Notification.Kafka.GroupID, cfg.Notification.Kafka.Topic, notificationSvc); err != nil {
 				logger.Error(context.Background(), "system", fmt.Sprintf("notification kafka consumer stopped: %v", err))
 			}
 		}()
 		logger.Info(ctx, "system", fmt.Sprintf("notification kafka consumer enabled: topic=%s brokers=%v", cfg.Notification.Kafka.Topic, cfg.Notification.Kafka.Brokers))
+		if !cfg.Notification.Delivery.Enabled {
+			logger.Warn(ctx, "system", "notification delivery disabled: events will be consumed and marked disabled without sending Telegram messages")
+		}
 	}
 	if cfg.Notification.Telegram.Enabled && telegramClient != nil {
+		backgroundWG.Add(1)
 		go func() {
+			defer backgroundWG.Done()
 			interval := time.Duration(cfg.Notification.Telegram.PollIntervalSeconds) * time.Second
 			if err := notification.RunTelegramPolling(ctx, notificationSvc, telegramClient, interval); err != nil {
 				logger.Error(context.Background(), "system", fmt.Sprintf("telegram notification poller stopped: %v", err))
@@ -263,6 +274,9 @@ func main() {
 		grpcSrv.Stop()
 		<-grpcStopped
 	}
+	waitForBackgroundTasks(5*time.Second, backgroundWG.Wait, func() {
+		logger.Warn(context.Background(), "system", "background worker graceful shutdown timed out")
+	})
 
 	logger.Info(context.Background(), "system", "core-service stopped")
 }

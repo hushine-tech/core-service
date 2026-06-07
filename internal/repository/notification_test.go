@@ -47,18 +47,19 @@ func TestNotificationSettingsDefaultAndUpsert(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get default settings: %v", err)
 	}
-	if settings.UserID != user.ID || !settings.SystemEnabled || !settings.StrategyEnabled || !settings.CustomEnabled {
-		t.Fatalf("default settings = %+v, want all categories enabled for user", settings)
+	if settings.UserID != user.ID || !settings.Enabled || !settings.SystemEnabled || !settings.StrategyEnabled || !settings.CustomEnabled {
+		t.Fatalf("default settings = %+v, want global and all categories enabled for user", settings)
 	}
 
+	settings.Enabled = false
 	settings.SystemEnabled = false
 	settings.CustomEnabled = false
 	updated, err := repo.UpsertNotificationSettings(ctx, settings)
 	if err != nil {
 		t.Fatalf("upsert settings: %v", err)
 	}
-	if updated.SystemEnabled || !updated.StrategyEnabled || updated.CustomEnabled {
-		t.Fatalf("updated settings = %+v, want system/custom disabled and strategy enabled", updated)
+	if updated.Enabled || updated.SystemEnabled || !updated.StrategyEnabled || updated.CustomEnabled {
+		t.Fatalf("updated settings = %+v, want global/system/custom disabled and strategy enabled", updated)
 	}
 }
 

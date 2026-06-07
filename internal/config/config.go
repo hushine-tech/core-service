@@ -57,7 +57,8 @@ type NotificationTelegramConfig struct {
 }
 
 type NotificationDeliveryConfig struct {
-	SendTimeoutSeconds int `yaml:"send_timeout_seconds"`
+	Enabled            bool `yaml:"enabled"`
+	SendTimeoutSeconds int  `yaml:"send_timeout_seconds"`
 }
 
 type CredentialConfig struct {
@@ -203,6 +204,7 @@ func Default() *Config {
 				PollIntervalSeconds: 2,
 			},
 			Delivery: NotificationDeliveryConfig{
+				Enabled:            true,
 				SendTimeoutSeconds: 5,
 			},
 		},
@@ -355,6 +357,9 @@ func (c *Config) ApplyEnvOverrides() {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			c.Notification.Delivery.SendTimeoutSeconds = n
 		}
+	}
+	if v := os.Getenv("NOTIFICATION_DELIVERY_ENABLED"); v != "" {
+		c.Notification.Delivery.Enabled = parseBool(v)
 	}
 }
 

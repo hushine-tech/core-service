@@ -57,6 +57,11 @@ func (h *consumerHandler) ConsumeClaim(session sarama.ConsumerGroupSession, clai
 			_ = h.svc.DeliverEvent(session.Context(), event)
 		}
 		session.MarkMessage(msg, "")
+		// Notification delivery has external side effects. Commit the offset
+		// immediately after each message instead of waiting for Sarama's
+		// auto-commit tick, so normal service restarts do not replay a burst of
+		// already-sent Telegram messages.
+		session.Commit()
 	}
 	return nil
 }

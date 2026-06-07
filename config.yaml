@@ -66,6 +66,7 @@ notification:
     bind_code_ttl_seconds: 600
     poll_interval_seconds: 2
   delivery:
+    enabled: true           # set false / NOTIFICATION_DELIVERY_ENABLED=false to consume+drop without sending
     send_timeout_seconds: 5
 
 log:

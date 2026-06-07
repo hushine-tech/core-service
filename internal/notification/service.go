@@ -34,6 +34,7 @@ type Config struct {
 	BindCodeTTL      time.Duration
 	SendTimeout      time.Duration
 	CustomRateWindow time.Duration
+	DeliveryEnabled  *bool
 }
 
 type Service struct {
@@ -79,6 +80,10 @@ func (s *Service) DeliverEvent(ctx context.Context, event Event) error {
 			_ = s.repo.UpdateNotificationDeliveryStatus(ctx, event.UserID, domain.NotificationChannelTelegram, domain.NotificationDeliveryInvalidEvent, "invalid notification event", s.now())
 		}
 		return err
+	}
+	if !s.deliveryEnabled() {
+		_ = s.repo.UpdateNotificationDeliveryStatus(ctx, event.UserID, domain.NotificationChannelTelegram, domain.NotificationDeliveryDisabled, "notification delivery disabled", s.now())
+		return nil
 	}
 	user, err := s.repo.GetUser(ctx, event.UserID)
 	if err != nil {
@@ -126,9 +131,19 @@ func (s *Service) DeliverEvent(ctx context.Context, event Event) error {
 	return s.repo.UpdateNotificationDeliveryStatus(ctx, event.UserID, domain.NotificationChannelTelegram, domain.NotificationDeliveryOK, "", s.now())
 }
 
+func (s *Service) deliveryEnabled() bool {
+	if s == nil || s.cfg.DeliveryEnabled == nil {
+		return true
+	}
+	return *s.cfg.DeliveryEnabled
+}
+
 func (s *Service) blockedStatus(event Event, settings domain.NotificationSettings, plan domain.NotificationPlan, channel domain.NotificationChannel) (string, bool) {
 	if !plan.NotificationEnabled {
 		return domain.NotificationDeliveryPlanDisabled, false
+	}
+	if !settings.Enabled {
+		return domain.NotificationDeliveryDisabled, false
 	}
 	switch event.Category {
 	case CategorySystem:

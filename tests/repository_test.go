@@ -204,7 +204,7 @@ func (m *mockRepo) BindVenue(_ context.Context, userID, accountID, venueID int64
 		return domain.Venue{}, errNotFound
 	}
 	for _, session := range m.sessions {
-		if session.UserID == userID && session.AccountID == accountID && (session.Status == "running" || session.Status == "stopping" || session.Status == "recoverable") {
+		if session.UserID == userID && session.AccountID == accountID && (session.Status == "running" || session.Status == "stopping") {
 			return domain.Venue{}, repository.ErrConflict
 		}
 	}
@@ -230,7 +230,7 @@ func (m *mockRepo) ReleaseVenue(_ context.Context, userID, venueID int64, _ stri
 	}
 	if venue.AccountID != nil {
 		for _, session := range m.sessions {
-			if session.UserID == userID && session.AccountID == *venue.AccountID && (session.Status == "running" || session.Status == "stopping" || session.Status == "recoverable") {
+				if session.UserID == userID && session.AccountID == *venue.AccountID && (session.Status == "running" || session.Status == "stopping") {
 				return domain.Venue{}, repository.ErrConflict
 			}
 		}
@@ -248,7 +248,7 @@ func (m *mockRepo) ArchiveVenue(_ context.Context, userID, venueID int64, reason
 	}
 	if venue.AccountID != nil {
 		for _, session := range m.sessions {
-			if session.UserID == userID && session.AccountID == *venue.AccountID && (session.Status == "running" || session.Status == "stopping" || session.Status == "recoverable") {
+				if session.UserID == userID && session.AccountID == *venue.AccountID && (session.Status == "running" || session.Status == "stopping") {
 				return repository.ErrConflict
 			}
 		}
@@ -274,7 +274,7 @@ func (m *mockRepo) ListActiveAccountVenues(_ context.Context, userID, accountID 
 func (m *mockRepo) CountActiveSessionsForAccount(_ context.Context, userID, accountID int64) (int64, error) {
 	var count int64
 	for _, session := range m.sessions {
-		if session.UserID == userID && session.AccountID == accountID && (session.Status == "running" || session.Status == "stopping" || session.Status == "recoverable") {
+		if session.UserID == userID && session.AccountID == accountID && (session.Status == "running" || session.Status == "stopping") {
 			count++
 		}
 	}
@@ -716,7 +716,7 @@ func (m *mockRepo) GetNotificationSettings(_ context.Context, userID int64) (dom
 	if s, ok := m.notificationSettings[userID]; ok {
 		return s, nil
 	}
-	return domain.NotificationSettings{UserID: userID, SystemEnabled: true, StrategyEnabled: true, CustomEnabled: true}, nil
+	return domain.NotificationSettings{UserID: userID, Enabled: true, SystemEnabled: true, StrategyEnabled: true, CustomEnabled: true}, nil
 }
 
 func (m *mockRepo) UpsertNotificationSettings(_ context.Context, settings domain.NotificationSettings) (domain.NotificationSettings, error) {

@@ -3,12 +3,15 @@ package service
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/hushine-tech/core-service/gen/orderv1"
 	"github.com/hushine-tech/core-service/internal/order/accountmeta"
 	"github.com/hushine-tech/core-service/internal/order/executor"
 	ordernotify "github.com/hushine-tech/core-service/internal/order/notification"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type recordingNotificationPublisher struct {
@@ -61,6 +64,7 @@ func TestPlaceOrderPublishesSucceededNotification(t *testing.T) {
 	req.StrategyId = 9
 	req.SessionId = "sess-1"
 	req.IntentId = "intent-1"
+	req.MarketTime = timestamppb.New(time.Date(2026, 6, 3, 15, 44, 0, 0, time.UTC))
 	resp, err := svc.PlaceOrder(context.Background(), req)
 	if err != nil {
 		t.Fatalf("PlaceOrder: %v", err)
@@ -80,6 +84,16 @@ func TestPlaceOrderPublishesSucceededNotification(t *testing.T) {
 		event.EventType != ordernotify.EventOrderAccepted ||
 		event.Severity != ordernotify.SeverityInfo {
 		t.Fatalf("event = %+v", event)
+	}
+	for _, want := range []string{
+		"order_id=" + event.OrderID,
+		"exchange_order_id=ex-1",
+		"attempt_id=" + event.AttemptID,
+		"trigger_time=2026-06-03T15:44:00Z",
+	} {
+		if !strings.Contains(event.Message, want) {
+			t.Fatalf("message %q does not include %q", event.Message, want)
+		}
 	}
 }
 

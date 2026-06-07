@@ -1,0 +1,2 @@
+ALTER TABLE notification_settings
+    ADD COLUMN IF NOT EXISTS enabled BOOLEAN NOT NULL DEFAULT TRUE;

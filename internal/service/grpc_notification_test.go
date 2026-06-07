@@ -26,7 +26,7 @@ func TestGetNotificationSettings(t *testing.T) {
 		users: map[string]domain.User{
 			"alice": {ID: 7, Username: "alice", PlanCode: "pro", CreatedAt: time.Now().UTC()},
 		},
-		notificationSettings: domain.NotificationSettings{UserID: 7, SystemEnabled: true, StrategyEnabled: false, CustomEnabled: true},
+		notificationSettings: domain.NotificationSettings{UserID: 7, Enabled: true, SystemEnabled: true, StrategyEnabled: false, CustomEnabled: true},
 		notificationChannel:  domain.NotificationChannel{UserID: 7, Channel: domain.NotificationChannelTelegram, Status: domain.NotificationChannelStatusBound, TargetLabel: "@alice"},
 		notificationPlan:     domain.NotificationPlan{PlanCode: "pro", NotificationEnabled: true, AllowSystem: true, AllowStrategy: true, AllowCustom: true, CustomRateLimitPerMinute: 30},
 	}
@@ -57,7 +57,7 @@ func TestSendTestNotificationUsesNotifier(t *testing.T) {
 		users: map[string]domain.User{
 			"alice": {ID: 7, Username: "alice", PlanCode: "pro", CreatedAt: time.Now().UTC()},
 		},
-		notificationSettings: domain.NotificationSettings{UserID: 7, SystemEnabled: true, StrategyEnabled: true, CustomEnabled: true},
+		notificationSettings: domain.NotificationSettings{UserID: 7, Enabled: true, SystemEnabled: true, StrategyEnabled: true, CustomEnabled: true},
 		notificationChannel:  domain.NotificationChannel{UserID: 7, Channel: domain.NotificationChannelTelegram, Status: domain.NotificationChannelStatusBound, TargetID: "chat-1"},
 		notificationPlan:     domain.NotificationPlan{PlanCode: "pro", NotificationEnabled: true, AllowSystem: true, AllowStrategy: true, AllowCustom: true, CustomRateLimitPerMinute: 30},
 	}

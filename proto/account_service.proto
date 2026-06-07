@@ -46,6 +46,11 @@ service AccountService {
   // accounts read from active venues; backtest accounts read local state.
   rpc UpdatePortfolioSnapshot(UpdatePortfolioSnapshotRequest) returns (UpdatePortfolioSnapshotResponse);
 
+  // Push strategy-computed wallet state for snapshot/audit sync.
+  // Backtest accounts persist it as authoritative local state; exchange-backed
+  // accounts use it as the local side of reconciliation.
+  rpc UpdateAccountWalletState(UpdateAccountWalletStateRequest) returns (UpdateAccountWalletStateResponse);
+
   // Cached tradable symbols for portal pickers (Binance public exchangeInfo). market: "spot" | "usdm_futures".
   rpc ListSymbols(ListSymbolsRequest) returns (ListSymbolsResponse);
 
@@ -422,6 +427,26 @@ message UpdatePortfolioSnapshotRequest {
 
 message UpdatePortfolioSnapshotResponse {
   PortfolioSnapshot snapshot = 1;
+}
+
+message UpdateAccountWalletStateRequest {
+  int64 account_id = 1;
+  reserved 2;
+  FuturesWallet futures = 3;
+  SpotWallet spot = 4;
+  double total_value = 5;
+  double wallet_balance = 6;
+  double available_balance = 7;
+  int32 snapshot_reason = 8;
+  int64 strategy_id = 9;
+  string session_id = 10;
+  // 回测/行情事件时间；为空时快照使用服务端处理时间。
+  google.protobuf.Timestamp snapshot_time = 11;
+  int64 user_id = 100;
+}
+
+message UpdateAccountWalletStateResponse {
+  AccountWalletState wallet = 1;
 }
 
 message PortfolioSnapshot {
@@ -905,6 +930,7 @@ message ReconciliationRunEntry {
   repeated FieldDiffEntry advisory_diffs = 12;
   string local_snapshot_json = 13;
   string exchange_snapshot_json = 14;
+  string venue_diffs_json = 15;
 }
 
 message FieldDiffEntry {
@@ -934,6 +960,7 @@ message NotificationPreferences {
   bool system_enabled = 1;
   bool strategy_enabled = 2;
   bool custom_enabled = 3;
+  optional bool enabled = 4;
 }
 
 message NotificationChannel {

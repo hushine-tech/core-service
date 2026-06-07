@@ -16,6 +16,7 @@ func TestNotificationDefaultsAndEnvOverrides(t *testing.T) {
 	t.Setenv("TELEGRAM_BOT_TOKEN", "token-123")
 	t.Setenv("TELEGRAM_BOT_USERNAME", "hushine_bot")
 	t.Setenv("NOTIFICATION_BIND_CODE_TTL_SECONDS", "120")
+	t.Setenv("NOTIFICATION_DELIVERY_ENABLED", "false")
 	cfg.ApplyEnvOverrides()
 
 	if !cfg.Notification.Enabled {
@@ -29,6 +30,9 @@ func TestNotificationDefaultsAndEnvOverrides(t *testing.T) {
 	}
 	if cfg.Notification.Telegram.BindCodeTTLSeconds != 120 {
 		t.Fatalf("bind ttl = %d, want 120", cfg.Notification.Telegram.BindCodeTTLSeconds)
+	}
+	if cfg.Notification.Delivery.Enabled {
+		t.Fatalf("delivery enabled = true, want false from env override")
 	}
 }
 

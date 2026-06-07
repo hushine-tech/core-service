@@ -451,7 +451,7 @@ func (s *stubRepo) SaveReconciliationRun(_ context.Context, _ domain.Reconciliat
 }
 func (s *stubRepo) GetNotificationSettings(_ context.Context, userID int64) (domain.NotificationSettings, error) {
 	if s.notificationSettings.UserID == 0 {
-		return domain.NotificationSettings{UserID: userID, SystemEnabled: true, StrategyEnabled: true, CustomEnabled: true}, nil
+		return domain.NotificationSettings{UserID: userID, Enabled: true, SystemEnabled: true, StrategyEnabled: true, CustomEnabled: true}, nil
 	}
 	return s.notificationSettings, nil
 }

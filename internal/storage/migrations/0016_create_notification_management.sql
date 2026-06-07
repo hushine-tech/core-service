@@ -1,5 +1,6 @@
 CREATE TABLE IF NOT EXISTS notification_settings (
     user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
     system_enabled BOOLEAN NOT NULL DEFAULT TRUE,
     strategy_enabled BOOLEAN NOT NULL DEFAULT TRUE,
     custom_enabled BOOLEAN NOT NULL DEFAULT TRUE,

@@ -36,6 +36,7 @@ const (
 	AccountService_GetVenueRouteMeta_FullMethodName               = "/account.v1.AccountService/GetVenueRouteMeta"
 	AccountService_GetPortfolioSnapshot_FullMethodName            = "/account.v1.AccountService/GetPortfolioSnapshot"
 	AccountService_UpdatePortfolioSnapshot_FullMethodName         = "/account.v1.AccountService/UpdatePortfolioSnapshot"
+	AccountService_UpdateAccountWalletState_FullMethodName        = "/account.v1.AccountService/UpdateAccountWalletState"
 	AccountService_ListSymbols_FullMethodName                     = "/account.v1.AccountService/ListSymbols"
 	AccountService_GetAccountMeta_FullMethodName                  = "/account.v1.AccountService/GetAccountMeta"
 	AccountService_CreateStrategy_FullMethodName                  = "/account.v1.AccountService/CreateStrategy"
@@ -101,6 +102,10 @@ type AccountServiceClient interface {
 	// Refresh and persist the current portfolio snapshot. Exchange-backed
 	// accounts read from active venues; backtest accounts read local state.
 	UpdatePortfolioSnapshot(ctx context.Context, in *UpdatePortfolioSnapshotRequest, opts ...grpc.CallOption) (*UpdatePortfolioSnapshotResponse, error)
+	// Push strategy-computed wallet state for snapshot/audit sync.
+	// Backtest accounts persist it as authoritative local state; exchange-backed
+	// accounts use it as the local side of reconciliation.
+	UpdateAccountWalletState(ctx context.Context, in *UpdateAccountWalletStateRequest, opts ...grpc.CallOption) (*UpdateAccountWalletStateResponse, error)
 	// Cached tradable symbols for portal pickers (Binance public exchangeInfo). market: "spot" | "usdm_futures".
 	ListSymbols(ctx context.Context, in *ListSymbolsRequest, opts ...grpc.CallOption) (*ListSymbolsResponse, error)
 	// Internal RPC: returns full account config including API credentials.
@@ -331,6 +336,16 @@ func (c *accountServiceClient) UpdatePortfolioSnapshot(ctx context.Context, in *
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(UpdatePortfolioSnapshotResponse)
 	err := c.cc.Invoke(ctx, AccountService_UpdatePortfolioSnapshot_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *accountServiceClient) UpdateAccountWalletState(ctx context.Context, in *UpdateAccountWalletStateRequest, opts ...grpc.CallOption) (*UpdateAccountWalletStateResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UpdateAccountWalletStateResponse)
+	err := c.cc.Invoke(ctx, AccountService_UpdateAccountWalletState_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -643,6 +658,10 @@ type AccountServiceServer interface {
 	// Refresh and persist the current portfolio snapshot. Exchange-backed
 	// accounts read from active venues; backtest accounts read local state.
 	UpdatePortfolioSnapshot(context.Context, *UpdatePortfolioSnapshotRequest) (*UpdatePortfolioSnapshotResponse, error)
+	// Push strategy-computed wallet state for snapshot/audit sync.
+	// Backtest accounts persist it as authoritative local state; exchange-backed
+	// accounts use it as the local side of reconciliation.
+	UpdateAccountWalletState(context.Context, *UpdateAccountWalletStateRequest) (*UpdateAccountWalletStateResponse, error)
 	// Cached tradable symbols for portal pickers (Binance public exchangeInfo). market: "spot" | "usdm_futures".
 	ListSymbols(context.Context, *ListSymbolsRequest) (*ListSymbolsResponse, error)
 	// Internal RPC: returns full account config including API credentials.
@@ -759,6 +778,9 @@ func (UnimplementedAccountServiceServer) GetPortfolioSnapshot(context.Context, *
 }
 func (UnimplementedAccountServiceServer) UpdatePortfolioSnapshot(context.Context, *UpdatePortfolioSnapshotRequest) (*UpdatePortfolioSnapshotResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method UpdatePortfolioSnapshot not implemented")
+}
+func (UnimplementedAccountServiceServer) UpdateAccountWalletState(context.Context, *UpdateAccountWalletStateRequest) (*UpdateAccountWalletStateResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method UpdateAccountWalletState not implemented")
 }
 func (UnimplementedAccountServiceServer) ListSymbols(context.Context, *ListSymbolsRequest) (*ListSymbolsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListSymbols not implemented")
@@ -1164,6 +1186,24 @@ func _AccountService_UpdatePortfolioSnapshot_Handler(srv interface{}, ctx contex
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(AccountServiceServer).UpdatePortfolioSnapshot(ctx, req.(*UpdatePortfolioSnapshotRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AccountService_UpdateAccountWalletState_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateAccountWalletStateRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AccountServiceServer).UpdateAccountWalletState(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AccountService_UpdateAccountWalletState_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AccountServiceServer).UpdateAccountWalletState(ctx, req.(*UpdateAccountWalletStateRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1728,6 +1768,10 @@ var AccountService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "UpdatePortfolioSnapshot",
 			Handler:    _AccountService_UpdatePortfolioSnapshot_Handler,
+		},
+		{
+			MethodName: "UpdateAccountWalletState",
+			Handler:    _AccountService_UpdateAccountWalletState_Handler,
 		},
 		{
 			MethodName: "ListSymbols",

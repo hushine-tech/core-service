@@ -100,7 +100,7 @@ func TestParseEventRejectsInvalidSchemaAndMissingUser(t *testing.T) {
 func TestServiceDeliverEventSendsBoundAllowedTelegram(t *testing.T) {
 	repo := &fakeRepo{
 		user:     domain.User{ID: 42, PlanCode: "pro"},
-		settings: domain.NotificationSettings{UserID: 42, SystemEnabled: true, StrategyEnabled: true, CustomEnabled: true},
+		settings: domain.NotificationSettings{UserID: 42, Enabled: true, SystemEnabled: true, StrategyEnabled: true, CustomEnabled: true},
 		channel:  domain.NotificationChannel{UserID: 42, Channel: domain.NotificationChannelTelegram, Status: domain.NotificationChannelStatusBound, TargetID: "chat-1"},
 		plan:     domain.NotificationPlan{PlanCode: "pro", NotificationEnabled: true, AllowSystem: true, AllowStrategy: true, AllowCustom: true},
 	}
@@ -126,10 +126,73 @@ func TestServiceDeliverEventSendsBoundAllowedTelegram(t *testing.T) {
 	}
 }
 
+func TestServiceDeliverEventSkipsSendWhenDeliveryDisabled(t *testing.T) {
+	repo := &fakeRepo{}
+	sender := &fakeSender{}
+	enabled := false
+	svc := NewService(repo, sender, Config{
+		BotUsername:     "hushine_bot",
+		DeliveryEnabled: &enabled,
+	}, func() time.Time { return time.Unix(100, 0).UTC() })
+
+	err := svc.DeliverEvent(context.Background(), Event{
+		SchemaVersion: 1,
+		UserID:        42,
+		Category:      CategoryStrategy,
+		EventType:     EventOrderAccepted,
+		Severity:      SeverityInfo,
+		Message:       "Order accepted",
+	})
+	if err != nil {
+		t.Fatalf("deliver event: %v", err)
+	}
+	if len(sender.sent) != 0 {
+		t.Fatalf("sent = %#v, want no message while delivery disabled", sender.sent)
+	}
+	if repo.status != domain.NotificationDeliveryDisabled {
+		t.Fatalf("status = %q, want disabled", repo.status)
+	}
+}
+
+func TestServiceDeliverEventSkipsSendWhenUserDisabled(t *testing.T) {
+	repo := &fakeRepo{
+		user: domain.User{ID: 42, PlanCode: "pro"},
+		settings: domain.NotificationSettings{
+			UserID:          42,
+			Enabled:         false,
+			SystemEnabled:   true,
+			StrategyEnabled: true,
+			CustomEnabled:   true,
+		},
+		channel: domain.NotificationChannel{UserID: 42, Channel: domain.NotificationChannelTelegram, Status: domain.NotificationChannelStatusBound, TargetID: "chat-1"},
+		plan:    domain.NotificationPlan{PlanCode: "pro", NotificationEnabled: true, AllowSystem: true, AllowStrategy: true, AllowCustom: true},
+	}
+	sender := &fakeSender{}
+	svc := NewService(repo, sender, Config{BotUsername: "hushine_bot"}, func() time.Time { return time.Unix(100, 0).UTC() })
+
+	err := svc.DeliverEvent(context.Background(), Event{
+		SchemaVersion: 1,
+		UserID:        42,
+		Category:      CategoryStrategy,
+		EventType:     EventOrderAccepted,
+		Severity:      SeverityInfo,
+		Message:       "Order accepted",
+	})
+	if err != nil {
+		t.Fatalf("deliver event: %v", err)
+	}
+	if len(sender.sent) != 0 {
+		t.Fatalf("sent = %#v, want no message while user notifications disabled", sender.sent)
+	}
+	if repo.status != domain.NotificationDeliveryDisabled {
+		t.Fatalf("status = %q, want disabled", repo.status)
+	}
+}
+
 func TestServiceDeliverEventRecordsDisabledWithoutSending(t *testing.T) {
 	repo := &fakeRepo{
 		user:     domain.User{ID: 42, PlanCode: "developer"},
-		settings: domain.NotificationSettings{UserID: 42, SystemEnabled: true, StrategyEnabled: true, CustomEnabled: false},
+		settings: domain.NotificationSettings{UserID: 42, Enabled: true, SystemEnabled: true, StrategyEnabled: true, CustomEnabled: false},
 		channel:  domain.NotificationChannel{UserID: 42, Channel: domain.NotificationChannelTelegram, Status: domain.NotificationChannelStatusBound, TargetID: "chat-1"},
 		plan:     domain.NotificationPlan{PlanCode: "developer", NotificationEnabled: true, AllowSystem: true, AllowStrategy: true, AllowCustom: false},
 	}
@@ -158,7 +221,7 @@ func TestServiceDeliverEventRecordsDisabledWithoutSending(t *testing.T) {
 func TestServiceDeliverEventRecordsTelegramFailureWithoutReturningError(t *testing.T) {
 	repo := &fakeRepo{
 		user:     domain.User{ID: 42, PlanCode: "pro"},
-		settings: domain.NotificationSettings{UserID: 42, SystemEnabled: true, StrategyEnabled: true, CustomEnabled: true},
+		settings: domain.NotificationSettings{UserID: 42, Enabled: true, SystemEnabled: true, StrategyEnabled: true, CustomEnabled: true},
 		channel:  domain.NotificationChannel{UserID: 42, Channel: domain.NotificationChannelTelegram, Status: domain.NotificationChannelStatusBound, TargetID: "chat-1"},
 		plan:     domain.NotificationPlan{PlanCode: "pro", NotificationEnabled: true, AllowSystem: true, AllowStrategy: true, AllowCustom: true},
 	}

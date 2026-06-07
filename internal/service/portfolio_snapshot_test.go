@@ -4,13 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/hushine-tech/core-service/gen/accountv1"
+	"github.com/hushine-tech/core-service/internal/config"
 	"github.com/hushine-tech/core-service/internal/credential"
 	"github.com/hushine-tech/core-service/internal/domain"
 	"github.com/hushine-tech/core-service/internal/exchange/adapter"
+	"github.com/hushine-tech/core-service/internal/reconciliation"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -81,6 +84,47 @@ func (r *snapshotReader) ReadPortfolioSnapshot(_ context.Context, req adapter.Po
 	r.resp.AccountID = req.AccountID
 	r.resp.VenueID = req.VenueID
 	return r.resp, nil
+}
+
+type reconciliationCaptureRepo struct {
+	*sessionStubRepo
+	mu   sync.Mutex
+	runs []domain.ReconciliationRun
+}
+
+func (r *reconciliationCaptureRepo) SaveReconciliationRun(_ context.Context, run domain.ReconciliationRun) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.runs = append(r.runs, run)
+	return nil
+}
+
+func (r *reconciliationCaptureRepo) reconciliationRuns() []domain.ReconciliationRun {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]domain.ReconciliationRun(nil), r.runs...)
+}
+
+func waitForCapturedReconciliationRuns(t *testing.T, repo *reconciliationCaptureRepo, want int) []domain.ReconciliationRun {
+	t.Helper()
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		runs := repo.reconciliationRuns()
+		if len(runs) >= want {
+			return runs
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	runs := repo.reconciliationRuns()
+	t.Fatalf("timed out waiting for %d reconciliation runs; got %d", want, len(runs))
+	return nil
+}
+
+func enabledReconciler(repo *reconciliationCaptureRepo) *reconciliation.Service {
+	cfg := config.DefaultReconciliationConfig()
+	cfg.Enabled = true
+	cfg.GoroutineTimeoutSeconds = 1
+	return reconciliation.NewService(cfg, repo)
 }
 
 func TestGetPortfolioSnapshotReturnsVenueArray(t *testing.T) {
@@ -505,5 +549,216 @@ func TestUpdatePortfolioSnapshotReadsVenueThroughRegistry(t *testing.T) {
 	}
 	if repo.state.TotalValue != 1200 || resp.GetSnapshot().GetTotalValue() != 1200 {
 		t.Fatalf("state=%+v snapshot=%+v, want total value persisted", repo.state, resp.GetSnapshot())
+	}
+}
+
+func TestUpdateAccountWalletStateDemoLaunchesReconciliation(t *testing.T) {
+	accountID := int64(15)
+	venueID := int64(88)
+	sessionID := "sess-demo-reconcile"
+	mgr := testPortfolioCredentialManager(t)
+	encrypted, err := mgr.Encrypt(`{"api_secret":"s1"}`)
+	if err != nil {
+		t.Fatalf("Encrypt: %v", err)
+	}
+	reader := &snapshotReader{resp: adapter.PortfolioSnapshot{
+		Exchange:         domain.ExchangeBinance,
+		Environment:      domain.EnvironmentDemo,
+		Market:           domain.MarketPerpetualFutures,
+		TotalValue:       1300,
+		WalletBalance:    1200,
+		AvailableBalance: 1100,
+		OnlineInfo: &domain.OnlineAccountInfo{
+			Environment:      domain.EnvironmentDemo,
+			TotalValue:       1300,
+			WalletBalance:    1200,
+			AvailableBalance: 1100,
+			Futures: domain.FuturesWallet{
+				MarginMode:       "cross",
+				PositionMode:     "one_way",
+				WalletBalance:    1200,
+				AvailableBalance: 1100,
+				MarginBalance:    1300,
+				Positions: []domain.FuturesPosition{{
+					Symbol:       "ZECUSDT",
+					PositionSide: "BOTH",
+					PositionQty:  0.1,
+					Qty:          0.1,
+					EntryPrice:   360,
+					MarkPrice:    361,
+					MarginMode:   "cross",
+					MarginType:   "cross",
+				}},
+			},
+		},
+	}}
+	registry := adapter.NewRegistry()
+	registry.Register(adapter.Route{Exchange: domain.ExchangeBinance, Environment: domain.EnvironmentDemo, Market: domain.MarketPerpetualFutures}, snapshotFactory{reader: reader})
+	baseRepo := newSessionStubRepo()
+	baseRepo.account = domain.Account{AccountID: accountID, UserID: serviceTestUserID, Environment: domain.EnvironmentDemo}
+	baseRepo.venues = []domain.Venue{{
+		VenueID:        venueID,
+		UserID:         serviceTestUserID,
+		AccountID:      &accountID,
+		Exchange:       domain.ExchangeBinance,
+		Environment:    domain.EnvironmentDemo,
+		Market:         domain.MarketPerpetualFutures,
+		Status:         domain.VenueStatusActive,
+		APIKey:         "k1",
+		CredentialInfo: encrypted,
+		MarginMode:     domain.MarginModeCross,
+		PositionMode:   domain.PositionModeOneWay,
+	}}
+	baseRepo.sessions[sessionID] = domain.StrategySession{
+		SessionID:  sessionID,
+		AccountID:  accountID,
+		UserID:     serviceTestUserID,
+		StrategyID: 43,
+		Status:     "running",
+	}
+	repo := &reconciliationCaptureRepo{sessionStubRepo: baseRepo}
+	svc := NewAccountGRPCService(
+		repo,
+		nil,
+		nil,
+		enabledReconciler(repo),
+		WithCredentialManager(mgr),
+		WithExchangeRegistry(registry),
+	)
+
+	resp, err := svc.UpdateAccountWalletState(context.Background(), &accountv1.UpdateAccountWalletStateRequest{
+		AccountId:        accountID,
+		UserId:           serviceTestUserID,
+		TotalValue:       1000,
+		WalletBalance:    900,
+		AvailableBalance: 800,
+		SnapshotReason:   int32(domain.SnapshotReasonOrderFill),
+		StrategyId:       43,
+		SessionId:        sessionID,
+		Futures: &accountv1.FuturesWallet{
+			MarginMode:       "cross",
+			PositionMode:     "one_way",
+			WalletBalance:    900,
+			AvailableBalance: 800,
+			MarginBalance:    1000,
+			Positions: []*accountv1.FuturesPosition{{
+				Symbol:       "ZECUSDT",
+				PositionSide: "BOTH",
+				PositionQty:  0.1,
+				Qty:          0.1,
+				EntryPrice:   358,
+				MarkPrice:    359,
+				MarginMode:   "cross",
+				MarginType:   "cross",
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpdateAccountWalletState() error = %v", err)
+	}
+	if resp.GetWallet().GetTotalValue() != 1300 || repo.state.TotalValue != 1300 {
+		t.Fatalf("wallet/state = %+v/%+v, want exchange-authoritative total 1300", resp.GetWallet(), repo.state)
+	}
+	if len(repo.venueStates) != 0 {
+		t.Fatalf("demo wallet sync must not persist local venue state: %+v", repo.venueStates)
+	}
+	if len(repo.snapshotTimes) != 1 {
+		t.Fatalf("snapshots written = %d, want 1", len(repo.snapshotTimes))
+	}
+	runs := waitForCapturedReconciliationRuns(t, repo, 1)
+	run := runs[0]
+	if run.SessionID != sessionID || run.RunType != domain.ReconciliationRunEvent {
+		t.Fatalf("reconciliation run = %+v, want event run for session", run)
+	}
+	if run.LocalSnapshot.WalletBalance != 900 || run.ExchangeSnapshot.WalletBalance != 1200 {
+		t.Fatalf("local/exchange wallet_balance = %v/%v, want 900/1200",
+			run.LocalSnapshot.WalletBalance, run.ExchangeSnapshot.WalletBalance)
+	}
+	if len(run.VenueDiffs) != 1 {
+		t.Fatalf("venue_diffs len = %d, want 1", len(run.VenueDiffs))
+	}
+	venueDiff := run.VenueDiffs[0]
+	if venueDiff.VenueID != venueID {
+		t.Fatalf("venue_diff venue_id = %d, want %d", venueDiff.VenueID, venueID)
+	}
+	if venueDiff.LocalSnapshot.WalletBalance != 900 || venueDiff.ExchangeSnapshot.WalletBalance != 1200 {
+		t.Fatalf("venue local/exchange wallet_balance = %v/%v, want 900/1200",
+			venueDiff.LocalSnapshot.WalletBalance, venueDiff.ExchangeSnapshot.WalletBalance)
+	}
+}
+
+func TestUpdateAccountWalletStatePersistsBacktestVenueAndSnapshot(t *testing.T) {
+	accountID := int64(15)
+	venueID := int64(88)
+	repo := newSessionStubRepo()
+	repo.account = domain.Account{
+		AccountID:   accountID,
+		UserID:      serviceTestUserID,
+		Environment: domain.EnvironmentBacktest,
+	}
+	repo.venues = []domain.Venue{{
+		VenueID:      venueID,
+		UserID:       serviceTestUserID,
+		AccountID:    &accountID,
+		Exchange:     domain.ExchangeBinance,
+		Environment:  domain.EnvironmentBacktest,
+		Market:       domain.MarketPerpetualFutures,
+		Status:       domain.VenueStatusActive,
+		MarginMode:   domain.MarginModeCross,
+		PositionMode: domain.PositionModeOneWay,
+	}}
+	repo.sessions["sess-wallet-sync"] = domain.StrategySession{
+		SessionID:  "sess-wallet-sync",
+		AccountID:  accountID,
+		UserID:     serviceTestUserID,
+		StrategyID: 43,
+		Status:     "running",
+	}
+	svc := NewAccountGRPCService(repo, nil, nil, nil)
+
+	resp, err := svc.UpdateAccountWalletState(context.Background(), &accountv1.UpdateAccountWalletStateRequest{
+		AccountId:        accountID,
+		UserId:           serviceTestUserID,
+		TotalValue:       1234.5,
+		WalletBalance:    1200,
+		AvailableBalance: 1100,
+		SnapshotReason:   int32(domain.SnapshotReasonOrderFill),
+		StrategyId:       43,
+		SessionId:        "sess-wallet-sync",
+		Futures: &accountv1.FuturesWallet{
+			MarginMode:       "cross",
+			PositionMode:     "one_way",
+			WalletBalance:    1200,
+			AvailableBalance: 1100,
+			MarginBalance:    1234.5,
+			Positions: []*accountv1.FuturesPosition{{
+				Symbol:       "ZECUSDT",
+				PositionSide: "BOTH",
+				PositionQty:  0.1,
+				Qty:          0.1,
+				EntryPrice:   582.85,
+				MarkPrice:    590,
+				MarginMode:   "cross",
+				MarginType:   "cross",
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpdateAccountWalletState() error = %v", err)
+	}
+	if resp.GetWallet().GetTotalValue() != 1234.5 {
+		t.Fatalf("wallet total_value = %v, want 1234.5", resp.GetWallet().GetTotalValue())
+	}
+	venueState := repo.venueStates[venueID]
+	if venueState.TotalValue != 1234.5 ||
+		venueState.WalletBalance != 1200 ||
+		venueState.Futures.Positions[0].Symbol != "ZECUSDT" {
+		t.Fatalf("venue wallet state = %+v, want pushed futures wallet", venueState)
+	}
+	if repo.state.TotalValue != 1234.5 {
+		t.Fatalf("account state = %+v, want pushed wallet aggregate", repo.state)
+	}
+	if len(repo.snapshotTimes) != 1 {
+		t.Fatalf("snapshots written = %d, want 1", len(repo.snapshotTimes))
 	}
 }

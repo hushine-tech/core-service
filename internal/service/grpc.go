@@ -441,8 +441,19 @@ func (s *AccountGRPCService) UpdateNotificationPreferences(ctx context.Context, 
 	if err != nil {
 		return nil, err
 	}
+	enabled := true
+	if req.GetPreferences().Enabled != nil {
+		enabled = req.GetPreferences().GetEnabled()
+	} else {
+		settings, _, _, err := notifier.GetSettings(ctx, req.GetUserId())
+		if err != nil {
+			return nil, mapRepoErr(err)
+		}
+		enabled = settings.Enabled
+	}
 	if _, err := notifier.UpdatePreferences(ctx, domain.NotificationSettings{
 		UserID:          req.GetUserId(),
+		Enabled:         enabled,
 		SystemEnabled:   req.GetPreferences().GetSystemEnabled(),
 		StrategyEnabled: req.GetPreferences().GetStrategyEnabled(),
 		CustomEnabled:   req.GetPreferences().GetCustomEnabled(),
@@ -544,6 +555,7 @@ func (s *AccountGRPCService) SendTestNotification(ctx context.Context, req *acco
 func toProtoNotificationSettings(notifier *notification.Service, settings domain.NotificationSettings, plan domain.NotificationPlan, channel domain.NotificationChannel) *accountv1.GetNotificationSettingsResponse {
 	return &accountv1.GetNotificationSettingsResponse{
 		Preferences: &accountv1.NotificationPreferences{
+			Enabled:         &settings.Enabled,
 			SystemEnabled:   settings.SystemEnabled,
 			StrategyEnabled: settings.StrategyEnabled,
 			CustomEnabled:   settings.CustomEnabled,
@@ -1393,6 +1405,201 @@ func (s *AccountGRPCService) UpdatePortfolioSnapshot(ctx context.Context, req *a
 	return &accountv1.UpdatePortfolioSnapshotResponse{Snapshot: toProtoPortfolioSnapshot(snapshot)}, nil
 }
 
+func (s *AccountGRPCService) UpdateAccountWalletState(ctx context.Context, req *accountv1.UpdateAccountWalletStateRequest) (*accountv1.UpdateAccountWalletStateResponse, error) {
+	if err := requireUserID(req.GetUserId()); err != nil {
+		return nil, err
+	}
+	accountID := req.GetAccountId()
+	if accountID == 0 {
+		return nil, status.Error(codes.InvalidArgument, "account_id is required")
+	}
+	account, err := s.repo.GetAccount(ctx, accountID, req.GetUserId())
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	if err := s.requireActiveSessionForAccount(ctx, req.GetSessionId(), accountID, req.GetStrategyId(), account.UserID); err != nil {
+		return nil, err
+	}
+	hasFutures := req.GetFutures() != nil
+	hasSpot := req.GetSpot() != nil
+	if !hasFutures && !hasSpot {
+		return nil, status.Error(codes.InvalidArgument, "futures or spot wallet payload is required")
+	}
+	updatedAt := requestTimestampOrZero(req.GetSnapshotTime())
+	if updatedAt.IsZero() {
+		updatedAt = time.Now().UTC()
+	}
+	localVenues, err := s.localVenueWalletSnapshotsFromWalletStateRequest(ctx, req, account, updatedAt, hasFutures, hasSpot)
+	if err != nil {
+		return nil, err
+	}
+	localInfo := aggregateVenueWalletSnapshots(account, localVenues, updatedAt)
+	accountEnv := environmentFromAccount(account)
+	if accountEnv == domain.EnvironmentBacktest {
+		if err := s.updateBacktestVenueWalletStates(ctx, account, localInfo, hasFutures, hasSpot); err != nil {
+			return nil, err
+		}
+	}
+	snapshot, err := s.readPortfolioSnapshot(ctx, account)
+	if err != nil {
+		return nil, err
+	}
+	accountInfo := onlineInfoFromPortfolioSnapshot(snapshot, account)
+	if err := s.repo.UpdateAccountState(ctx, accountInfo); err != nil {
+		return nil, status.Errorf(codes.Unavailable, "update account state: %v", err)
+	}
+	if reason := domain.SnapshotReason(req.GetSnapshotReason()); reason > 0 {
+		if err := s.repo.SaveSnapshot(ctx, accountID, reason, req.GetStrategyId(), req.GetSessionId(), requestTimestampOrZero(req.GetSnapshotTime())); err != nil {
+			return nil, status.Errorf(codes.Unavailable, "save snapshot: %v", err)
+		}
+		if accountEnv != domain.EnvironmentBacktest {
+			exchangeVenues := venueWalletSnapshotsFromPortfolioSnapshot(snapshot, account)
+			exchangeCompareVenues := matchVenueWalletSnapshots(exchangeVenues, localVenues)
+			s.reconciler.LaunchAsync(reconciliation.Task{
+				Account:        account,
+				Local:          localInfo,
+				Exchange:       aggregateVenueWalletSnapshots(account, exchangeCompareVenues, updatedAt),
+				LocalVenues:    localVenues,
+				ExchangeVenues: exchangeCompareVenues,
+				SessionID:      req.GetSessionId(),
+				StrategyID:     req.GetStrategyId(),
+				SnapshotReason: reason,
+				TriggerTime:    updatedAt,
+			})
+		}
+	}
+	return &accountv1.UpdateAccountWalletStateResponse{Wallet: toProtoAccountWalletState(accountInfo)}, nil
+}
+
+func onlineInfoFromWalletStateRequest(req *accountv1.UpdateAccountWalletStateRequest, account domain.Account, updatedAt time.Time, hasFutures bool, hasSpot bool) domain.OnlineAccountInfo {
+	info := domain.OnlineAccountInfo{
+		AccountID:        req.GetAccountId(),
+		Environment:      environmentFromAccount(account),
+		TotalValue:       req.GetTotalValue(),
+		WalletBalance:    req.GetWalletBalance(),
+		AvailableBalance: req.GetAvailableBalance(),
+		UpdatedAt:        updatedAt,
+	}
+	if hasFutures {
+		info.Futures = fromProtoFuturesWallet(req.GetFutures())
+	}
+	if hasSpot {
+		info.Spot = fromProtoSpotWallet(req.GetSpot())
+	}
+	return info
+}
+
+func (s *AccountGRPCService) localVenueWalletSnapshotsFromWalletStateRequest(
+	ctx context.Context,
+	req *accountv1.UpdateAccountWalletStateRequest,
+	account domain.Account,
+	updatedAt time.Time,
+	hasFutures bool,
+	hasSpot bool,
+) ([]domain.VenueWalletSnapshot, error) {
+	venues, err := s.repo.ListActiveAccountVenues(ctx, account.UserID, account.AccountID)
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	if len(venues) == 0 {
+		return nil, status.Error(codes.FailedPrecondition, "account has no active venue")
+	}
+	base := onlineInfoFromWalletStateRequest(req, account, updatedAt, hasFutures, hasSpot)
+	out := make([]domain.VenueWalletSnapshot, 0, len(venues))
+	for _, venue := range venues {
+		switch venue.Market {
+		case domain.MarketPerpetualFutures, domain.MarketDeliveryFutures:
+			if !hasFutures {
+				continue
+			}
+			info := base
+			info.Spot = domain.SpotWallet{}
+			info = futuresOnlyBacktestVenueInfo(info)
+			info = ensureBacktestVenueOnlineInfoDefaults(info, account, venue)
+			out = append(out, domain.VenueWalletSnapshot{
+				VenueID:     venue.VenueID,
+				Exchange:    venue.Exchange,
+				Environment: venue.Environment,
+				Market:      venue.Market,
+				Snapshot:    info,
+			})
+		case domain.MarketSpot:
+			if !hasSpot {
+				continue
+			}
+			info := base
+			info.Futures = domain.FuturesWallet{}
+			info = spotOnlyBacktestVenueInfo(info)
+			info = ensureBacktestVenueOnlineInfoDefaults(info, account, venue)
+			out = append(out, domain.VenueWalletSnapshot{
+				VenueID:     venue.VenueID,
+				Exchange:    venue.Exchange,
+				Environment: venue.Environment,
+				Market:      venue.Market,
+				Snapshot:    info,
+			})
+		}
+	}
+	if len(out) == 0 {
+		return nil, status.Error(codes.FailedPrecondition, "account has no active venue for wallet payload")
+	}
+	return out, nil
+}
+
+func venueWalletSnapshotsFromPortfolioSnapshot(snapshot adapter.PortfolioSnapshot, account domain.Account) []domain.VenueWalletSnapshot {
+	sourceVenues := snapshot.VenueSnapshots
+	if len(sourceVenues) == 0 && snapshot.VenueID != 0 {
+		sourceVenues = []adapter.PortfolioSnapshot{snapshot}
+	}
+	out := make([]domain.VenueWalletSnapshot, 0, len(sourceVenues))
+	for _, venueSnapshot := range sourceVenues {
+		info := onlineInfoFromPortfolioSnapshot(venueSnapshot, account)
+		if venueSnapshot.VenueID != 0 {
+			out = append(out, domain.VenueWalletSnapshot{
+				VenueID:     venueSnapshot.VenueID,
+				Exchange:    venueSnapshot.Exchange,
+				Environment: venueSnapshot.Environment,
+				Market:      venueSnapshot.Market,
+				Snapshot:    info,
+			})
+		}
+	}
+	return out
+}
+
+func matchVenueWalletSnapshots(source []domain.VenueWalletSnapshot, wanted []domain.VenueWalletSnapshot) []domain.VenueWalletSnapshot {
+	wantedIDs := make(map[int64]struct{}, len(wanted))
+	for _, item := range wanted {
+		wantedIDs[item.VenueID] = struct{}{}
+	}
+	out := make([]domain.VenueWalletSnapshot, 0, len(source))
+	for _, item := range source {
+		if _, ok := wantedIDs[item.VenueID]; ok {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+func aggregateVenueWalletSnapshots(account domain.Account, venues []domain.VenueWalletSnapshot, updatedAt time.Time) domain.OnlineAccountInfo {
+	var merged *domain.OnlineAccountInfo
+	for _, venue := range venues {
+		info := venue.Snapshot
+		merged = mergePortfolioOnlineInfo(merged, &info, account)
+	}
+	if merged == nil {
+		return domain.OnlineAccountInfo{
+			AccountID:   account.AccountID,
+			Environment: environmentFromAccount(account),
+			UpdatedAt:   updatedAt,
+		}
+	}
+	if merged.UpdatedAt.IsZero() {
+		merged.UpdatedAt = updatedAt
+	}
+	return *merged
+}
+
 func (s *AccountGRPCService) readPortfolioSnapshot(ctx context.Context, account domain.Account) (adapter.PortfolioSnapshot, error) {
 	if environmentFromAccount(account) == domain.EnvironmentBacktest {
 		venues, err := s.repo.ListActiveAccountVenues(ctx, account.UserID, account.AccountID)
@@ -1478,6 +1685,15 @@ func (s *AccountGRPCService) readPortfolioSnapshot(ctx context.Context, account 
 		})
 		if err != nil {
 			return adapter.PortfolioSnapshot{}, status.Errorf(codes.Unavailable, "read venue portfolio snapshot: %v", err)
+		}
+		if venueSnapshot.VenueID == 0 {
+			venueSnapshot.VenueID = venue.VenueID
+		}
+		if venueSnapshot.AccountID == 0 {
+			venueSnapshot.AccountID = account.AccountID
+		}
+		if venueSnapshot.UserID == 0 {
+			venueSnapshot.UserID = account.UserID
 		}
 		if venueSnapshot.Exchange == 0 {
 			venueSnapshot.Exchange = venue.Exchange
@@ -2876,6 +3092,10 @@ func (s *AccountGRPCService) ListReconciliationRuns(ctx context.Context, req *ac
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "marshal exchange snapshot for run %s: %v", run.RunID, err)
 		}
+		venueDiffsJSON, err := json.Marshal(run.VenueDiffs)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "marshal venue diffs for run %s: %v", run.RunID, err)
+		}
 
 		entry := &accountv1.ReconciliationRunEntry{
 			Time:                 timestamppb.New(run.Time),
@@ -2890,6 +3110,7 @@ func (s *AccountGRPCService) ListReconciliationRuns(ctx context.Context, req *ac
 			SoftPass:             run.SoftPass,
 			LocalSnapshotJson:    string(localJSON),
 			ExchangeSnapshotJson: string(exchangeJSON),
+			VenueDiffsJson:       string(venueDiffsJSON),
 		}
 		for _, diff := range run.FieldDiffs {
 			entry.FieldDiffs = append(entry.FieldDiffs, toProtoFieldDiff(diff))

@@ -389,6 +389,8 @@ type reconciliationAccountDiffJSON struct {
 	AdvisoryDiffs    []domain.FieldDiff       `json:"advisory_diffs"`
 }
 
+type reconciliationVenueDiffJSON []domain.VenueReconciliationDiff
+
 func normalizeAccountEnvironment(a domain.Account) domain.Environment {
 	switch a.Environment {
 	case domain.EnvironmentDemo, domain.EnvironmentLive:
@@ -646,7 +648,7 @@ func (r *TimescaleRepository) CountActiveSessionsForAccount(ctx context.Context,
 	err := r.db.QueryRowContext(ctx, `
 		SELECT COUNT(*)
 		FROM strategy_sessions
-		WHERE user_id = $1 AND account_id = $2 AND status IN (3, 4, 5)`, userID, accountID).Scan(&count)
+		WHERE user_id = $1 AND account_id = $2 AND status IN (3, 4)`, userID, accountID).Scan(&count)
 	return count, err
 }
 
@@ -769,7 +771,7 @@ func ensureNoActiveAccountSessions(ctx context.Context, tx *sql.Tx, userID, acco
 	if err := tx.QueryRowContext(ctx, `
 		SELECT COUNT(*)
 		FROM strategy_sessions
-		WHERE user_id = $1 AND account_id = $2 AND status IN (3, 4, 5)`, userID, accountID).Scan(&count); err != nil {
+		WHERE user_id = $1 AND account_id = $2 AND status IN (3, 4)`, userID, accountID).Scan(&count); err != nil {
 		return err
 	}
 	if count > 0 {
@@ -1010,7 +1012,7 @@ func (r *TimescaleRepository) ListStrategies(ctx context.Context, userID int64, 
 	if activeOnly {
 		query += " AND archived = false"
 	}
-	query += " ORDER BY name, version"
+	query += " ORDER BY created_at DESC, strategy_id DESC"
 
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -1053,7 +1055,7 @@ func (r *TimescaleRepository) ListStrategiesPage(ctx context.Context, userID int
 	listArgs := append([]any{}, args...)
 	listArgs = append(listArgs, limit+1, offset)
 	query := `SELECT strategy_id, user_id, name, version, description, '' AS code, archived, created_at, runtime_version, runtime_profile FROM strategies` +
-		where + fmt.Sprintf(" ORDER BY name, version LIMIT $%d OFFSET $%d", len(listArgs)-1, len(listArgs))
+		where + fmt.Sprintf(" ORDER BY created_at DESC, strategy_id DESC LIMIT $%d OFFSET $%d", len(listArgs)-1, len(listArgs))
 	rows, err := r.db.QueryContext(ctx, query, listArgs...)
 	if err != nil {
 		return nil, PageMeta{}, err
@@ -1746,6 +1748,9 @@ func (r *TimescaleRepository) SaveReconciliationRun(ctx context.Context, run dom
 	if run.AdvisoryDiffs == nil {
 		run.AdvisoryDiffs = []domain.FieldDiff{}
 	}
+	if run.VenueDiffs == nil {
+		run.VenueDiffs = []domain.VenueReconciliationDiff{}
+	}
 
 	accountDiffJSON, err := json.Marshal(reconciliationAccountDiffJSON{
 		ExchangeSnapshot: run.ExchangeSnapshot,
@@ -1755,6 +1760,10 @@ func (r *TimescaleRepository) SaveReconciliationRun(ctx context.Context, run dom
 	})
 	if err != nil {
 		return fmt.Errorf("marshal account_diff_json: %w", err)
+	}
+	venueDiffsJSON, err := json.Marshal(reconciliationVenueDiffJSON(run.VenueDiffs))
+	if err != nil {
+		return fmt.Errorf("marshal venue_diffs_json: %w", err)
 	}
 
 	var sid *int64
@@ -1784,10 +1793,10 @@ func (r *TimescaleRepository) SaveReconciliationRun(ctx context.Context, run dom
 			 hard_pass, soft_pass, account_diff_json, venue_diffs_json)
 		VALUES
 			($1, $2, $3, $4, $5, $6, $7, $8, $9,
-			 $10, $11, $12, '[]'::jsonb)`,
+			 $10, $11, $12, $13)`,
 		runTime.UTC(), runID, run.AccountID, run.UserID, sessID, sid,
 		int16(env), int16(run.SnapshotReason), string(run.RunType),
-		run.HardPass, run.SoftPass, accountDiffJSON)
+		run.HardPass, run.SoftPass, accountDiffJSON, venueDiffsJSON)
 	return err
 }
 
@@ -1824,6 +1833,7 @@ func (r *TimescaleRepository) ListReconciliationRuns(
 			snapshot_reason,
 			run_type,
 			account_diff_json,
+			venue_diffs_json,
 			hard_pass,
 			soft_pass
 		FROM reconciliation_runs
@@ -1843,6 +1853,7 @@ func (r *TimescaleRepository) ListReconciliationRuns(
 		var env int16
 		var reason int16
 		var accountDiffJSON []byte
+		var venueDiffsJSON []byte
 		var runType string
 		if err := rows.Scan(
 			&run.Time,
@@ -1855,6 +1866,7 @@ func (r *TimescaleRepository) ListReconciliationRuns(
 			&reason,
 			&runType,
 			&accountDiffJSON,
+			&venueDiffsJSON,
 			&run.HardPass,
 			&run.SoftPass,
 		); err != nil {
@@ -1871,6 +1883,13 @@ func (r *TimescaleRepository) ListReconciliationRuns(
 		run.LocalSnapshot = accountDiff.LocalSnapshot
 		run.FieldDiffs = accountDiff.FieldDiffs
 		run.AdvisoryDiffs = accountDiff.AdvisoryDiffs
+		if len(venueDiffsJSON) > 0 {
+			var venueDiffs reconciliationVenueDiffJSON
+			if err := json.Unmarshal(venueDiffsJSON, &venueDiffs); err != nil {
+				return nil, 0, false, fmt.Errorf("decode venue_diffs_json for run %s: %w", run.RunID, err)
+			}
+			run.VenueDiffs = []domain.VenueReconciliationDiff(venueDiffs)
+		}
 		out = append(out, run)
 	}
 	if err := rows.Err(); err != nil {
@@ -1919,6 +1938,7 @@ func (r *TimescaleRepository) GetSessionReconciliationSummary(
 func defaultNotificationSettings(userID int64) domain.NotificationSettings {
 	return domain.NotificationSettings{
 		UserID:          userID,
+		Enabled:         true,
 		SystemEnabled:   true,
 		StrategyEnabled: true,
 		CustomEnabled:   true,
@@ -1938,7 +1958,7 @@ func defaultNotificationChannel(userID int64, channel string) domain.Notificatio
 
 func (r *TimescaleRepository) GetNotificationSettings(ctx context.Context, userID int64) (domain.NotificationSettings, error) {
 	row := r.db.QueryRowContext(ctx, `
-		SELECT user_id, system_enabled, strategy_enabled, custom_enabled,
+		SELECT user_id, enabled, system_enabled, strategy_enabled, custom_enabled,
 		       last_delivery_status, last_delivery_error, last_delivery_at,
 		       last_test_message_at, created_at, updated_at
 		FROM notification_settings
@@ -1956,18 +1976,19 @@ func (r *TimescaleRepository) GetNotificationSettings(ctx context.Context, userI
 func (r *TimescaleRepository) UpsertNotificationSettings(ctx context.Context, settings domain.NotificationSettings) (domain.NotificationSettings, error) {
 	row := r.db.QueryRowContext(ctx, `
 		INSERT INTO notification_settings (
-			user_id, system_enabled, strategy_enabled, custom_enabled, created_at, updated_at
+			user_id, enabled, system_enabled, strategy_enabled, custom_enabled, created_at, updated_at
 		)
-		VALUES ($1, $2, $3, $4, NOW(), NOW())
+		VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
 		ON CONFLICT (user_id) DO UPDATE SET
+			enabled = EXCLUDED.enabled,
 			system_enabled = EXCLUDED.system_enabled,
 			strategy_enabled = EXCLUDED.strategy_enabled,
 			custom_enabled = EXCLUDED.custom_enabled,
 			updated_at = NOW()
-		RETURNING user_id, system_enabled, strategy_enabled, custom_enabled,
+		RETURNING user_id, enabled, system_enabled, strategy_enabled, custom_enabled,
 		          last_delivery_status, last_delivery_error, last_delivery_at,
 		          last_test_message_at, created_at, updated_at`,
-		settings.UserID, settings.SystemEnabled, settings.StrategyEnabled, settings.CustomEnabled)
+		settings.UserID, settings.Enabled, settings.SystemEnabled, settings.StrategyEnabled, settings.CustomEnabled)
 	return scanNotificationSettings(row)
 }
 
@@ -2091,10 +2112,10 @@ func (r *TimescaleRepository) UpdateNotificationDeliveryStatus(ctx context.Conte
 	}()
 	if _, err = tx.ExecContext(ctx, `
 		INSERT INTO notification_settings (
-			user_id, system_enabled, strategy_enabled, custom_enabled,
+			user_id, enabled, system_enabled, strategy_enabled, custom_enabled,
 			last_delivery_status, last_delivery_error, last_delivery_at, created_at, updated_at
 		)
-		VALUES ($1, TRUE, TRUE, TRUE, $2, $3, $4, NOW(), NOW())
+		VALUES ($1, TRUE, TRUE, TRUE, TRUE, $2, $3, $4, NOW(), NOW())
 		ON CONFLICT (user_id) DO UPDATE SET
 			last_delivery_status = EXCLUDED.last_delivery_status,
 			last_delivery_error = EXCLUDED.last_delivery_error,
@@ -2182,6 +2203,7 @@ func scanNotificationSettings(s interface{ Scan(...any) error }) (domain.Notific
 	var lastAt, lastTestAt sql.NullTime
 	if err := s.Scan(
 		&settings.UserID,
+		&settings.Enabled,
 		&settings.SystemEnabled,
 		&settings.StrategyEnabled,
 		&settings.CustomEnabled,

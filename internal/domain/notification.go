@@ -21,6 +21,7 @@ const (
 
 type NotificationSettings struct {
 	UserID             int64
+	Enabled            bool
 	SystemEnabled      bool
 	StrategyEnabled    bool
 	CustomEnabled      bool

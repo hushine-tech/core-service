@@ -46,6 +46,9 @@ message PlaceOrderRequest {
   string order_type = 13;    // MARKET / LIMIT; empty infers MARKET unless price is set
   string time_in_force = 14; // LIMIT default: GTC
   google.protobuf.Timestamp market_time = 15; // 回测/行情事件时间；为空时使用服务端处理时间
+  bool post_only = 16;       // platform semantic; adapter maps to LIMIT_MAKER or GTX
+  google.protobuf.Timestamp good_till_date = 17; // required for GTD
+  bool reduce_only = 18;     // platform semantic; spot enforced by RiskGate, futures mapped to exchange
 }
 
 message PlaceOrderResponse {

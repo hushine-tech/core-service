@@ -103,6 +103,9 @@ type OrderRequest struct {
 	PositionMode   domain.PositionMode
 	OrderType      string
 	TimeInForce    string
+	PostOnly       bool
+	GoodTillDate   *time.Time
+	ReduceOnly     bool
 	Qty            float64
 	Price          *float64
 	MarkPrice      float64

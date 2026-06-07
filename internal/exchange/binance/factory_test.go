@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
+	"strings"
 	"testing"
 
 	"github.com/hushine-tech/core-service/internal/domain"
@@ -167,6 +168,82 @@ func TestBinanceBacktestLimitOrderPreservesFeeWhenFilled(t *testing.T) {
 	}
 	if math.Abs(result.Fills[0].Fee-0.6) > 1e-12 {
 		t.Fatalf("fee = %v, want 0.6", result.Fills[0].Fee)
+	}
+}
+
+func TestBinanceBacktestAdvancedOrderContractFailsClosed(t *testing.T) {
+	factory := NewBacktestFactory(adapter.Route{
+		Exchange:    domain.ExchangeBinance,
+		Environment: domain.EnvironmentBacktest,
+		Market:      domain.MarketPerpetualFutures,
+	})
+	exec, err := factory.OrderExecutor()
+	if err != nil {
+		t.Fatalf("OrderExecutor() error = %v", err)
+	}
+
+	price := 3000.0
+	cases := []struct {
+		name    string
+		req     adapter.OrderRequest
+		wantMsg string
+	}{
+		{
+			name: "gtd",
+			req: adapter.OrderRequest{
+				Symbol:      "ETHUSDT",
+				Side:        "BUY",
+				OrderType:   "LIMIT",
+				TimeInForce: "GTD",
+				Qty:         0.2,
+				Price:       &price,
+				MarkPrice:   2999,
+			},
+			wantMsg: "time_in_force=GTD",
+		},
+		{
+			name: "post-only",
+			req: adapter.OrderRequest{
+				Symbol:      "ETHUSDT",
+				Side:        "BUY",
+				OrderType:   "LIMIT",
+				TimeInForce: "GTC",
+				PostOnly:    true,
+				Qty:         0.2,
+				Price:       &price,
+				MarkPrice:   2999,
+			},
+			wantMsg: "post_only",
+		},
+		{
+			name: "reduce-only",
+			req: adapter.OrderRequest{
+				Symbol:      "ETHUSDT",
+				Side:        "BUY",
+				OrderType:   "LIMIT",
+				TimeInForce: "GTC",
+				ReduceOnly:  true,
+				Qty:         0.2,
+				Price:       &price,
+				MarkPrice:   2999,
+			},
+			wantMsg: "reduce_only",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := exec.PlaceOrder(context.Background(), tc.req)
+			if err != nil {
+				t.Fatalf("PlaceOrder() error = %v", err)
+			}
+			if result.Status != "FAILED" {
+				t.Fatalf("status = %q, want FAILED", result.Status)
+			}
+			if !strings.Contains(result.ErrorMessage, tc.wantMsg) {
+				t.Fatalf("error = %q, want to contain %q", result.ErrorMessage, tc.wantMsg)
+			}
+		})
 	}
 }
 

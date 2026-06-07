@@ -175,6 +175,11 @@ func (s *OrderGRPCService) PlaceOrder(ctx context.Context, req *orderv1.PlaceOrd
 		p := req.GetPrice()
 		price = &p
 	}
+	var goodTillDate *time.Time
+	if req.GetGoodTillDate() != nil {
+		t := req.GetGoodTillDate().AsTime().UTC()
+		goodTillDate = &t
+	}
 	orderReq := executor.OrderRequest{
 		AccountID:     accountID,
 		Symbol:        req.GetSymbol(),
@@ -188,6 +193,9 @@ func (s *OrderGRPCService) PlaceOrder(ctx context.Context, req *orderv1.PlaceOrd
 		PositionSide:  req.GetPositionSide(),
 		OrderType:     orderTypeText,
 		TimeInForce:   timeInForce,
+		PostOnly:      req.GetPostOnly(),
+		GoodTillDate:  goodTillDate,
+		ReduceOnly:    req.GetReduceOnly(),
 	}
 
 	result, execErr := s.routerExec.Execute(ctx, orderReq, meta)
@@ -1052,7 +1060,10 @@ func normalizeOrderContract(req *orderv1.PlaceOrderRequest) (int32, string, stri
 		if tif == "" {
 			tif = "GTC"
 		}
-		if tif != "GTC" {
+		if tif == "GTD" && req.GetGoodTillDate() == nil {
+			return 0, "", "", status.Error(codes.InvalidArgument, "gtd limit order requires good_till_date")
+		}
+		if tif != "GTC" && tif != "GTD" {
 			return 0, "", "", status.Errorf(codes.FailedPrecondition, "unsupported time_in_force: %s", tif)
 		}
 		return orderTypeLimit, "LIMIT", tif, nil

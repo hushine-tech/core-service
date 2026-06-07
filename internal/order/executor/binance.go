@@ -81,6 +81,15 @@ func (e *BinanceExecutor) Execute(ctx context.Context, req OrderRequest, meta ac
 	if err != nil {
 		return failed(req, err.Error()), nil
 	}
+	if req.PostOnly {
+		return failed(req, "legacy binance executor does not support post_only until advanced order mapping is implemented"), nil
+	}
+	if req.ReduceOnly {
+		return failed(req, "legacy binance executor does not support reduce_only until advanced order mapping is implemented"), nil
+	}
+	if req.GoodTillDate != nil {
+		return failed(req, "legacy binance executor does not support good_till_date until advanced order mapping is implemented"), nil
+	}
 
 	params := url.Values{}
 	params.Set("symbol", strings.ToUpper(req.Symbol))
@@ -104,6 +113,9 @@ func (e *BinanceExecutor) Execute(ctx context.Context, req OrderRequest, meta ac
 		tif := strings.ToUpper(strings.TrimSpace(req.TimeInForce))
 		if tif == "" {
 			tif = "GTC"
+		}
+		if tif == "GTD" {
+			return failed(req, "legacy binance executor does not support time_in_force=GTD until advanced order mapping is implemented"), nil
 		}
 		params.Set("timeInForce", tif)
 		params.Set("price", strconv.FormatFloat(*req.Price, 'f', -1, 64))

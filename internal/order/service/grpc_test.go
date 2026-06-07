@@ -337,6 +337,40 @@ func TestLimitOrderDefaultsGTC(t *testing.T) {
 	}
 }
 
+func TestPlaceOrder_PassesAdvancedOrderContractToExecutor(t *testing.T) {
+	meta := testOrderMeta(environmentBacktest)
+	router := &stubRouterExec{result: executor.OrderResult{
+		ExchangeOrderID: "gtd-order-1",
+		Symbol:          "ETHUSDT",
+		Side:            "BUY",
+		Status:          "NEW",
+		OrigQty:         1,
+		ExecutedQty:     0,
+		RemainingQty:    1,
+	}}
+	repo := &stubRepo{}
+	svc := NewOrderGRPCService(&stubMetaGetter{meta: meta}, router, repo)
+
+	req := testPlaceOrderRequest()
+	price := 2499.0
+	req.Price = &price
+	req.OrderType = "LIMIT"
+	req.TimeInForce = "GTD"
+	req.PostOnly = false
+	req.ReduceOnly = true
+	req.GoodTillDate = timestamppb.New(time.Unix(1893456000, 0).UTC())
+
+	if _, err := svc.PlaceOrder(context.Background(), req); err != nil {
+		t.Fatalf("PlaceOrder: %v", err)
+	}
+	if !router.lastReq.ReduceOnly {
+		t.Fatalf("reduce_only was not forwarded")
+	}
+	if router.lastReq.GoodTillDate == nil || router.lastReq.GoodTillDate.Unix() != 1893456000 {
+		t.Fatalf("good_till_date = %v, want 1893456000", router.lastReq.GoodTillDate)
+	}
+}
+
 func TestPlaceOrderBacktestLimitRemainsOpenWhenAdapterMarkDoesNotTouch(t *testing.T) {
 	meta := testOrderMeta(environmentBacktest)
 	registry := exchangeadapter.NewRegistry()

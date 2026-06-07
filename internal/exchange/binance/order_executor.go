@@ -21,6 +21,9 @@ type orderExecutor struct {
 }
 
 func (e orderExecutor) PlaceOrder(ctx context.Context, req adapter.OrderRequest) (adapter.OrderResult, error) {
+	if result, rejected := rejectUnsupportedAdvancedOrderContract(req); rejected {
+		return result, nil
+	}
 	result, err := e.exec.Execute(ctx, toLegacyOrderRequest(req), toAccountMeta(req))
 	if err != nil {
 		return adapter.OrderResult{}, err
@@ -31,6 +34,9 @@ func (e orderExecutor) PlaceOrder(ctx context.Context, req adapter.OrderRequest)
 type simulatedOrderExecutor struct{}
 
 func (simulatedOrderExecutor) PlaceOrder(_ context.Context, req adapter.OrderRequest) (adapter.OrderResult, error) {
+	if result, rejected := rejectUnsupportedAdvancedOrderContract(req); rejected {
+		return result, nil
+	}
 	orderType := firstNonEmpty(req.OrderType, "MARKET")
 	if strings.EqualFold(orderType, "LIMIT") {
 		return placeSimulatedLimitOrder(req, orderType)
@@ -152,6 +158,43 @@ func placeSimulatedLimitOrder(req adapter.OrderRequest, orderType string) (adapt
 	return out, nil
 }
 
+func rejectUnsupportedAdvancedOrderContract(req adapter.OrderRequest) (adapter.OrderResult, bool) {
+	message := ""
+	switch {
+	case req.PostOnly:
+		message = "binance adapter does not support post_only until advanced order mapping is implemented"
+	case req.ReduceOnly:
+		message = "binance adapter does not support reduce_only until advanced order mapping is implemented"
+	case strings.EqualFold(strings.TrimSpace(req.TimeInForce), "GTD"):
+		message = "binance adapter does not support time_in_force=GTD until advanced order mapping is implemented"
+	case req.GoodTillDate != nil:
+		message = "binance adapter does not support good_till_date until advanced order mapping is implemented"
+	}
+	if message == "" {
+		return adapter.OrderResult{}, false
+	}
+	return adapter.OrderResult{
+		ClientOrderID: strings.TrimSpace(req.ClientOrderID),
+		Symbol:        strings.ToUpper(strings.TrimSpace(req.Symbol)),
+		Side:          strings.ToUpper(strings.TrimSpace(req.Side)),
+		PositionSide:  req.PositionSide,
+		OrderType:     strings.ToUpper(strings.TrimSpace(req.OrderType)),
+		TimeInForce:   strings.ToUpper(strings.TrimSpace(req.TimeInForce)),
+		Status:        "FAILED",
+		OrigQty:       math.Abs(req.Qty),
+		RemainingQty:  math.Abs(req.Qty),
+		Price:         orderPrice(req.Price),
+		ErrorMessage:  message,
+	}, true
+}
+
+func orderPrice(price *float64) float64 {
+	if price == nil {
+		return 0
+	}
+	return *price
+}
+
 func normalizeOrderSide(side string) (string, error) {
 	normalized := strings.ToUpper(strings.TrimSpace(side))
 	switch normalized {
@@ -172,6 +215,9 @@ func toLegacyOrderRequest(req adapter.OrderRequest) orderexecutor.OrderRequest {
 		PositionSide:  positionSideCode(req.PositionSide),
 		OrderType:     req.OrderType,
 		TimeInForce:   req.TimeInForce,
+		PostOnly:      req.PostOnly,
+		GoodTillDate:  req.GoodTillDate,
+		ReduceOnly:    req.ReduceOnly,
 		Qty:           req.Qty,
 		Price:         req.Price,
 		MarkPrice:     req.MarkPrice,

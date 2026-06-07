@@ -3,6 +3,7 @@ package executor
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/hushine-tech/core-service/internal/order/accountmeta"
 )
@@ -17,6 +18,9 @@ type OrderRequest struct {
 	PositionSide  int32  // 0=BOTH/none, 1=LONG, 2=SHORT
 	OrderType     string // "MARKET" / "LIMIT"
 	TimeInForce   string // LIMIT default is GTC
+	PostOnly      bool
+	GoodTillDate  *time.Time
+	ReduceOnly    bool
 	Qty           float64
 	Price         *float64 // nil = market order
 	MarkPrice     float64  // current mark price (used by mock executor)

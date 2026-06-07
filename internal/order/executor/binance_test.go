@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -171,6 +172,91 @@ func TestBinanceExecutor_OneWayRejectsDirectionSide(t *testing.T) {
 	}
 	if hit {
 		t.Fatal("unexpected outbound HTTP request for rejected direction side")
+	}
+}
+
+func TestBinanceExecutor_AdvancedOrderContractFailsClosedBeforeHTTP(t *testing.T) {
+	price := 2500.0
+	cases := []struct {
+		name    string
+		req     OrderRequest
+		wantMsg string
+	}{
+		{
+			name: "gtd",
+			req: OrderRequest{
+				Symbol:      "ETHUSDT",
+				Side:        "BUY",
+				OrderType:   "LIMIT",
+				TimeInForce: "GTD",
+				Qty:         1,
+				Price:       &price,
+				MarkPrice:   2500,
+			},
+			wantMsg: "time_in_force=GTD",
+		},
+		{
+			name: "post-only",
+			req: OrderRequest{
+				Symbol:      "ETHUSDT",
+				Side:        "BUY",
+				OrderType:   "LIMIT",
+				TimeInForce: "GTC",
+				PostOnly:    true,
+				Qty:         1,
+				Price:       &price,
+				MarkPrice:   2500,
+			},
+			wantMsg: "post_only",
+		},
+		{
+			name: "reduce-only",
+			req: OrderRequest{
+				Symbol:      "ETHUSDT",
+				Side:        "BUY",
+				OrderType:   "LIMIT",
+				TimeInForce: "GTC",
+				ReduceOnly:  true,
+				Qty:         1,
+				Price:       &price,
+				MarkPrice:   2500,
+			},
+			wantMsg: "reduce_only",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			hit := false
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				hit = true
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{}`))
+			}))
+			defer srv.Close()
+
+			exec := &BinanceExecutor{
+				baseURL:    srv.URL,
+				httpClient: httpclient.New(&http.Client{}, noopExtAPILogger{}, "binance_test"),
+			}
+			res, err := exec.Execute(context.Background(), tc.req, accountmeta.Meta{
+				APIKey:       "key",
+				APISecret:    "secret",
+				PositionMode: "one_way",
+			})
+			if err != nil {
+				t.Fatalf("Execute returned error: %v", err)
+			}
+			if res.Status != "FAILED" {
+				t.Fatalf("status = %q, want FAILED", res.Status)
+			}
+			if !strings.Contains(res.ErrorMessage, tc.wantMsg) {
+				t.Fatalf("error = %q, want to contain %q", res.ErrorMessage, tc.wantMsg)
+			}
+			if hit {
+				t.Fatal("unexpected outbound HTTP request for unsupported advanced order contract")
+			}
+		})
 	}
 }
 

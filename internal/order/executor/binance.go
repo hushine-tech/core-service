@@ -27,6 +27,7 @@ const (
 	defaultTradeLookupAttempts = 5
 	defaultTradeLookupDelay    = 250 * time.Millisecond
 	tradeQtyEpsilon            = 1e-12
+	binanceGTDMinLead          = 600 * time.Second
 )
 
 // BinanceExecutor places real orders on Binance USDT-M futures via REST API.
@@ -38,18 +39,20 @@ type BinanceExecutor struct {
 }
 
 func NewBinanceLiveExecutor(logger elog.Logger) *BinanceExecutor {
-	return &BinanceExecutor{
-		baseURL:             binanceLiveBaseURL,
-		httpClient:          httpclient.New(&http.Client{Timeout: 10 * time.Second}, logger, "binance_order_live"),
-		tradeLookupAttempts: defaultTradeLookupAttempts,
-		tradeLookupDelay:    defaultTradeLookupDelay,
-	}
+	return NewBinanceExecutorWithBaseURL(binanceLiveBaseURL, logger, "binance_order_live")
 }
 
 func NewBinanceTestnetExecutor(logger elog.Logger) *BinanceExecutor {
+	return NewBinanceExecutorWithBaseURL(binanceTestnetBaseURL, logger, "binance_order_testnet")
+}
+
+func NewBinanceExecutorWithBaseURL(baseURL string, logger elog.Logger, clientName string) *BinanceExecutor {
+	if strings.TrimSpace(clientName) == "" {
+		clientName = "binance_order_custom"
+	}
 	return &BinanceExecutor{
-		baseURL:             binanceTestnetBaseURL,
-		httpClient:          httpclient.New(&http.Client{Timeout: 10 * time.Second}, logger, "binance_order_testnet"),
+		baseURL:             strings.TrimRight(strings.TrimSpace(baseURL), "/"),
+		httpClient:          httpclient.New(&http.Client{Timeout: 10 * time.Second}, logger, clientName),
 		tradeLookupAttempts: defaultTradeLookupAttempts,
 		tradeLookupDelay:    defaultTradeLookupDelay,
 	}
@@ -81,6 +84,10 @@ func (e *BinanceExecutor) Execute(ctx context.Context, req OrderRequest, meta ac
 	if err != nil {
 		return failed(req, err.Error()), nil
 	}
+	contract, err := normalizeBinanceFuturesOrderContract(req)
+	if err != nil {
+		return failed(req, err.Error()), nil
+	}
 
 	params := url.Values{}
 	params.Set("symbol", strings.ToUpper(req.Symbol))
@@ -88,25 +95,18 @@ func (e *BinanceExecutor) Execute(ctx context.Context, req OrderRequest, meta ac
 	if positionSide != "" {
 		params.Set("positionSide", positionSide)
 	}
-	orderType := strings.ToUpper(strings.TrimSpace(req.OrderType))
-	if orderType == "" {
-		if req.Price != nil {
-			orderType = "LIMIT"
-		} else {
-			orderType = "MARKET"
-		}
+	params.Set("type", contract.OrderType)
+	if contract.TimeInForce != "" {
+		params.Set("timeInForce", contract.TimeInForce)
 	}
-	params.Set("type", orderType)
-	if orderType == "LIMIT" {
-		if req.Price == nil || *req.Price <= 0 {
-			return failed(req, "limit order requires positive price"), nil
-		}
-		tif := strings.ToUpper(strings.TrimSpace(req.TimeInForce))
-		if tif == "" {
-			tif = "GTC"
-		}
-		params.Set("timeInForce", tif)
-		params.Set("price", strconv.FormatFloat(*req.Price, 'f', -1, 64))
+	if contract.Price != nil {
+		params.Set("price", strconv.FormatFloat(*contract.Price, 'f', -1, 64))
+	}
+	if contract.GoodTillDateMS != "" {
+		params.Set("goodTillDate", contract.GoodTillDateMS)
+	}
+	if contract.ReduceOnly {
+		params.Set("reduceOnly", "true")
 	}
 	params.Set("newOrderRespType", "RESULT")
 	params.Set("quantity", strconv.FormatFloat(req.Qty, 'f', -1, 64))
@@ -137,6 +137,103 @@ func (e *BinanceExecutor) Execute(ctx context.Context, req OrderRequest, meta ac
 		return failed(req, err.Error()), nil
 	}
 	return result, nil
+}
+
+type binanceFuturesOrderContract struct {
+	OrderType      string
+	TimeInForce    string
+	Price          *float64
+	GoodTillDateMS string
+	ReduceOnly     bool
+}
+
+func normalizeBinanceFuturesOrderContract(req OrderRequest) (binanceFuturesOrderContract, error) {
+	orderType := strings.ToUpper(strings.TrimSpace(req.OrderType))
+	if orderType == "" {
+		if req.Price != nil {
+			orderType = "LIMIT"
+		} else {
+			orderType = "MARKET"
+		}
+	}
+	switch orderType {
+	case "MARKET":
+		if req.Price != nil {
+			return binanceFuturesOrderContract{}, fmt.Errorf("market order must not set price")
+		}
+		if req.PostOnly {
+			return binanceFuturesOrderContract{}, fmt.Errorf("market order must not set post_only")
+		}
+		if strings.TrimSpace(req.TimeInForce) != "" {
+			return binanceFuturesOrderContract{}, fmt.Errorf("market order must not set time_in_force")
+		}
+		if req.GoodTillDate != nil {
+			return binanceFuturesOrderContract{}, fmt.Errorf("market order must not set good_till_date")
+		}
+		return binanceFuturesOrderContract{OrderType: "MARKET", ReduceOnly: req.ReduceOnly}, nil
+	case "LIMIT":
+		if req.Price == nil || *req.Price <= 0 {
+			return binanceFuturesOrderContract{}, fmt.Errorf("limit order requires positive price")
+		}
+		tif := strings.ToUpper(strings.TrimSpace(req.TimeInForce))
+		if tif == "" {
+			tif = "GTC"
+		}
+		if req.PostOnly {
+			if tif == "IOC" || tif == "FOK" || tif == "GTD" {
+				return binanceFuturesOrderContract{}, fmt.Errorf("post_only cannot be combined with time_in_force=%s", tif)
+			}
+			if req.GoodTillDate != nil {
+				return binanceFuturesOrderContract{}, fmt.Errorf("post_only cannot be combined with good_till_date")
+			}
+			return binanceFuturesOrderContract{
+				OrderType:   "LIMIT",
+				TimeInForce: "GTX",
+				Price:       req.Price,
+				ReduceOnly:  req.ReduceOnly,
+			}, nil
+		}
+		if req.GoodTillDate != nil && tif != "GTD" {
+			return binanceFuturesOrderContract{}, fmt.Errorf("good_till_date requires time_in_force=GTD")
+		}
+		switch tif {
+		case "GTC", "IOC", "FOK":
+			return binanceFuturesOrderContract{
+				OrderType:   "LIMIT",
+				TimeInForce: tif,
+				Price:       req.Price,
+				ReduceOnly:  req.ReduceOnly,
+			}, nil
+		case "GTD":
+			if req.GoodTillDate == nil {
+				return binanceFuturesOrderContract{}, fmt.Errorf("gtd limit order requires good_till_date")
+			}
+			if err := validateBinanceFuturesGoodTillDate(req.GoodTillDate, time.Now().UTC()); err != nil {
+				return binanceFuturesOrderContract{}, err
+			}
+			return binanceFuturesOrderContract{
+				OrderType:      "LIMIT",
+				TimeInForce:    "GTD",
+				Price:          req.Price,
+				GoodTillDateMS: strconv.FormatInt(req.GoodTillDate.UTC().UnixMilli(), 10),
+				ReduceOnly:     req.ReduceOnly,
+			}, nil
+		default:
+			return binanceFuturesOrderContract{}, fmt.Errorf("unsupported time_in_force: %s", tif)
+		}
+	default:
+		return binanceFuturesOrderContract{}, fmt.Errorf("unsupported order_type: %s", orderType)
+	}
+}
+
+func validateBinanceFuturesGoodTillDate(goodTillDate *time.Time, now time.Time) error {
+	if goodTillDate == nil {
+		return fmt.Errorf("gtd limit order requires good_till_date")
+	}
+	if goodTillDate.UTC().Before(now.UTC().Add(binanceGTDMinLead)) {
+		return fmt.Errorf("good_till_date must be at least 600s in the future")
+	}
+	return nil
 }
 
 func (e *BinanceExecutor) Resolve(ctx context.Context, req RecoveryRequest, meta accountmeta.Meta) (OrderResult, error) {

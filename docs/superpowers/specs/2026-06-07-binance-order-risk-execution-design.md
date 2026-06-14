@@ -32,6 +32,8 @@
 - REST 查询作为断线补偿。
 - 14 天恢复截止机制。
 - hosted/self-hosted runtime 统一走 control-panel 平台代理。
+- Binance adapter 级 mock REST/WS 测试入口；mock 设计详见
+  `core-service/docs/superpowers/specs/2026-06-13-adapter-level-exchange-mock-design.md`。
 
 不纳入第一版：
 
@@ -103,6 +105,17 @@ adapter 层需要提供：
 - `TradeReader`：查询成交明细。
 - `OrderCanceller`：取消未终结订单。
 - `UserDataStream`：接入交易所订单事件长连接。
+
+### Adapter 级 Mock 原则
+
+Mock 是 adapter 的一部分，不是所有交易所共用一套公共 mock。
+
+- Binance adapter 提供 Binance 自己的 REST/WS mock，payload 和行为必须贴近 Binance：
+  Spot 使用 `executionReport`，USD-M Futures 使用 `ORDER_TRADE_UPDATE`。
+- 未来 OKX adapter 必须提供 OKX 自己的 REST/WS mock，不能复用 Binance mock 的交易行为模型。
+- 公共层最多提供 mock harness，用于启动、停止、endpoint 注入和测试生命周期管理；公共层不定义统一交易所状态机、错误码或成交模型。
+- 新 adapter 进入 demo/live 路径前，必须提供对应 adapter mock，或在 adapter capability 中显式 fail-closed。
+- order/service、RiskGate 和 strategy runtime 只消费 adapter 标准输出，例如 lifecycle event、fill delta、recovery state；它们不感知 mock 来自哪个交易所。
 
 ## 风控模块
 
@@ -308,6 +321,12 @@ core-service：
   - Futures `ORDER_TRADE_UPDATE`
   - 重复事件去重
   - 新 fill 生成 lifecycle event
+- adapter mock 集成测试：
+  - Binance mock REST 接受下单并返回 `NEW` / `PARTIALLY_FILLED` / `FILLED`
+  - Binance mock WS 可连接并主动推送 Spot/Futures 原始订单事件
+  - REST trades 延迟补齐时触发 `FILL_PENDING -> RECOVERING -> terminal`
+  - FOK partial fill payload 被拒绝
+  - 同一 mock 核心可被测试内启动和 CLI 常驻运行复用
 
 strategy-service：
 
@@ -335,8 +354,9 @@ frontend / quant-handler：
 4. 引入 RiskGate，并接入 PlaceOrder。
 5. 引入 Binance user data stream ingest。
 6. 引入 REST recovery scanner 与 14 天 deadline。
-7. 把 lifecycle event 推送/消费补齐到 control-panel 和 strategy runtime。
-8. 补前端可观测性与通知。
+7. 引入 Binance adapter 级 mock REST/WS 服务，用于 partial fill、recovery 和极限订单组合集成测试。
+8. 把 lifecycle event 推送/消费补齐到 control-panel 和 strategy runtime。
+9. 补前端可观测性与通知。
 
 ## 开放问题
 

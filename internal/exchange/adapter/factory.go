@@ -5,6 +5,7 @@ type Factory interface {
 	AccountSnapshotReader() (AccountSnapshotReader, error)
 	SymbolRulesReader() (SymbolRulesReader, error)
 	OrderExecutor() (OrderExecutor, error)
+	OrderCapabilityProvider() (OrderCapabilityProvider, error)
 	OrderStateReader() (OrderStateReader, error)
 	OrderCanceller() (OrderCanceller, error)
 }

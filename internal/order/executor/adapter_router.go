@@ -4,12 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/hushine-tech/core-service/internal/domain"
 	exchangeadapter "github.com/hushine-tech/core-service/internal/exchange/adapter"
 	"github.com/hushine-tech/core-service/internal/order/accountmeta"
 )
+
+const adapterRecoveredFillQtyEpsilon = 1e-12
 
 // AdapterRouter dispatches order operations through the exchange capability registry.
 type AdapterRouter struct {
@@ -71,6 +74,12 @@ func (r *AdapterRouter) Resolve(ctx context.Context, req RecoveryRequest, meta a
 		out := fromAdapterOrderState(state, nil)
 		out.FillPending = true
 		out.ErrorMessage = err.Error()
+		return out, nil
+	}
+	if pendingMsg := recoveredFillPendingMessage(state, trades); pendingMsg != "" {
+		out := fromAdapterOrderState(state, nil)
+		out.FillPending = true
+		out.ErrorMessage = pendingMsg
 		return out, nil
 	}
 	return fromAdapterOrderState(state, trades), nil
@@ -154,6 +163,9 @@ func toAdapterOrderRequest(req OrderRequest, meta accountmeta.Meta, credential e
 		PositionMode:   positionModeDomain(meta.PositionMode),
 		OrderType:      req.OrderType,
 		TimeInForce:    req.TimeInForce,
+		PostOnly:       req.PostOnly,
+		GoodTillDate:   req.GoodTillDate,
+		ReduceOnly:     req.ReduceOnly,
 		Qty:            req.Qty,
 		Price:          req.Price,
 		MarkPrice:      req.MarkPrice,
@@ -216,6 +228,23 @@ func fromAdapterOrderState(state exchangeadapter.OrderState, trades []exchangead
 		AvgPrice:        state.AvgPrice,
 		Fills:           fills,
 	}
+}
+
+func recoveredFillPendingMessage(state exchangeadapter.OrderState, trades []exchangeadapter.FillDelta) string {
+	if state.ExecutedQty <= 0 {
+		return ""
+	}
+	if len(trades) == 0 {
+		return fmt.Sprintf("order trades pending: executed_qty=%g trade_qty=0", state.ExecutedQty)
+	}
+	tradeQty := 0.0
+	for _, fill := range trades {
+		tradeQty += math.Abs(fill.Qty)
+	}
+	if math.Abs(tradeQty-state.ExecutedQty) > adapterRecoveredFillQtyEpsilon {
+		return fmt.Sprintf("order trades inconsistent: executed_qty=%g trade_qty=%g", state.ExecutedQty, tradeQty)
+	}
+	return ""
 }
 
 func failedOrderResult(err error) OrderResult {

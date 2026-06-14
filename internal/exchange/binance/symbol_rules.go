@@ -18,6 +18,12 @@ type symbolRulesReader struct {
 	baseURL string
 }
 
+type backtestSymbolRulesReader struct{}
+
+func (backtestSymbolRulesReader) ReadSymbolRules(context.Context, adapter.SymbolRulesRequest) (adapter.SymbolRules, error) {
+	return adapter.SymbolRules{}, nil
+}
+
 func (r symbolRulesReader) ReadSymbolRules(ctx context.Context, req adapter.SymbolRulesRequest) (adapter.SymbolRules, error) {
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(r.baseURL, "/")+"/fapi/v1/exchangeInfo", nil)
 	if err != nil {

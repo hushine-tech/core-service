@@ -26,6 +26,10 @@ func (f *Factory) OrderExecutor() (adapter.OrderExecutor, error) {
 	return nil, adapter.CapabilityUnsupported("okx order_executor")
 }
 
+func (f *Factory) OrderCapabilityProvider() (adapter.OrderCapabilityProvider, error) {
+	return nil, adapter.CapabilityUnsupported("okx order_capability_provider")
+}
+
 func (f *Factory) OrderStateReader() (adapter.OrderStateReader, error) {
 	return nil, adapter.CapabilityUnsupported("okx order_state_reader")
 }

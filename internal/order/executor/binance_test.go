@@ -6,8 +6,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
+	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/hushine-tech/core-service/internal/order/accountmeta"
 	"github.com/hushine-tech/golang-lib/middleware/httpclient"
@@ -172,6 +175,238 @@ func TestBinanceExecutor_OneWayRejectsDirectionSide(t *testing.T) {
 	if hit {
 		t.Fatal("unexpected outbound HTTP request for rejected direction side")
 	}
+}
+
+func TestBinanceFuturesPostOnlyMapsToGTX(t *testing.T) {
+	t.Parallel()
+
+	price := 2500.0
+	got := executeAndCaptureBinanceOrderParams(t, OrderRequest{
+		Symbol:      "ETHUSDT",
+		Side:        "BUY",
+		OrderType:   "LIMIT",
+		TimeInForce: "GTC",
+		PostOnly:    true,
+		Qty:         1,
+		Price:       &price,
+		MarkPrice:   2500,
+	})
+
+	if got.Get("type") != "LIMIT" {
+		t.Fatalf("type = %q, want LIMIT", got.Get("type"))
+	}
+	if got.Get("timeInForce") != "GTX" {
+		t.Fatalf("timeInForce = %q, want GTX", got.Get("timeInForce"))
+	}
+	if got.Get("price") != "2500" {
+		t.Fatalf("price = %q, want 2500", got.Get("price"))
+	}
+}
+
+func TestBinanceFuturesGTDIncludesGoodTillDate(t *testing.T) {
+	t.Parallel()
+
+	price := 2500.0
+	gtd := time.Now().Add(20 * time.Minute).UTC()
+	got := executeAndCaptureBinanceOrderParams(t, OrderRequest{
+		Symbol:       "ETHUSDT",
+		Side:         "BUY",
+		OrderType:    "LIMIT",
+		TimeInForce:  "GTD",
+		GoodTillDate: &gtd,
+		Qty:          1,
+		Price:        &price,
+		MarkPrice:    2500,
+	})
+
+	if got.Get("timeInForce") != "GTD" {
+		t.Fatalf("timeInForce = %q, want GTD", got.Get("timeInForce"))
+	}
+	wantGTD := strconv.FormatInt(gtd.UnixMilli(), 10)
+	if got.Get("goodTillDate") != wantGTD {
+		t.Fatalf("goodTillDate = %q, want unix milliseconds %s", got.Get("goodTillDate"), wantGTD)
+	}
+}
+
+func TestBinanceFuturesReduceOnlyParam(t *testing.T) {
+	t.Parallel()
+
+	got := executeAndCaptureBinanceOrderParams(t, OrderRequest{
+		Symbol:     "ETHUSDT",
+		Side:       "SELL",
+		OrderType:  "MARKET",
+		ReduceOnly: true,
+		Qty:        1,
+		MarkPrice:  2500,
+	})
+
+	if got.Get("type") != "MARKET" {
+		t.Fatalf("type = %q, want MARKET", got.Get("type"))
+	}
+	if got.Get("reduceOnly") != "true" {
+		t.Fatalf("reduceOnly = %q, want true", got.Get("reduceOnly"))
+	}
+	if got.Get("timeInForce") != "" || got.Get("price") != "" {
+		t.Fatalf("market params timeInForce=%q price=%q, want both empty", got.Get("timeInForce"), got.Get("price"))
+	}
+}
+
+func TestBinanceExecutor_UnsupportedOrderCombinationsFailBeforeHTTP(t *testing.T) {
+	price := 2500.0
+	gtd := time.Unix(1893456000, 0).UTC()
+	cases := []struct {
+		name    string
+		req     OrderRequest
+		wantMsg string
+	}{
+		{
+			name: "market price",
+			req: OrderRequest{
+				Symbol:    "ETHUSDT",
+				Side:      "BUY",
+				OrderType: "MARKET",
+				Qty:       1,
+				Price:     &price,
+			},
+			wantMsg: "market order must not set price",
+		},
+		{
+			name: "market post-only",
+			req: OrderRequest{
+				Symbol:    "ETHUSDT",
+				Side:      "BUY",
+				OrderType: "MARKET",
+				PostOnly:  true,
+				Qty:       1,
+			},
+			wantMsg: "market order must not set post_only",
+		},
+		{
+			name: "market time-in-force",
+			req: OrderRequest{
+				Symbol:      "ETHUSDT",
+				Side:        "BUY",
+				OrderType:   "MARKET",
+				TimeInForce: "GTC",
+				Qty:         1,
+			},
+			wantMsg: "market order must not set time_in_force",
+		},
+		{
+			name: "market good-till-date",
+			req: OrderRequest{
+				Symbol:       "ETHUSDT",
+				Side:         "BUY",
+				OrderType:    "MARKET",
+				GoodTillDate: &gtd,
+				Qty:          1,
+			},
+			wantMsg: "market order must not set good_till_date",
+		},
+		{
+			name: "ioc post-only",
+			req: OrderRequest{
+				Symbol:      "ETHUSDT",
+				Side:        "BUY",
+				OrderType:   "LIMIT",
+				TimeInForce: "IOC",
+				PostOnly:    true,
+				Qty:         1,
+				Price:       &price,
+			},
+			wantMsg: "post_only cannot be combined with time_in_force=IOC",
+		},
+		{
+			name: "gtd too near",
+			req: OrderRequest{
+				Symbol:       "ETHUSDT",
+				Side:         "BUY",
+				OrderType:    "LIMIT",
+				TimeInForce:  "GTD",
+				GoodTillDate: ptrTime(time.Now().Add(599 * time.Second)),
+				Qty:          1,
+				Price:        &price,
+			},
+			wantMsg: "good_till_date must be at least 600s in the future",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			hit := false
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				hit = true
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{}`))
+			}))
+			defer srv.Close()
+
+			exec := &BinanceExecutor{
+				baseURL:    srv.URL,
+				httpClient: httpclient.New(&http.Client{}, noopExtAPILogger{}, "binance_test"),
+			}
+			res, err := exec.Execute(context.Background(), tc.req, accountmeta.Meta{
+				APIKey:       "key",
+				APISecret:    "secret",
+				PositionMode: "one_way",
+			})
+			if err != nil {
+				t.Fatalf("Execute returned error: %v", err)
+			}
+			if res.Status != "FAILED" {
+				t.Fatalf("status = %q, want FAILED", res.Status)
+			}
+			if !strings.Contains(res.ErrorMessage, tc.wantMsg) {
+				t.Fatalf("error = %q, want to contain %q", res.ErrorMessage, tc.wantMsg)
+			}
+			if hit {
+				t.Fatal("unexpected outbound HTTP request for unsupported order contract")
+			}
+		})
+	}
+}
+
+func executeAndCaptureBinanceOrderParams(t *testing.T, req OrderRequest) url.Values {
+	t.Helper()
+
+	var got url.Values
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/fapi/v1/order" {
+			t.Fatalf("path = %q, want /fapi/v1/order", r.URL.Path)
+		}
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+		got, err = url.ParseQuery(string(body))
+		if err != nil {
+			t.Fatalf("parse query: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"orderId":9,"symbol":"ETHUSDT","side":"BUY","origQty":"1","avgPrice":"0","executedQty":"0","status":"NEW"}`))
+	}))
+	defer srv.Close()
+
+	exec := &BinanceExecutor{
+		baseURL:    srv.URL,
+		httpClient: httpclient.New(&http.Client{}, noopExtAPILogger{}, "binance_test"),
+	}
+	res, err := exec.Execute(context.Background(), req, accountmeta.Meta{
+		APIKey:       "key",
+		APISecret:    "secret",
+		PositionMode: "one_way",
+	})
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if res.Status == "FAILED" {
+		t.Fatalf("status = FAILED: %s", res.ErrorMessage)
+	}
+	return got
+}
+
+func ptrTime(t time.Time) *time.Time {
+	return &t
 }
 
 func TestBinanceExecutor_ConfirmedFillMissingTradeFeeIsObservable(t *testing.T) {

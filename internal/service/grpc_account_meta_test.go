@@ -339,6 +339,9 @@ func (f preflightFactory) SymbolRulesReader() (adapter.SymbolRulesReader, error)
 func (f preflightFactory) OrderExecutor() (adapter.OrderExecutor, error) {
 	return nil, errors.New("not implemented")
 }
+func (f preflightFactory) OrderCapabilityProvider() (adapter.OrderCapabilityProvider, error) {
+	return nil, errors.New("not implemented")
+}
 func (f preflightFactory) OrderStateReader() (adapter.OrderStateReader, error) {
 	return nil, errors.New("not implemented")
 }

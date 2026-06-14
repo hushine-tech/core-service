@@ -46,6 +46,9 @@ message PlaceOrderRequest {
   string order_type = 13;    // MARKET / LIMIT; empty infers MARKET unless price is set
   string time_in_force = 14; // LIMIT default: GTC
   google.protobuf.Timestamp market_time = 15; // 回测/行情事件时间；为空时使用服务端处理时间
+  bool post_only = 16;       // platform semantic; adapter maps to LIMIT_MAKER or GTX
+  google.protobuf.Timestamp good_till_date = 17; // required for GTD
+  bool reduce_only = 18;     // platform semantic; spot enforced by RiskGate, futures mapped to exchange
 }
 
 message PlaceOrderResponse {
@@ -104,6 +107,12 @@ message OrderIntentEntry {
   int32 environment = 12;
   int32 exchange = 13;
   int32 position_side = 14;
+  string status = 15;
+  string reject_code = 16;
+  string reject_message = 17;
+  bool post_only = 18;
+  google.protobuf.Timestamp good_till_date = 19;
+  bool reduce_only = 20;
 }
 
 message QueryOrderAttemptsRequest {
@@ -177,6 +186,11 @@ message OrderAttemptEntry {
   int64 venue_id = 20;
   int32 exchange = 21;
   int32 position_side = 22;
+  string risk_status = 23;
+  string risk_reasons_json = 24;
+  bool post_only = 25;
+  google.protobuf.Timestamp good_till_date = 26;
+  bool reduce_only = 27;
 }
 
 message ExchangeOrderEntry {
@@ -203,6 +217,14 @@ message ExchangeOrderEntry {
   int64 venue_id = 21;
   int32 exchange = 22;
   int32 position_side = 23;
+  bool post_only = 24;
+  google.protobuf.Timestamp good_till_date = 25;
+  bool reduce_only = 26;
+  string recovery_status = 27;
+  google.protobuf.Timestamp next_check_at = 28;
+  google.protobuf.Timestamp recovery_deadline_at = 29;
+  string last_recovery_error = 30;
+  google.protobuf.Timestamp force_closed_at = 31;
 }
 
 message OrderFillEntry {
@@ -260,6 +282,7 @@ message OrderLifecycleEventEntry {
   int32 market = 18;
   int32 position_side = 19;
   string side = 20;
+  string event_source = 21;
 }
 
 message FillDeltaEntry {

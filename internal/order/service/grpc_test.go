@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/hushine-tech/core-service/internal/order/executor"
 	"github.com/hushine-tech/core-service/internal/order/lifecycle"
 	"github.com/hushine-tech/core-service/internal/order/repository"
+	orderrisk "github.com/hushine-tech/core-service/internal/order/risk"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -41,6 +43,7 @@ type stubRouterExec struct {
 	resolveResult executor.OrderResult
 	resolveErr    error
 	executeCalls  int
+	resolveCalls  int
 	lastReq       executor.OrderRequest
 }
 
@@ -51,7 +54,21 @@ func (r *stubRouterExec) Execute(_ context.Context, req executor.OrderRequest, _
 }
 
 func (r *stubRouterExec) Resolve(_ context.Context, _ executor.RecoveryRequest, _ accountmeta.Meta) (executor.OrderResult, error) {
+	r.resolveCalls++
 	return r.resolveResult, r.resolveErr
+}
+
+type stubRiskGate struct {
+	decision orderrisk.Decision
+	err      error
+	calls    int
+	lastReq  orderrisk.ReviewRequest
+}
+
+func (g *stubRiskGate) Review(_ context.Context, req orderrisk.ReviewRequest) (orderrisk.Decision, error) {
+	g.calls++
+	g.lastReq = req
+	return g.decision, g.err
 }
 
 type stubRepo struct {
@@ -64,6 +81,12 @@ type stubRepo struct {
 }
 
 func (s *stubRepo) UpsertOrderIntent(_ context.Context, intent repository.OrderIntent) error {
+	for i := range s.intents {
+		if s.intents[i].IntentID == intent.IntentID {
+			s.intents[i] = intent
+			return nil
+		}
+	}
 	s.intents = append(s.intents, intent)
 	return nil
 }
@@ -88,6 +111,13 @@ func (s *stubRepo) FinalizeOrderAttempt(_ context.Context, attempt repository.Or
 	}
 	s.fills = append(s.fills, fills...)
 	return nil
+}
+
+func (s *stubRepo) FinalizeRiskRejectedAttempt(ctx context.Context, intent repository.OrderIntent, attempt repository.OrderAttempt) error {
+	if err := s.UpsertOrderIntent(ctx, intent); err != nil {
+		return err
+	}
+	return s.FinalizeOrderAttempt(ctx, attempt, nil, nil)
 }
 
 func paginate[T any](items []T, limit, offset int) ([]T, int64) {
@@ -196,6 +226,39 @@ func (s *stubRepo) ListOrderFillsByAttempt(_ context.Context, attemptID string) 
 
 func (s *stubRepo) ListOpenOrders(_ context.Context, _ int) ([]lifecycle.OpenOrder, error) {
 	return nil, nil
+}
+
+func (s *stubRepo) ListDueOpenOrders(_ context.Context, _ int) ([]lifecycle.OpenOrder, error) {
+	return nil, nil
+}
+
+func (s *stubRepo) ResolveOpenOrderByExchangeRef(_ context.Context, _ int64, exchangeOrderID, clientOrderID string) (lifecycle.OpenOrder, error) {
+	for _, order := range s.orders {
+		if (exchangeOrderID != "" && order.ExchangeOrderID == exchangeOrderID) || (clientOrderID != "" && order.ClientOrderID == clientOrderID) {
+			return lifecycle.OpenOrder{
+				SessionID:       order.SessionID,
+				AccountID:       order.AccountID,
+				VenueID:         order.VenueID,
+				Environment:     order.Environment,
+				Exchange:        order.Exchange,
+				Market:          order.Market,
+				PositionSide:    order.PositionSide,
+				Side:            order.Side,
+				IntentID:        order.IntentID,
+				AttemptID:       order.AttemptID,
+				OrderID:         order.OrderID,
+				ExchangeOrderID: order.ExchangeOrderID,
+				ClientOrderID:   order.ClientOrderID,
+				Symbol:          order.Symbol,
+				RecoveryStatus:  order.RecoveryStatus,
+			}, nil
+		}
+	}
+	return lifecycle.OpenOrder{}, lifecycle.ErrOpenOrderNotFound
+}
+
+func (s *stubRepo) MarkRecoveryExpired(_ context.Context, _ string, _ time.Time, _ string) error {
+	return nil
 }
 
 func (s *stubRepo) SaveLifecycleEvent(_ context.Context, event lifecycle.Event) (lifecycle.Event, error) {
@@ -337,6 +400,164 @@ func TestLimitOrderDefaultsGTC(t *testing.T) {
 	}
 }
 
+func TestPlaceOrderUnsupportedTimeInForcePersistsFailedAttempt(t *testing.T) {
+	meta := testOrderMeta(environmentDemo)
+	router := &stubRouterExec{result: executor.OrderResult{
+		ExchangeOrderID: "should-not-execute",
+		Status:          "FILLED",
+	}}
+	repo := &stubRepo{}
+	svc := NewOrderGRPCService(&stubMetaGetter{meta: meta}, router, repo)
+
+	req := testPlaceOrderRequest()
+	req.StrategyId = 179
+	req.SessionId = "sess-unsupported-tif"
+	req.OrderType = "LIMIT"
+	req.TimeInForce = "GTX"
+	price := 2501.0
+	req.Price = &price
+
+	resp, err := svc.PlaceOrder(context.Background(), req)
+	if err != nil {
+		t.Fatalf("PlaceOrder: %v", err)
+	}
+	if resp.GetAttemptStatus() != attemptStatusFailed {
+		t.Fatalf("attempt status = %q, want %q", resp.GetAttemptStatus(), attemptStatusFailed)
+	}
+	if !strings.Contains(resp.GetErrorMessage(), "unsupported time_in_force: GTX") {
+		t.Fatalf("error = %q, want unsupported time_in_force", resp.GetErrorMessage())
+	}
+	if router.executeCalls != 0 {
+		t.Fatalf("execute calls = %d, want 0", router.executeCalls)
+	}
+	if len(repo.intents) != 1 {
+		t.Fatalf("intents = %d, want 1", len(repo.intents))
+	}
+	if repo.intents[0].Status != "REJECTED" || repo.intents[0].RejectCode != "ORDER_CONTRACT_INVALID" {
+		t.Fatalf("intent = %+v, want rejected contract failure", repo.intents[0])
+	}
+	if repo.intents[0].SessionID != req.GetSessionId() || repo.intents[0].StrategyID != req.GetStrategyId() {
+		t.Fatalf("intent attribution = %+v", repo.intents[0])
+	}
+	if len(repo.attempts) != 1 {
+		t.Fatalf("attempts = %d, want 1", len(repo.attempts))
+	}
+	if repo.attempts[0].Status != attemptStatusFailed {
+		t.Fatalf("attempt = %+v, want FAILED", repo.attempts[0])
+	}
+	if repo.attempts[0].AttemptID == "" || resp.GetAttemptId() != repo.attempts[0].AttemptID {
+		t.Fatalf("attempt id response=%q repo=%q", resp.GetAttemptId(), repo.attempts[0].AttemptID)
+	}
+}
+
+func TestPlaceOrder_PassesAdvancedOrderContractToExecutor(t *testing.T) {
+	meta := testOrderMeta(environmentBacktest)
+	router := &stubRouterExec{result: executor.OrderResult{
+		ExchangeOrderID: "gtd-order-1",
+		Symbol:          "ETHUSDT",
+		Side:            "BUY",
+		Status:          "NEW",
+		OrigQty:         1,
+		ExecutedQty:     0,
+		RemainingQty:    1,
+	}}
+	repo := &stubRepo{}
+	svc := NewOrderGRPCService(&stubMetaGetter{meta: meta}, router, repo)
+
+	req := testPlaceOrderRequest()
+	price := 2499.0
+	req.Price = &price
+	req.OrderType = "LIMIT"
+	req.TimeInForce = "GTD"
+	req.PostOnly = false
+	req.ReduceOnly = true
+	req.GoodTillDate = timestamppb.New(time.Unix(1893456000, 0).UTC())
+
+	if _, err := svc.PlaceOrder(context.Background(), req); err != nil {
+		t.Fatalf("PlaceOrder: %v", err)
+	}
+	if !router.lastReq.ReduceOnly {
+		t.Fatalf("reduce_only was not forwarded")
+	}
+	if router.lastReq.GoodTillDate == nil || router.lastReq.GoodTillDate.Unix() != 1893456000 {
+		t.Fatalf("good_till_date = %v, want 1893456000", router.lastReq.GoodTillDate)
+	}
+	if len(repo.intents) != 1 || !repo.intents[0].ReduceOnly || repo.intents[0].GoodTillDate == nil {
+		t.Fatalf("intent advanced fields = %+v, want reduce_only/good_till_date persisted", repo.intents)
+	}
+	if len(repo.attempts) != 1 || !repo.attempts[0].ReduceOnly || repo.attempts[0].GoodTillDate == nil {
+		t.Fatalf("attempt advanced fields = %+v, want reduce_only/good_till_date persisted", repo.attempts)
+	}
+}
+
+func TestPlaceOrder_RiskRejectFinalizesAttemptBeforeExecuting(t *testing.T) {
+	meta := testOrderMeta(environmentDemo)
+	router := &stubRouterExec{result: executor.OrderResult{
+		ExchangeOrderID: "should-not-execute",
+		Symbol:          "ETHUSDT",
+		Status:          "FILLED",
+		OrigQty:         1,
+		ExecutedQty:     1,
+	}}
+	repo := &stubRepo{}
+	gate := &stubRiskGate{decision: orderrisk.Decision{
+		Status:     orderrisk.DecisionReject,
+		ReasonCode: "ROUTE_PENDING_EXECUTION",
+		Violations: []orderrisk.Violation{{
+			Code:    "ROUTE_PENDING_EXECUTION",
+			Message: "route has pending execution",
+		}},
+		ReviewedAt: time.Unix(1893456000, 0).UTC(),
+	}}
+	svc := NewOrderGRPCService(&stubMetaGetter{meta: meta}, router, repo)
+	svc.SetRiskGate(gate)
+
+	req := testPlaceOrderRequest()
+	req.StrategyId = 9
+	req.SessionId = "sess-risk-reject"
+	resp, err := svc.PlaceOrder(context.Background(), req)
+	if err != nil {
+		t.Fatalf("PlaceOrder: %v", err)
+	}
+	if resp.GetAttemptStatus() != attemptStatusRiskRejected {
+		t.Fatalf("attempt status = %s, want %s", resp.GetAttemptStatus(), attemptStatusRiskRejected)
+	}
+	if router.executeCalls != 0 {
+		t.Fatalf("executor called %d time(s), want 0", router.executeCalls)
+	}
+	if gate.calls != 1 {
+		t.Fatalf("risk gate calls = %d, want 1", gate.calls)
+	}
+	if gate.lastReq.Symbol != "ETHUSDT" || gate.lastReq.OrderType != "MARKET" {
+		t.Fatalf("risk request = %+v, want normalized request", gate.lastReq)
+	}
+	if len(repo.attempts) != 1 {
+		t.Fatalf("attempts = %d, want 1", len(repo.attempts))
+	}
+	if len(repo.intents) != 1 {
+		t.Fatalf("intents = %d, want 1", len(repo.intents))
+	}
+	if repo.intents[0].Status != "REJECTED" {
+		t.Fatalf("intent status = %q, want REJECTED", repo.intents[0].Status)
+	}
+	if repo.intents[0].RejectCode != "ROUTE_PENDING_EXECUTION" || !strings.Contains(repo.intents[0].RejectMessage, "route has pending execution") {
+		t.Fatalf("intent reject fields = %+v, want risk reason", repo.intents[0])
+	}
+	attempt := repo.attempts[0]
+	if attempt.Status != attemptStatusRiskRejected {
+		t.Fatalf("persisted attempt status = %s, want %s", attempt.Status, attemptStatusRiskRejected)
+	}
+	if attempt.RiskStatus != string(orderrisk.DecisionReject) {
+		t.Fatalf("risk_status = %q, want REJECT", attempt.RiskStatus)
+	}
+	if !strings.Contains(attempt.RiskReasonsJSON, "ROUTE_PENDING_EXECUTION") {
+		t.Fatalf("risk_reasons_json = %s, want route pending code", attempt.RiskReasonsJSON)
+	}
+	if attempt.ErrorMessage != "ROUTE_PENDING_EXECUTION" {
+		t.Fatalf("error_message = %q, want reason code", attempt.ErrorMessage)
+	}
+}
+
 func TestPlaceOrderBacktestLimitRemainsOpenWhenAdapterMarkDoesNotTouch(t *testing.T) {
 	meta := testOrderMeta(environmentBacktest)
 	registry := exchangeadapter.NewRegistry()
@@ -378,17 +599,31 @@ func TestPlaceOrderBacktestLimitRemainsOpenWhenAdapterMarkDoesNotTouch(t *testin
 	}
 }
 
-func TestUnsupportedTimeInForceFailsClosed(t *testing.T) {
-	svc, _ := newTestSvc(testOrderMeta(environmentBacktest), nil, executor.OrderResult{}, nil)
+func TestUnsupportedTimeInForceFailsClosedWithoutExecution(t *testing.T) {
+	router := &stubRouterExec{result: executor.OrderResult{
+		ExchangeOrderID: "should-not-execute",
+		Status:          "FILLED",
+	}}
+	repo := &stubRepo{}
+	svc := NewOrderGRPCService(&stubMetaGetter{meta: testOrderMeta(environmentBacktest)}, router, repo)
 	req := testPlaceOrderRequest()
 	price := 2500.0
 	req.Price = &price
 	req.OrderType = "LIMIT"
-	req.TimeInForce = "IOC"
+	req.TimeInForce = "GTX"
 
-	_, err := svc.PlaceOrder(context.Background(), req)
-	if status.Code(err) != codes.FailedPrecondition {
-		t.Fatalf("code = %v, want FailedPrecondition (err=%v)", status.Code(err), err)
+	resp, err := svc.PlaceOrder(context.Background(), req)
+	if err != nil {
+		t.Fatalf("PlaceOrder: %v", err)
+	}
+	if resp.GetAttemptStatus() != attemptStatusFailed {
+		t.Fatalf("attempt status = %q, want %q", resp.GetAttemptStatus(), attemptStatusFailed)
+	}
+	if router.executeCalls != 0 {
+		t.Fatalf("execute calls = %d, want 0", router.executeCalls)
+	}
+	if len(repo.intents) != 1 || repo.intents[0].Status != "REJECTED" {
+		t.Fatalf("intents = %+v, want rejected intent", repo.intents)
 	}
 }
 
@@ -589,6 +824,64 @@ func TestPlaceOrder_fillPendingPersistsOrderWithoutSettleableFill(t *testing.T) 
 	if repo.orders[0].ErrorMessage == "" || repo.attempts[0].RecoveryError == "" {
 		t.Fatalf("order/attempt should carry fill-pending observability, orders=%+v attempts=%+v", repo.orders, repo.attempts)
 	}
+	if repo.orders[0].RecoveryStatus != "FILL_PENDING" {
+		t.Fatalf("recovery_status = %q, want FILL_PENDING", repo.orders[0].RecoveryStatus)
+	}
+	if repo.orders[0].RecoveryStartedAt == nil || repo.orders[0].NextCheckAt == nil || repo.orders[0].RecoveryDeadlineAt == nil {
+		t.Fatalf("recoverable order should carry started/next/deadline timestamps: %+v", repo.orders[0])
+	}
+	wantDeadline := repo.orders[0].Time.Add(14 * 24 * time.Hour)
+	if !repo.orders[0].RecoveryDeadlineAt.Equal(wantDeadline) {
+		t.Fatalf("recovery_deadline_at = %s, want %s", repo.orders[0].RecoveryDeadlineAt, wantDeadline)
+	}
+}
+
+func TestBuildPersistedExecutionSetsRecoveryDeadlineForPartialOrder(t *testing.T) {
+	meta := testOrderMeta(environmentDemo)
+	attempt := repository.OrderAttempt{
+		AttemptID:       "attempt-partial",
+		IntentID:        "intent-partial",
+		AccountID:       1,
+		VenueID:         meta.VenueID,
+		UserID:          meta.UserID,
+		StrategyID:      9,
+		SessionID:       "sess-partial",
+		Environment:     environmentDemo,
+		Exchange:        int32(domain.ExchangeBinance),
+		Market:          int32(domain.MarketPerpetualFutures),
+		PositionSide:    0,
+		Symbol:          "ETHUSDT",
+		Side:            "BUY",
+		RequestedQty:    0.5,
+		ClientOrderID:   "client-partial",
+		ExchangeOrderID: "ex-partial",
+	}
+	eventTime := time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC)
+	order, _ := buildPersistedExecution(meta, attempt, 9, "sess-partial", int32(domain.MarketPerpetualFutures), executor.OrderResult{
+		ExchangeOrderID: "ex-partial",
+		ClientOrderID:   "client-partial",
+		Symbol:          "ETHUSDT",
+		Side:            "BUY",
+		Status:          "PARTIALLY_FILLED",
+		OrigQty:         0.5,
+		ExecutedQty:     0.2,
+		RemainingQty:    0.3,
+		AvgPrice:        3000,
+	}, eventTime)
+
+	if order.RecoveryStatus != "PARTIALLY_FILLED" {
+		t.Fatalf("recovery_status = %q, want PARTIALLY_FILLED", order.RecoveryStatus)
+	}
+	if order.RecoveryStartedAt == nil || !order.RecoveryStartedAt.Equal(eventTime) {
+		t.Fatalf("recovery_started_at = %v, want %s", order.RecoveryStartedAt, eventTime)
+	}
+	if order.NextCheckAt == nil || order.NextCheckAt.Before(eventTime) || !order.NextCheckAt.Before(eventTime.Add(time.Minute)) {
+		t.Fatalf("next_check_at = %v, want shortly after %s", order.NextCheckAt, eventTime)
+	}
+	wantDeadline := eventTime.Add(14 * 24 * time.Hour)
+	if order.RecoveryDeadlineAt == nil || !order.RecoveryDeadlineAt.Equal(wantDeadline) {
+		t.Fatalf("recovery_deadline_at = %v, want %s", order.RecoveryDeadlineAt, wantDeadline)
+	}
 }
 
 func TestPlaceOrder_failedMetaLookup(t *testing.T) {
@@ -735,6 +1028,47 @@ func TestResolveOrderAttempt_notFoundReturnsFailed(t *testing.T) {
 	}
 }
 
+func TestResolveOrderAttempt_riskRejectedIsTerminal(t *testing.T) {
+	meta := testOrderMeta(environmentDemo)
+	svc, repo := newTestSvc(meta, nil, executor.OrderResult{}, nil)
+	router := svc.routerExec.(*stubRouterExec)
+	repo.attempts = append(repo.attempts, repository.OrderAttempt{
+		IntentID:        "intent-risk",
+		AttemptID:       "attempt-risk",
+		AccountID:       1,
+		UserID:          7,
+		VenueID:         10,
+		StrategyID:      9,
+		SessionID:       "sess-risk",
+		ClientOrderID:   "coid-risk",
+		Exchange:        int32(domain.ExchangeBinance),
+		Market:          int32(domain.MarketPerpetualFutures),
+		Environment:     environmentDemo,
+		Symbol:          "BTCUSDT",
+		Status:          attemptStatusRiskRejected,
+		ErrorMessage:    "route has pending execution",
+		RiskStatus:      "REJECT",
+		RiskReasonsJSON: `[{"code":"ROUTE_PENDING_EXECUTION","message":"route has pending execution"}]`,
+	})
+
+	resp, err := svc.ResolveOrderAttempt(context.Background(), &orderv1.ResolveOrderAttemptRequest{
+		AccountId: 1,
+		IntentId:  "intent-risk",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.GetAttemptStatus() != attemptStatusRiskRejected {
+		t.Fatalf("attempt_status = %q, want %s", resp.GetAttemptStatus(), attemptStatusRiskRejected)
+	}
+	if resp.GetErrorMessage() != "route has pending execution" {
+		t.Fatalf("error_message = %q", resp.GetErrorMessage())
+	}
+	if router.resolveCalls != 0 {
+		t.Fatalf("router resolve calls = %d, want 0", router.resolveCalls)
+	}
+}
+
 func TestQueryOrderAttempts_requiresUserID(t *testing.T) {
 	svc, _ := newTestSvc(accountmeta.Meta{}, nil, executor.OrderResult{}, nil)
 	_, err := svc.QueryOrderAttempts(context.Background(), &orderv1.QueryOrderAttemptsRequest{})
@@ -748,8 +1082,33 @@ func TestQueryOrderAttempts_requiresUserID(t *testing.T) {
 
 func TestQueryOrderAttemptsAndOrdersAndFills(t *testing.T) {
 	svc, repo := newTestSvc(accountmeta.Meta{}, nil, executor.OrderResult{}, nil)
-	repo.attempts = append(repo.attempts, repository.OrderAttempt{AttemptID: "a1", IntentID: "i1", Status: "FAILED"})
-	repo.orders = append(repo.orders, repository.Order{OrderID: "o1", IntentID: "i1", Status: "NEW"})
+	goodTillDate := time.Unix(1893456000, 0).UTC()
+	nextCheckAt := time.Unix(1893456060, 0).UTC()
+	recoveryDeadlineAt := time.Unix(1894665600, 0).UTC()
+	forceClosedAt := time.Unix(1894665660, 0).UTC()
+	repo.attempts = append(repo.attempts, repository.OrderAttempt{
+		AttemptID:       "a1",
+		IntentID:        "i1",
+		Status:          "RISK_REJECTED",
+		PostOnly:        true,
+		GoodTillDate:    &goodTillDate,
+		ReduceOnly:      true,
+		RiskStatus:      "REJECT",
+		RiskReasonsJSON: `[{"code":"ROUTE_PENDING_EXECUTION"}]`,
+	})
+	repo.orders = append(repo.orders, repository.Order{
+		OrderID:            "o1",
+		IntentID:           "i1",
+		Status:             "NEW",
+		PostOnly:           true,
+		GoodTillDate:       &goodTillDate,
+		ReduceOnly:         true,
+		RecoveryStatus:     "PARTIALLY_FILLED",
+		NextCheckAt:        &nextCheckAt,
+		RecoveryDeadlineAt: &recoveryDeadlineAt,
+		LastRecoveryError:  "trade fee pending",
+		ForceClosedAt:      &forceClosedAt,
+	})
 	repo.fills = append(repo.fills, repository.OrderFill{FillID: "f1", OrderID: "o1", IntentID: "i1"})
 
 	attemptsResp, err := svc.QueryOrderAttempts(context.Background(), &orderv1.QueryOrderAttemptsRequest{UserId: 1, Limit: 10})
@@ -759,6 +1118,13 @@ func TestQueryOrderAttemptsAndOrdersAndFills(t *testing.T) {
 	if attemptsResp.GetTotal() != 1 || len(attemptsResp.GetAttempts()) != 1 {
 		t.Fatalf("attempts total/items = %d/%d", attemptsResp.GetTotal(), len(attemptsResp.GetAttempts()))
 	}
+	if attemptsResp.GetAttempts()[0].GetRiskStatus() != "REJECT" || !strings.Contains(attemptsResp.GetAttempts()[0].GetRiskReasonsJson(), "ROUTE_PENDING_EXECUTION") {
+		t.Fatalf("attempt risk fields = %+v", attemptsResp.GetAttempts()[0])
+	}
+	attempt := attemptsResp.GetAttempts()[0]
+	if !attempt.GetPostOnly() || !attempt.GetReduceOnly() || attempt.GetGoodTillDate().AsTime().Unix() != goodTillDate.Unix() {
+		t.Fatalf("attempt order semantics = %+v, want post_only/reduce_only/good_till_date", attempt)
+	}
 
 	ordersResp, err := svc.QueryOrders(context.Background(), &orderv1.QueryOrdersRequest{UserId: 1, Limit: 10})
 	if err != nil {
@@ -766,6 +1132,17 @@ func TestQueryOrderAttemptsAndOrdersAndFills(t *testing.T) {
 	}
 	if ordersResp.GetTotal() != 1 || len(ordersResp.GetOrders()) != 1 {
 		t.Fatalf("orders total/items = %d/%d", ordersResp.GetTotal(), len(ordersResp.GetOrders()))
+	}
+	order := ordersResp.GetOrders()[0]
+	if !order.GetPostOnly() || !order.GetReduceOnly() || order.GetGoodTillDate().AsTime().Unix() != goodTillDate.Unix() {
+		t.Fatalf("order semantics = %+v, want post_only/reduce_only/good_till_date", order)
+	}
+	if order.GetRecoveryStatus() != "PARTIALLY_FILLED" ||
+		order.GetNextCheckAt().AsTime().Unix() != nextCheckAt.Unix() ||
+		order.GetRecoveryDeadlineAt().AsTime().Unix() != recoveryDeadlineAt.Unix() ||
+		order.GetLastRecoveryError() != "trade fee pending" ||
+		order.GetForceClosedAt().AsTime().Unix() != forceClosedAt.Unix() {
+		t.Fatalf("order recovery fields = %+v", order)
 	}
 
 	fillsResp, err := svc.QueryOrderFills(context.Background(), &orderv1.QueryOrderFillsRequest{UserId: 1, Limit: 10})
@@ -790,8 +1167,21 @@ func TestQueryOrderIntents_requiresUserID(t *testing.T) {
 
 func TestQueryOrderIntents_returnsItemsAndTotal(t *testing.T) {
 	svc, repo := newTestSvc(accountmeta.Meta{}, nil, executor.OrderResult{}, nil)
+	goodTillDate := time.Unix(1893456000, 0).UTC()
 	repo.intents = append(repo.intents,
-		repository.OrderIntent{IntentID: "i1", Symbol: "BTCUSDT", Side: "BUY", RequestedQty: 1, SessionID: "sess-1"},
+		repository.OrderIntent{
+			IntentID:      "i1",
+			Symbol:        "BTCUSDT",
+			Side:          "BUY",
+			RequestedQty:  1,
+			PostOnly:      true,
+			GoodTillDate:  &goodTillDate,
+			ReduceOnly:    true,
+			SessionID:     "sess-1",
+			Status:        "REJECTED",
+			RejectCode:    "ROUTE_PENDING_EXECUTION",
+			RejectMessage: "route has pending execution",
+		},
 		repository.OrderIntent{IntentID: "i2", Symbol: "ETHUSDT", Side: "SELL", RequestedQty: 2, SessionID: "sess-1"},
 	)
 	resp, err := svc.QueryOrderIntents(context.Background(), &orderv1.QueryOrderIntentsRequest{UserId: 1, Limit: 10})
@@ -800,6 +1190,12 @@ func TestQueryOrderIntents_returnsItemsAndTotal(t *testing.T) {
 	}
 	if resp.GetTotal() != 2 || len(resp.GetIntents()) != 2 {
 		t.Fatalf("intents total/items = %d/%d", resp.GetTotal(), len(resp.GetIntents()))
+	}
+	if resp.GetIntents()[0].GetStatus() != "REJECTED" || resp.GetIntents()[0].GetRejectCode() != "ROUTE_PENDING_EXECUTION" {
+		t.Fatalf("intent reject fields = %+v", resp.GetIntents()[0])
+	}
+	if !resp.GetIntents()[0].GetPostOnly() || !resp.GetIntents()[0].GetReduceOnly() || resp.GetIntents()[0].GetGoodTillDate().AsTime().Unix() != goodTillDate.Unix() {
+		t.Fatalf("intent order semantics = %+v, want post_only/reduce_only/good_till_date", resp.GetIntents()[0])
 	}
 }
 
@@ -853,7 +1249,7 @@ func TestQueryOrderFills_filtersByOrder(t *testing.T) {
 func TestListOrderLifecycleEventsAfterCursor(t *testing.T) {
 	svc, repo := newTestSvc(accountmeta.Meta{}, nil, executor.OrderResult{}, nil)
 	repo.events = append(repo.events,
-		lifecycle.Event{EventID: 1, SessionID: "sess-1", EventType: "fill", OrderStatus: "PARTIALLY_FILLED"},
+		lifecycle.Event{EventID: 1, SessionID: "sess-1", EventType: "fill", EventSource: lifecycle.EventSourceRESTRecovery, OrderStatus: "PARTIALLY_FILLED"},
 		lifecycle.Event{
 			EventID:      2,
 			SessionID:    "sess-1",
@@ -863,10 +1259,11 @@ func TestListOrderLifecycleEventsAfterCursor(t *testing.T) {
 			PositionSide: positionSideBoth,
 			Side:         "BUY",
 			EventType:    "fill",
+			EventSource:  lifecycle.EventSourceWebsocket,
 			OrderStatus:  "FILLED",
 			FillDelta:    lifecycle.FillDelta{Symbol: "ETHUSDT", Qty: 0.2, FillPrice: 3000},
 		},
-		lifecycle.Event{EventID: 3, SessionID: "other", EventType: "fill"},
+		lifecycle.Event{EventID: 3, SessionID: "other", EventType: "fill", EventSource: lifecycle.EventSourceRESTRecovery},
 	)
 
 	resp, err := svc.ListOrderLifecycleEvents(context.Background(), &orderv1.ListOrderLifecycleEventsRequest{
@@ -883,6 +1280,9 @@ func TestListOrderLifecycleEventsAfterCursor(t *testing.T) {
 	event := resp.GetEvents()[0]
 	if event.GetEventId() != 2 || event.GetOrderStatus() != "FILLED" || event.GetFillDelta().GetSymbol() != "ETHUSDT" {
 		t.Fatalf("event = %+v, want cursor event 2", event)
+	}
+	if event.GetEventSource() != lifecycle.EventSourceWebsocket {
+		t.Fatalf("event_source = %q, want %s", event.GetEventSource(), lifecycle.EventSourceWebsocket)
 	}
 	if event.GetEnvironment() != environmentDemo || event.GetExchange() != exchangeBinance ||
 		event.GetMarket() != marketPerpetualFutures || event.GetPositionSide() != positionSideBoth || event.GetSide() != "BUY" {
@@ -963,5 +1363,8 @@ func TestEmitLifecycleEventsAllowsPositionSideBoth(t *testing.T) {
 	}
 	if repo.events[0].PositionSide != positionSideBoth {
 		t.Fatalf("position_side = %d, want BOTH/0", repo.events[0].PositionSide)
+	}
+	if repo.events[0].EventSource != lifecycle.EventSourcePlaceOrder {
+		t.Fatalf("event_source = %q, want %s", repo.events[0].EventSource, lifecycle.EventSourcePlaceOrder)
 	}
 }

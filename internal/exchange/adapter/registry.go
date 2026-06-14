@@ -60,6 +60,14 @@ func (r *Registry) OrderExecutor(route Route) (OrderExecutor, error) {
 	return factory.OrderExecutor()
 }
 
+func (r *Registry) OrderCapabilityProvider(route Route) (OrderCapabilityProvider, error) {
+	factory, err := r.factory(route)
+	if err != nil {
+		return nil, err
+	}
+	return factory.OrderCapabilityProvider()
+}
+
 func (r *Registry) OrderStateReader(route Route) (OrderStateReader, error) {
 	factory, err := r.factory(route)
 	if err != nil {
@@ -74,4 +82,16 @@ func (r *Registry) OrderCanceller(route Route) (OrderCanceller, error) {
 		return nil, err
 	}
 	return factory.OrderCanceller()
+}
+
+func (r *Registry) UserDataStream(route Route) (UserDataStream, error) {
+	factory, err := r.factory(route)
+	if err != nil {
+		return nil, err
+	}
+	streamFactory, ok := factory.(UserDataStreamFactory)
+	if !ok {
+		return nil, CapabilityUnsupported("user_data_stream")
+	}
+	return streamFactory.UserDataStream()
 }

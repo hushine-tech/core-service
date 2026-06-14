@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/hushine-tech/core-service/internal/domain"
 	legacyexchange "github.com/hushine-tech/core-service/internal/exchange"
 	"github.com/hushine-tech/core-service/internal/exchange/adapter"
@@ -12,16 +13,28 @@ import (
 )
 
 type Factory struct {
-	route  adapter.Route
-	logger log.Logger
+	route     adapter.Route
+	logger    log.Logger
+	endpoints Endpoints
 }
 
 func NewFactory(route adapter.Route, logger log.Logger) *Factory {
-	return &Factory{route: route, logger: logger}
+	return NewFactoryWithEndpoints(route, logger, EndpointsFromEnv(route))
+}
+
+func NewFactoryWithEndpoints(route adapter.Route, logger log.Logger, endpoints Endpoints) *Factory {
+	defaults := EndpointsFromEnv(route)
+	if endpoints.RESTBaseURL == "" {
+		endpoints.RESTBaseURL = defaults.RESTBaseURL
+	}
+	if endpoints.WSBaseURL == "" {
+		endpoints.WSBaseURL = defaults.WSBaseURL
+	}
+	return &Factory{route: route, logger: logger, endpoints: endpoints}
 }
 
 func NewBacktestFactory(route adapter.Route) *Factory {
-	return &Factory{route: route}
+	return &Factory{route: route, endpoints: EndpointsFromEnv(route)}
 }
 
 func (f *Factory) CredentialValidator() (adapter.CredentialValidator, error) {
@@ -68,9 +81,9 @@ func (f *Factory) OrderExecutor() (adapter.OrderExecutor, error) {
 	case domain.EnvironmentBacktest:
 		return simulatedOrderExecutor{route: f.route}, nil
 	case domain.EnvironmentDemo:
-		return f.remoteOrderExecutor(orderexecutor.NewBinanceTestnetExecutor(f.logger)), nil
+		return f.remoteOrderExecutor(orderexecutor.NewBinanceExecutorWithBaseURL(f.futuresBaseURL(), f.logger, "binance_order_testnet")), nil
 	case domain.EnvironmentLive:
-		return f.remoteOrderExecutor(orderexecutor.NewBinanceLiveExecutor(f.logger)), nil
+		return f.remoteOrderExecutor(orderexecutor.NewBinanceExecutorWithBaseURL(f.futuresBaseURL(), f.logger, "binance_order_live")), nil
 	default:
 		return nil, adapter.CapabilityUnsupported("order_executor")
 	}
@@ -104,9 +117,9 @@ func (f *Factory) OrderStateReader() (adapter.OrderStateReader, error) {
 	case domain.EnvironmentBacktest:
 		return simulatedOrderStateReader{}, nil
 	case domain.EnvironmentDemo:
-		return orderStateReader{exec: orderexecutor.NewBinanceTestnetExecutor(f.logger)}, nil
+		return orderStateReader{exec: orderexecutor.NewBinanceExecutorWithBaseURL(f.futuresBaseURL(), f.logger, "binance_order_testnet")}, nil
 	case domain.EnvironmentLive:
-		return orderStateReader{exec: orderexecutor.NewBinanceLiveExecutor(f.logger)}, nil
+		return orderStateReader{exec: orderexecutor.NewBinanceExecutorWithBaseURL(f.futuresBaseURL(), f.logger, "binance_order_live")}, nil
 	default:
 		return nil, adapter.CapabilityUnsupported("order_state_reader")
 	}
@@ -116,7 +129,26 @@ func (f *Factory) OrderCanceller() (adapter.OrderCanceller, error) {
 	if err := f.requireOrderMarket("order_canceller"); err != nil {
 		return nil, err
 	}
-	return orderCanceller{route: f.route}, nil
+	return orderCanceller{
+		route:      f.route,
+		baseURL:    f.remoteBaseURL(),
+		httpClient: &http.Client{Timeout: 10 * time.Second},
+	}, nil
+}
+
+func (f *Factory) UserDataStream() (adapter.UserDataStream, error) {
+	if err := f.requireOrderMarket("user_data_stream"); err != nil {
+		return nil, err
+	}
+	if f.route.Environment == domain.EnvironmentBacktest {
+		return nil, adapter.CapabilityUnsupported("user_data_stream")
+	}
+	return binanceUserDataStreamClient{
+		route:      f.route,
+		endpoints:  f.endpoints,
+		httpClient: &http.Client{Timeout: 10 * time.Second},
+		dialer:     websocket.DefaultDialer,
+	}, nil
 }
 
 func (f *Factory) requirePerpetualFutures(capability string) error {
@@ -136,17 +168,18 @@ func (f *Factory) requireOrderMarket(capability string) error {
 }
 
 func (f *Factory) futuresBaseURL() string {
-	if f.route.Environment == domain.EnvironmentDemo {
-		return legacyexchange.BinanceTestnetBaseURL
-	}
-	return legacyexchange.BinanceLiveBaseURL
+	return f.endpoints.RESTBaseURL
 }
 
 func (f *Factory) spotBaseURL() string {
-	if f.route.Environment == domain.EnvironmentDemo {
-		return legacyexchange.BinanceSpotTestnetURL
+	return f.endpoints.RESTBaseURL
+}
+
+func (f *Factory) remoteBaseURL() string {
+	if f.route.Market == domain.MarketSpot {
+		return f.spotBaseURL()
 	}
-	return legacyexchange.BinanceSpotBaseURL
+	return f.futuresBaseURL()
 }
 
 func (f *Factory) remoteOrderExecutor(futuresExec *orderexecutor.BinanceExecutor) adapter.OrderExecutor {

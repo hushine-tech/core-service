@@ -39,18 +39,20 @@ type BinanceExecutor struct {
 }
 
 func NewBinanceLiveExecutor(logger elog.Logger) *BinanceExecutor {
-	return &BinanceExecutor{
-		baseURL:             binanceLiveBaseURL,
-		httpClient:          httpclient.New(&http.Client{Timeout: 10 * time.Second}, logger, "binance_order_live"),
-		tradeLookupAttempts: defaultTradeLookupAttempts,
-		tradeLookupDelay:    defaultTradeLookupDelay,
-	}
+	return NewBinanceExecutorWithBaseURL(binanceLiveBaseURL, logger, "binance_order_live")
 }
 
 func NewBinanceTestnetExecutor(logger elog.Logger) *BinanceExecutor {
+	return NewBinanceExecutorWithBaseURL(binanceTestnetBaseURL, logger, "binance_order_testnet")
+}
+
+func NewBinanceExecutorWithBaseURL(baseURL string, logger elog.Logger, clientName string) *BinanceExecutor {
+	if strings.TrimSpace(clientName) == "" {
+		clientName = "binance_order_custom"
+	}
 	return &BinanceExecutor{
-		baseURL:             binanceTestnetBaseURL,
-		httpClient:          httpclient.New(&http.Client{Timeout: 10 * time.Second}, logger, "binance_order_testnet"),
+		baseURL:             strings.TrimRight(strings.TrimSpace(baseURL), "/"),
+		httpClient:          httpclient.New(&http.Client{Timeout: 10 * time.Second}, logger, clientName),
 		tradeLookupAttempts: defaultTradeLookupAttempts,
 		tradeLookupDelay:    defaultTradeLookupDelay,
 	}

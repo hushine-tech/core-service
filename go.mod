@@ -5,6 +5,7 @@ go 1.26
 require (
 	github.com/IBM/sarama v1.43.0
 	github.com/google/uuid v1.6.0
+	github.com/gorilla/websocket v1.5.3
 	github.com/hushine-tech/golang-lib v0.0.0-00010101000000-000000000000
 	github.com/lib/pq v1.12.3
 	golang.org/x/crypto v0.49.0

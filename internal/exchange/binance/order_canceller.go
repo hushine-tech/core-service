@@ -14,12 +14,13 @@ import (
 	"time"
 
 	"github.com/hushine-tech/core-service/internal/domain"
-	legacyexchange "github.com/hushine-tech/core-service/internal/exchange"
 	"github.com/hushine-tech/core-service/internal/exchange/adapter"
 )
 
 type orderCanceller struct {
-	route adapter.Route
+	route      adapter.Route
+	baseURL    string
+	httpClient *http.Client
 }
 
 func (c orderCanceller) CancelOrder(ctx context.Context, req adapter.CancelOrderRequest) (adapter.CancelOrderResult, error) {
@@ -68,13 +69,16 @@ func (c orderCanceller) cancelRemote(ctx context.Context, req adapter.CancelOrde
 	query := params.Encode()
 	params.Set("signature", signQuery(query, apiSecret))
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.baseURL()+c.orderPath()+"?"+params.Encode(), nil)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodDelete, strings.TrimRight(c.baseURL, "/")+c.orderPath()+"?"+params.Encode(), nil)
 	if err != nil {
 		return adapter.CancelOrderResult{}, err
 	}
 	httpReq.Header.Set("X-MBX-APIKEY", apiKey)
 
-	httpClient := &http.Client{Timeout: 10 * time.Second}
+	httpClient := c.httpClient
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: 10 * time.Second}
+	}
 	resp, err := httpClient.Do(httpReq)
 	if err != nil {
 		return adapter.CancelOrderResult{}, err
@@ -103,19 +107,6 @@ func (c orderCanceller) cancelRemote(ctx context.Context, req adapter.CancelOrde
 		Status:          raw.Status,
 		CancelledAt:     time.Now().UTC(),
 	}, nil
-}
-
-func (c orderCanceller) baseURL() string {
-	if c.route.Market == domain.MarketSpot {
-		if c.route.Environment == domain.EnvironmentDemo {
-			return legacyexchange.BinanceSpotTestnetURL
-		}
-		return legacyexchange.BinanceSpotBaseURL
-	}
-	if c.route.Environment == domain.EnvironmentLive {
-		return legacyexchange.BinanceLiveBaseURL
-	}
-	return legacyexchange.BinanceTestnetBaseURL
 }
 
 func (c orderCanceller) orderPath() string {

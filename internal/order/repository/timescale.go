@@ -825,6 +825,52 @@ func (r *TimescaleRepository) ListDueOpenOrders(ctx context.Context, limit int) 
 	return r.listOpenOrders(ctx, limit, true)
 }
 
+func (r *TimescaleRepository) ResolveOpenOrderByExchangeRef(ctx context.Context, venueID int64, exchangeOrderID, clientOrderID string) (lifecycle.OpenOrder, error) {
+	exchangeOrderID = strings.TrimSpace(exchangeOrderID)
+	clientOrderID = strings.TrimSpace(clientOrderID)
+	if venueID <= 0 || (exchangeOrderID == "" && clientOrderID == "") {
+		return lifecycle.OpenOrder{}, lifecycle.ErrOpenOrderNotFound
+	}
+	row := r.db.QueryRowContext(ctx, `
+		SELECT COALESCE(i.session_id, ''), i.account_id, i.venue_id, i.intent_id,
+		       i.environment, i.exchange, i.market, i.position_side,
+		       o.attempt_id, o.order_id, COALESCE(o.exchange_order_id, ''),
+		       COALESCE(NULLIF(o.client_order_id, ''), NULLIF(a.client_order_id, ''), ''),
+		       i.symbol, i.side,
+		       COALESCE(NULLIF(o.recovery_status, ''), CASE
+		           WHEN o.status = $1 THEN 'OPEN'
+		           WHEN o.status = $2 THEN 'PARTIALLY_FILLED'
+		           ELSE ''
+		       END) AS recovery_status,
+		       o.recovery_started_at, o.next_check_at, o.recovery_deadline_at,
+		       COALESCE(o.last_recovery_error, '')
+		FROM orders o
+		JOIN order_intents i ON i.intent_id = o.intent_id
+		JOIN order_attempts a ON a.attempt_id = o.attempt_id
+		WHERE COALESCE(NULLIF(o.recovery_status, ''), CASE
+		           WHEN o.status = $1 THEN 'OPEN'
+		           WHEN o.status = $2 THEN 'PARTIALLY_FILLED'
+		           ELSE ''
+		       END) IN ('OPEN', 'PARTIALLY_FILLED', 'FILL_PENDING', 'FEE_MISSING', 'RECOVERING')
+		  AND i.venue_id = $3
+		  AND (
+		      ($4 <> '' AND COALESCE(o.exchange_order_id, '') = $4)
+		      OR ($5 <> '' AND COALESCE(NULLIF(o.client_order_id, ''), NULLIF(a.client_order_id, ''), '') = $5)
+		  )
+		ORDER BY o.updated_at ASC, o.time ASC, o.order_id ASC
+		LIMIT 1`,
+		orderStatusNew, orderStatusPartiallyFilled, venueID, exchangeOrderID, clientOrderID,
+	)
+	item, err := scanOpenOrder(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return lifecycle.OpenOrder{}, lifecycle.ErrOpenOrderNotFound
+	}
+	if err != nil {
+		return lifecycle.OpenOrder{}, fmt.Errorf("resolve open order by exchange ref: %w", err)
+	}
+	return item, nil
+}
+
 func (r *TimescaleRepository) listOpenOrders(ctx context.Context, limit int, dueOnly bool) ([]lifecycle.OpenOrder, error) {
 	if limit <= 0 {
 		limit = 50
@@ -875,45 +921,57 @@ func (r *TimescaleRepository) listOpenOrders(ctx context.Context, limit int, due
 
 	out := make([]lifecycle.OpenOrder, 0)
 	for rows.Next() {
-		var item lifecycle.OpenOrder
-		var sideCode int16
-		var recoveryStartedAt, nextCheckAt, recoveryDeadlineAt sql.NullTime
-		if err := rows.Scan(
-			&item.SessionID,
-			&item.AccountID,
-			&item.VenueID,
-			&item.IntentID,
-			&item.Environment,
-			&item.Exchange,
-			&item.Market,
-			&item.PositionSide,
-			&item.AttemptID,
-			&item.OrderID,
-			&item.ExchangeOrderID,
-			&item.ClientOrderID,
-			&item.Symbol,
-			&sideCode,
-			&item.RecoveryStatus,
-			&recoveryStartedAt,
-			&nextCheckAt,
-			&recoveryDeadlineAt,
-			&item.LastRecoveryError,
-		); err != nil {
+		item, err := scanOpenOrder(rows)
+		if err != nil {
 			return nil, err
-		}
-		item.Side = orderSideText(sideCode)
-		if recoveryStartedAt.Valid {
-			item.RecoveryStartedAt = recoveryStartedAt.Time
-		}
-		if nextCheckAt.Valid {
-			item.NextCheckAt = nextCheckAt.Time
-		}
-		if recoveryDeadlineAt.Valid {
-			item.RecoveryDeadlineAt = recoveryDeadlineAt.Time
 		}
 		out = append(out, item)
 	}
 	return out, rows.Err()
+}
+
+type openOrderScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanOpenOrder(scanner openOrderScanner) (lifecycle.OpenOrder, error) {
+	var item lifecycle.OpenOrder
+	var sideCode int16
+	var recoveryStartedAt, nextCheckAt, recoveryDeadlineAt sql.NullTime
+	if err := scanner.Scan(
+		&item.SessionID,
+		&item.AccountID,
+		&item.VenueID,
+		&item.IntentID,
+		&item.Environment,
+		&item.Exchange,
+		&item.Market,
+		&item.PositionSide,
+		&item.AttemptID,
+		&item.OrderID,
+		&item.ExchangeOrderID,
+		&item.ClientOrderID,
+		&item.Symbol,
+		&sideCode,
+		&item.RecoveryStatus,
+		&recoveryStartedAt,
+		&nextCheckAt,
+		&recoveryDeadlineAt,
+		&item.LastRecoveryError,
+	); err != nil {
+		return lifecycle.OpenOrder{}, err
+	}
+	item.Side = orderSideText(sideCode)
+	if recoveryStartedAt.Valid {
+		item.RecoveryStartedAt = recoveryStartedAt.Time
+	}
+	if nextCheckAt.Valid {
+		item.NextCheckAt = nextCheckAt.Time
+	}
+	if recoveryDeadlineAt.Valid {
+		item.RecoveryDeadlineAt = recoveryDeadlineAt.Time
+	}
+	return item, nil
 }
 
 func (r *TimescaleRepository) MarkRecoveryExpired(ctx context.Context, orderID string, forceClosedAt time.Time, lastError string) error {
@@ -1097,7 +1155,100 @@ func (r *TimescaleRepository) SaveLifecycleEvent(ctx context.Context, event life
 	if err != nil {
 		return lifecycle.Event{}, fmt.Errorf("save lifecycle event: %w", err)
 	}
+	if err := r.backfillOrderFillFromLifecycleEvent(ctx, event); err != nil {
+		return lifecycle.Event{}, err
+	}
 	return event, nil
+}
+
+func (r *TimescaleRepository) backfillOrderFillFromLifecycleEvent(ctx context.Context, event lifecycle.Event) error {
+	if !shouldBackfillOrderFill(event) {
+		return nil
+	}
+	orderID := strings.TrimSpace(event.OrderID)
+	tradeID := strings.TrimSpace(firstNonEmptyString(event.ExchangeTradeID, event.FillDelta.ExchangeTradeID))
+	exchangeOrderID := strings.TrimSpace(firstNonEmptyString(event.ExchangeOrderID, event.FillDelta.ExchangeOrderID, event.OrderState.ExchangeOrderID))
+	fillTime := event.FillDelta.TradeTime
+	if fillTime.IsZero() {
+		fillTime = event.OccurredAt
+	}
+	if fillTime.IsZero() {
+		fillTime = time.Now().UTC()
+	}
+	status := "FILLED"
+	if event.FillDelta.FeeMissing {
+		status = "FEE_MISSING"
+	}
+
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE order_fills
+		SET exchange_order_id = COALESCE(NULLIF($3, ''), exchange_order_id),
+		    qty = $4,
+		    fill_price = $5,
+		    fee = $6,
+		    fee_asset = $7,
+		    status = $8
+		WHERE order_id = $1 AND exchange_trade_id = $2`,
+		orderID,
+		tradeID,
+		exchangeOrderID,
+		event.FillDelta.Qty,
+		event.FillDelta.FillPrice,
+		event.FillDelta.Fee,
+		event.FillDelta.FeeAsset,
+		fillStatusCode(status),
+	)
+	if err != nil {
+		return fmt.Errorf("update lifecycle order fill: %w", err)
+	}
+	if rows, err := res.RowsAffected(); err == nil && rows > 0 {
+		return nil
+	}
+
+	fillID := fmt.Sprintf("lifecycle-%s-%s", orderID, tradeID)
+	if _, err := r.db.ExecContext(ctx, `
+		INSERT INTO order_fills (
+			time, fill_id, exchange_trade_id, order_id, exchange_order_id, attempt_id, intent_id,
+			qty, fill_price, fee, fee_asset, status
+		)
+		SELECT $1, $2, $3, o.order_id, COALESCE(NULLIF($4, ''), o.exchange_order_id), o.attempt_id, o.intent_id,
+		       $5, $6, $7, $8, $9
+		FROM orders o
+		WHERE o.order_id = $10
+		  AND NOT EXISTS (
+		      SELECT 1 FROM order_fills f
+		      WHERE f.order_id = o.order_id AND f.exchange_trade_id = $3
+		  )`,
+		fillTime.UTC(),
+		fillID,
+		tradeID,
+		exchangeOrderID,
+		event.FillDelta.Qty,
+		event.FillDelta.FillPrice,
+		event.FillDelta.Fee,
+		event.FillDelta.FeeAsset,
+		fillStatusCode(status),
+		orderID,
+	); err != nil {
+		return fmt.Errorf("insert lifecycle order fill: %w", err)
+	}
+	return nil
+}
+
+func shouldBackfillOrderFill(event lifecycle.Event) bool {
+	if !strings.EqualFold(strings.TrimSpace(event.EventType), "fill") {
+		return false
+	}
+	if strings.EqualFold(strings.TrimSpace(event.EventSource), lifecycle.EventSourcePlaceOrder) {
+		return false
+	}
+	if strings.TrimSpace(event.OrderID) == "" {
+		return false
+	}
+	if strings.TrimSpace(firstNonEmptyString(event.ExchangeTradeID, event.FillDelta.ExchangeTradeID)) == "" {
+		return false
+	}
+	return event.FillDelta.Qty > 0
 }
 
 func (r *TimescaleRepository) ListLifecycleEvents(ctx context.Context, sessionID string, afterEventID int64, limit int) ([]lifecycle.Event, error) {

@@ -1444,6 +1444,14 @@ func (s *AccountGRPCService) UpdateAccountWalletState(ctx context.Context, req *
 	if err != nil {
 		return nil, err
 	}
+	var exchangeCompareVenues []domain.VenueWalletSnapshot
+	if accountEnv != domain.EnvironmentBacktest {
+		exchangeVenues := venueWalletSnapshotsFromPortfolioSnapshot(snapshot, account)
+		exchangeCompareVenues = matchVenueWalletSnapshots(exchangeVenues, localVenues)
+		if err := s.updateVenueWalletStatesFromSnapshots(ctx, account, exchangeCompareVenues); err != nil {
+			return nil, err
+		}
+	}
 	accountInfo := onlineInfoFromPortfolioSnapshot(snapshot, account)
 	if err := s.repo.UpdateAccountState(ctx, accountInfo); err != nil {
 		return nil, status.Errorf(codes.Unavailable, "update account state: %v", err)
@@ -1453,8 +1461,6 @@ func (s *AccountGRPCService) UpdateAccountWalletState(ctx context.Context, req *
 			return nil, status.Errorf(codes.Unavailable, "save snapshot: %v", err)
 		}
 		if accountEnv != domain.EnvironmentBacktest {
-			exchangeVenues := venueWalletSnapshotsFromPortfolioSnapshot(snapshot, account)
-			exchangeCompareVenues := matchVenueWalletSnapshots(exchangeVenues, localVenues)
 			s.reconciler.LaunchAsync(reconciliation.Task{
 				Account:        account,
 				Local:          localInfo,
@@ -1827,6 +1833,31 @@ func (s *AccountGRPCService) updateBacktestVenueWalletStates(ctx context.Context
 	}
 	if !wrote {
 		return status.Error(codes.FailedPrecondition, "account has no active venue for wallet payload")
+	}
+	return nil
+}
+
+func (s *AccountGRPCService) updateVenueWalletStatesFromSnapshots(ctx context.Context, account domain.Account, snapshots []domain.VenueWalletSnapshot) error {
+	if len(snapshots) == 0 {
+		return nil
+	}
+	venues, err := s.repo.ListActiveAccountVenues(ctx, account.UserID, account.AccountID)
+	if err != nil {
+		return mapRepoErr(err)
+	}
+	byID := make(map[int64]domain.Venue, len(venues))
+	for _, venue := range venues {
+		byID[venue.VenueID] = venue
+	}
+	for _, snapshot := range snapshots {
+		venue, ok := byID[snapshot.VenueID]
+		if !ok {
+			continue
+		}
+		info := ensureBacktestVenueOnlineInfoDefaults(snapshot.Snapshot, account, venue)
+		if err := s.repo.UpsertVenueWalletState(ctx, venue, info); err != nil {
+			return status.Errorf(codes.Unavailable, "update venue wallet state: %v", err)
+		}
 	}
 	return nil
 }

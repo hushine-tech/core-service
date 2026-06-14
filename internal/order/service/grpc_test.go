@@ -232,6 +232,31 @@ func (s *stubRepo) ListDueOpenOrders(_ context.Context, _ int) ([]lifecycle.Open
 	return nil, nil
 }
 
+func (s *stubRepo) ResolveOpenOrderByExchangeRef(_ context.Context, _ int64, exchangeOrderID, clientOrderID string) (lifecycle.OpenOrder, error) {
+	for _, order := range s.orders {
+		if (exchangeOrderID != "" && order.ExchangeOrderID == exchangeOrderID) || (clientOrderID != "" && order.ClientOrderID == clientOrderID) {
+			return lifecycle.OpenOrder{
+				SessionID:       order.SessionID,
+				AccountID:       order.AccountID,
+				VenueID:         order.VenueID,
+				Environment:     order.Environment,
+				Exchange:        order.Exchange,
+				Market:          order.Market,
+				PositionSide:    order.PositionSide,
+				Side:            order.Side,
+				IntentID:        order.IntentID,
+				AttemptID:       order.AttemptID,
+				OrderID:         order.OrderID,
+				ExchangeOrderID: order.ExchangeOrderID,
+				ClientOrderID:   order.ClientOrderID,
+				Symbol:          order.Symbol,
+				RecoveryStatus:  order.RecoveryStatus,
+			}, nil
+		}
+	}
+	return lifecycle.OpenOrder{}, lifecycle.ErrOpenOrderNotFound
+}
+
 func (s *stubRepo) MarkRecoveryExpired(_ context.Context, _ string, _ time.Time, _ string) error {
 	return nil
 }
@@ -372,6 +397,56 @@ func TestLimitOrderDefaultsGTC(t *testing.T) {
 	}
 	if len(repo.intents) != 1 || repo.intents[0].OrderType != orderTypeLimit {
 		t.Fatalf("persisted intent order_type = %+v, want LIMIT", repo.intents)
+	}
+}
+
+func TestPlaceOrderUnsupportedTimeInForcePersistsFailedAttempt(t *testing.T) {
+	meta := testOrderMeta(environmentDemo)
+	router := &stubRouterExec{result: executor.OrderResult{
+		ExchangeOrderID: "should-not-execute",
+		Status:          "FILLED",
+	}}
+	repo := &stubRepo{}
+	svc := NewOrderGRPCService(&stubMetaGetter{meta: meta}, router, repo)
+
+	req := testPlaceOrderRequest()
+	req.StrategyId = 179
+	req.SessionId = "sess-unsupported-tif"
+	req.OrderType = "LIMIT"
+	req.TimeInForce = "GTX"
+	price := 2501.0
+	req.Price = &price
+
+	resp, err := svc.PlaceOrder(context.Background(), req)
+	if err != nil {
+		t.Fatalf("PlaceOrder: %v", err)
+	}
+	if resp.GetAttemptStatus() != attemptStatusFailed {
+		t.Fatalf("attempt status = %q, want %q", resp.GetAttemptStatus(), attemptStatusFailed)
+	}
+	if !strings.Contains(resp.GetErrorMessage(), "unsupported time_in_force: GTX") {
+		t.Fatalf("error = %q, want unsupported time_in_force", resp.GetErrorMessage())
+	}
+	if router.executeCalls != 0 {
+		t.Fatalf("execute calls = %d, want 0", router.executeCalls)
+	}
+	if len(repo.intents) != 1 {
+		t.Fatalf("intents = %d, want 1", len(repo.intents))
+	}
+	if repo.intents[0].Status != "REJECTED" || repo.intents[0].RejectCode != "ORDER_CONTRACT_INVALID" {
+		t.Fatalf("intent = %+v, want rejected contract failure", repo.intents[0])
+	}
+	if repo.intents[0].SessionID != req.GetSessionId() || repo.intents[0].StrategyID != req.GetStrategyId() {
+		t.Fatalf("intent attribution = %+v", repo.intents[0])
+	}
+	if len(repo.attempts) != 1 {
+		t.Fatalf("attempts = %d, want 1", len(repo.attempts))
+	}
+	if repo.attempts[0].Status != attemptStatusFailed {
+		t.Fatalf("attempt = %+v, want FAILED", repo.attempts[0])
+	}
+	if repo.attempts[0].AttemptID == "" || resp.GetAttemptId() != repo.attempts[0].AttemptID {
+		t.Fatalf("attempt id response=%q repo=%q", resp.GetAttemptId(), repo.attempts[0].AttemptID)
 	}
 }
 
@@ -524,17 +599,31 @@ func TestPlaceOrderBacktestLimitRemainsOpenWhenAdapterMarkDoesNotTouch(t *testin
 	}
 }
 
-func TestUnsupportedTimeInForceFailsClosed(t *testing.T) {
-	svc, _ := newTestSvc(testOrderMeta(environmentBacktest), nil, executor.OrderResult{}, nil)
+func TestUnsupportedTimeInForceFailsClosedWithoutExecution(t *testing.T) {
+	router := &stubRouterExec{result: executor.OrderResult{
+		ExchangeOrderID: "should-not-execute",
+		Status:          "FILLED",
+	}}
+	repo := &stubRepo{}
+	svc := NewOrderGRPCService(&stubMetaGetter{meta: testOrderMeta(environmentBacktest)}, router, repo)
 	req := testPlaceOrderRequest()
 	price := 2500.0
 	req.Price = &price
 	req.OrderType = "LIMIT"
 	req.TimeInForce = "GTX"
 
-	_, err := svc.PlaceOrder(context.Background(), req)
-	if status.Code(err) != codes.FailedPrecondition {
-		t.Fatalf("code = %v, want FailedPrecondition (err=%v)", status.Code(err), err)
+	resp, err := svc.PlaceOrder(context.Background(), req)
+	if err != nil {
+		t.Fatalf("PlaceOrder: %v", err)
+	}
+	if resp.GetAttemptStatus() != attemptStatusFailed {
+		t.Fatalf("attempt status = %q, want %q", resp.GetAttemptStatus(), attemptStatusFailed)
+	}
+	if router.executeCalls != 0 {
+		t.Fatalf("execute calls = %d, want 0", router.executeCalls)
+	}
+	if len(repo.intents) != 1 || repo.intents[0].Status != "REJECTED" {
+		t.Fatalf("intents = %+v, want rejected intent", repo.intents)
 	}
 }
 

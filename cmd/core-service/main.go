@@ -207,6 +207,15 @@ func main() {
 		SymbolRulesReader: orderrisk.NewAdapterSymbolRulesReader(exchangeRegistry),
 	}))
 	orderRecoveryClient := orderexecutor.NewAdapterRecoveryClient(exchangeRegistry, orderMetaGetter)
+	orderUserDataStreamManager := orderexecutor.NewUserDataStreamManager(exchangeRegistry, orderMetaGetter, orderRepository, orderexecutor.UserDataStreamManagerConfig{
+		BatchSize: 50,
+	})
+	backgroundWG.Add(1)
+	go func() {
+		defer backgroundWG.Done()
+		runOrderUserDataStreamManager(ctx, orderUserDataStreamManager, 15*time.Second)
+	}()
+	logger.Info(ctx, "system", "order user data stream manager enabled: batch=50 interval=15s")
 	orderRecoveryScanner := orderlifecycle.NewScanner(orderRepository, orderRecoveryClient, orderlifecycle.ScannerConfig{
 		BatchSize:        50,
 		InitialBackoff:   5 * time.Second,

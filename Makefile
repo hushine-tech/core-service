@@ -6,7 +6,7 @@ BIN=bin/core-service
 CONFIG?=./config.yaml
 PID_FILE=.run.pid
 
-.PHONY: proto proto-account proto-order test test-integration e2e ensure-db ensure-order-db tidy build run dev start stop clean
+.PHONY: proto proto-account proto-order test test-integration e2e ensure-db ensure-order-db tidy mock-binance build run dev start stop clean
 
 proto: proto-account proto-order
 
@@ -29,6 +29,9 @@ tidy:
 
 test:
 	go test ./...
+
+mock-binance:
+	go run ./cmd/mock-binance -addr :19000
 
 # Requires TimescaleDB (default DSN host 192.168.88.10 dbname account). Skips if DB unreachable.
 test-integration:

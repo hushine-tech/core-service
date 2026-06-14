@@ -160,6 +160,168 @@ func TestSaveLifecycleEventDeduplicatesExchangeTrade(t *testing.T) {
 	}
 }
 
+func TestSaveLifecycleEventBackfillsOrderFillForRecoveryEvent(t *testing.T) {
+	repo, ctx := lifecycleTestRepo(t)
+	seed := time.Now().UnixNano()
+	sessionID := fmt.Sprintf("life-fill-backfill-%d", seed)
+	intentID := fmt.Sprintf("intent-%d", seed)
+	attemptID := fmt.Sprintf("attempt-%d", seed)
+	orderID := fmt.Sprintf("order-%d", seed)
+	exchangeOrderID := fmt.Sprintf("exchange-%d", seed)
+	tradeID := fmt.Sprintf("trade-%d", seed)
+	baseTime := time.Date(2026, 6, 13, 12, 30, 0, 0, time.UTC)
+
+	intent := OrderIntent{
+		IntentID:       intentID,
+		Time:           baseTime,
+		AccountID:      1001,
+		VenueID:        2001,
+		UserID:         3001,
+		StrategyID:     4001,
+		SessionID:      sessionID,
+		Environment:    2,
+		Exchange:       1,
+		Market:         2,
+		PositionSide:   0,
+		OrderType:      2,
+		Symbol:         "ETHUSDT",
+		Side:           "BUY",
+		RequestedQty:   0.5,
+		RequestedPrice: 3000,
+		Status:         "REQUESTED",
+	}
+	if err := repo.UpsertOrderIntent(ctx, intent); err != nil {
+		t.Fatalf("UpsertOrderIntent: %v", err)
+	}
+
+	attempt := OrderAttempt{
+		AttemptID:      attemptID,
+		IntentID:       intentID,
+		Time:           baseTime.Add(time.Second),
+		AccountID:      intent.AccountID,
+		VenueID:        intent.VenueID,
+		UserID:         intent.UserID,
+		StrategyID:     intent.StrategyID,
+		SessionID:      sessionID,
+		Environment:    intent.Environment,
+		Exchange:       intent.Exchange,
+		Market:         intent.Market,
+		PositionSide:   intent.PositionSide,
+		OrderType:      intent.OrderType,
+		Symbol:         intent.Symbol,
+		Side:           intent.Side,
+		RequestedQty:   intent.RequestedQty,
+		RequestedPrice: intent.RequestedPrice,
+		MarkPrice:      3000,
+		Status:         "PENDING",
+		ClientOrderID:  fmt.Sprintf("client-%d", seed),
+	}
+	if err := repo.CreateOrderAttempt(ctx, attempt); err != nil {
+		t.Fatalf("CreateOrderAttempt: %v", err)
+	}
+
+	attempt.Status = "ACCEPTED"
+	attempt.OrderID = orderID
+	attempt.ExchangeOrderID = exchangeOrderID
+	order := &Order{
+		OrderID:         orderID,
+		ExchangeOrderID: exchangeOrderID,
+		ClientOrderID:   attempt.ClientOrderID,
+		AttemptID:       attemptID,
+		IntentID:        intentID,
+		Time:            baseTime.Add(2 * time.Second),
+		AccountID:       intent.AccountID,
+		VenueID:         intent.VenueID,
+		UserID:          intent.UserID,
+		StrategyID:      intent.StrategyID,
+		SessionID:       sessionID,
+		Environment:     intent.Environment,
+		Exchange:        intent.Exchange,
+		Market:          intent.Market,
+		PositionSide:    intent.PositionSide,
+		Symbol:          intent.Symbol,
+		Side:            intent.Side,
+		OrigQty:         0.5,
+		ExecutedQty:     0.2,
+		RemainingQty:    0.3,
+		AvgPrice:        3000,
+		Price:           3000,
+		Status:          "PARTIALLY_FILLED",
+		RecoveryStatus:  "PARTIALLY_FILLED",
+	}
+	if err := repo.FinalizeOrderAttempt(ctx, attempt, order, nil); err != nil {
+		t.Fatalf("FinalizeOrderAttempt: %v", err)
+	}
+
+	event := lifecycle.Event{
+		SessionID:       sessionID,
+		AccountID:       intent.AccountID,
+		VenueID:         intent.VenueID,
+		Environment:     intent.Environment,
+		Exchange:        intent.Exchange,
+		Market:          intent.Market,
+		PositionSide:    intent.PositionSide,
+		Side:            intent.Side,
+		IntentID:        intentID,
+		AttemptID:       attemptID,
+		OrderID:         orderID,
+		ExchangeOrderID: exchangeOrderID,
+		ExchangeTradeID: tradeID,
+		EventType:       "fill",
+		EventSource:     lifecycle.EventSourceRESTRecovery,
+		OrderStatus:     "FILLED",
+		FillDelta: lifecycle.FillDelta{
+			ExchangeTradeID: tradeID,
+			ExchangeOrderID: exchangeOrderID,
+			Symbol:          intent.Symbol,
+			Qty:             0.3,
+			FillPrice:       3010,
+			Fee:             0.3612,
+			FeeAsset:        "USDT",
+			TradeTime:       baseTime.Add(3 * time.Second),
+		},
+		OrderState: lifecycle.OrderState{
+			ExchangeOrderID: exchangeOrderID,
+			ClientOrderID:   attempt.ClientOrderID,
+			Symbol:          intent.Symbol,
+			Status:          "FILLED",
+			OrigQty:         0.5,
+			ExecutedQty:     0.5,
+			RemainingQty:    0,
+			AvgPrice:        3006,
+			UpdatedAt:       baseTime.Add(3 * time.Second),
+		},
+		OccurredAt: baseTime.Add(3 * time.Second),
+	}
+	if _, err := repo.SaveLifecycleEvent(ctx, event); err != nil {
+		t.Fatalf("SaveLifecycleEvent: %v", err)
+	}
+
+	fills, total, err := repo.QueryOrderFillsPaginated(ctx, intent.UserID, intent.AccountID, intent.StrategyID, sessionID, intentID, attemptID, orderID, 10, 0)
+	if err != nil {
+		t.Fatalf("QueryOrderFillsPaginated: %v", err)
+	}
+	if total != 1 || len(fills) != 1 {
+		t.Fatalf("fills total=%d len=%d, want 1/1", total, len(fills))
+	}
+	if fills[0].AttemptID != attemptID || fills[0].OrderID != orderID || fills[0].ExchangeTradeID != tradeID || fills[0].Qty != 0.3 {
+		t.Fatalf("backfilled fill = %+v, want recovered trade on original attempt/order", fills[0])
+	}
+
+	event.FillDelta.Fee = 0.42
+	event.OrderStatus = "FILLED"
+	if _, err := repo.SaveLifecycleEvent(ctx, event); err != nil {
+		t.Fatalf("second SaveLifecycleEvent: %v", err)
+	}
+	fills, total, err = repo.QueryOrderFillsPaginated(ctx, intent.UserID, intent.AccountID, intent.StrategyID, sessionID, intentID, attemptID, orderID, 10, 0)
+	if err != nil {
+		t.Fatalf("QueryOrderFillsPaginated after duplicate: %v", err)
+	}
+	if total != 1 || len(fills) != 1 || fills[0].Fee != 0.42 {
+		t.Fatalf("duplicate lifecycle fill should update one order_fill, total=%d fills=%+v", total, fills)
+	}
+}
+
 func TestSaveLifecycleEventDeduplicatesOrderStateWithoutTradeID(t *testing.T) {
 	repo, ctx := lifecycleTestRepo(t)
 	sessionID := fmt.Sprintf("life-state-dedupe-%d", time.Now().UnixNano())

@@ -83,3 +83,15 @@ func (r *Registry) OrderCanceller(route Route) (OrderCanceller, error) {
 	}
 	return factory.OrderCanceller()
 }
+
+func (r *Registry) UserDataStream(route Route) (UserDataStream, error) {
+	factory, err := r.factory(route)
+	if err != nil {
+		return nil, err
+	}
+	streamFactory, ok := factory.(UserDataStreamFactory)
+	if !ok {
+		return nil, CapabilityUnsupported("user_data_stream")
+	}
+	return streamFactory.UserDataStream()
+}

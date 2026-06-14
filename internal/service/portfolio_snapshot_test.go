@@ -663,8 +663,12 @@ func TestUpdateAccountWalletStateDemoLaunchesReconciliation(t *testing.T) {
 	if resp.GetWallet().GetTotalValue() != 1300 || repo.state.TotalValue != 1300 {
 		t.Fatalf("wallet/state = %+v/%+v, want exchange-authoritative total 1300", resp.GetWallet(), repo.state)
 	}
-	if len(repo.venueStates) != 0 {
-		t.Fatalf("demo wallet sync must not persist local venue state: %+v", repo.venueStates)
+	if len(repo.venueStates) != 1 {
+		t.Fatalf("venue wallet states len = %d, want 1", len(repo.venueStates))
+	}
+	venueState := repo.venueStates[venueID]
+	if venueState.WalletBalance != 1200 || venueState.AvailableBalance != 1100 {
+		t.Fatalf("venue wallet state = %+v, want exchange-authoritative wallet 1200/1100", venueState)
 	}
 	if len(repo.snapshotTimes) != 1 {
 		t.Fatalf("snapshots written = %d, want 1", len(repo.snapshotTimes))

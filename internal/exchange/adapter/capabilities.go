@@ -201,6 +201,33 @@ type CancelOrderResult struct {
 	CancelledAt     time.Time
 }
 
+type UserDataStreamRequest struct {
+	AccountID  int64
+	VenueID    int64
+	Credential ParsedCredential
+}
+
+type UserDataOrderEvent struct {
+	EventSource          string
+	EventTime            time.Time
+	Symbol               string
+	ClientOrderID        string
+	ExchangeOrderID      string
+	ExchangeTradeID      string
+	Side                 string
+	PositionSide         string
+	OrderType            string
+	TimeInForce          string
+	OrderStatus          string
+	ExecutionType        string
+	LastFilledQty        float64
+	LastFilledPrice      float64
+	AccumulatedFilledQty float64
+	Fee                  float64
+	FeeAsset             string
+	ReduceOnly           bool
+}
+
 type CredentialValidator interface {
 	ValidateCredential(ctx context.Context, raw json.RawMessage) (ParsedCredential, error)
 }
@@ -228,4 +255,12 @@ type OrderStateReader interface {
 
 type OrderCanceller interface {
 	CancelOrder(ctx context.Context, req CancelOrderRequest) (CancelOrderResult, error)
+}
+
+type UserDataStream interface {
+	Listen(ctx context.Context, req UserDataStreamRequest, handle func(context.Context, UserDataOrderEvent) error) error
+}
+
+type UserDataStreamFactory interface {
+	UserDataStream() (UserDataStream, error)
 }

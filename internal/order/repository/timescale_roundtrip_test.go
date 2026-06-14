@@ -2,6 +2,7 @@ package repository
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -397,6 +398,121 @@ func TestListOpenOrdersReturnsDueRecoveryFields(t *testing.T) {
 		if got.OrderID == orderID {
 			t.Fatalf("expired recovery order should not remain due: %+v", got)
 		}
+	}
+}
+
+func TestResolveOpenOrderByExchangeRef(t *testing.T) {
+	repo, ctx := lifecycleTestRepo(t)
+
+	seed := time.Now().UnixNano()
+	accountID := int64(952000000000 + seed%100000000)
+	userID := int64(962000000000 + seed%100000000)
+	venueID := int64(972000000000 + seed%100000000)
+	strategyID := int64(982000000000 + seed%100000000)
+	sessionID := fmt.Sprintf("resolve-open-%d", seed)
+	intentID := fmt.Sprintf("intent-resolve-%d", seed)
+	attemptID := fmt.Sprintf("attempt-resolve-%d", seed)
+	orderID := fmt.Sprintf("order-resolve-%d", seed)
+	exchangeOrderID := fmt.Sprintf("exchange-resolve-%d", seed)
+	clientOrderID := fmt.Sprintf("client-resolve-%d", seed)
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	recoveryStartedAt := now.Add(-time.Hour)
+	nextCheckAt := now.Add(time.Minute)
+	recoveryDeadlineAt := now.Add(14 * 24 * time.Hour)
+
+	if err := repo.UpsertOrderIntent(ctx, OrderIntent{
+		IntentID:     intentID,
+		Time:         now.Add(-2 * time.Hour),
+		AccountID:    accountID,
+		VenueID:      venueID,
+		UserID:       userID,
+		StrategyID:   strategyID,
+		SessionID:    sessionID,
+		Environment:  2,
+		Exchange:     1,
+		Market:       2,
+		PositionSide: 1,
+		OrderType:    2,
+		Symbol:       "ETHUSDT",
+		Side:         "BUY",
+		RequestedQty: 0.5,
+		Status:       "REQUESTED",
+	}); err != nil {
+		t.Fatalf("UpsertOrderIntent: %v", err)
+	}
+	attempt := OrderAttempt{
+		AttemptID:       attemptID,
+		IntentID:        intentID,
+		Time:            now.Add(-90 * time.Minute),
+		AccountID:       accountID,
+		VenueID:         venueID,
+		UserID:          userID,
+		StrategyID:      strategyID,
+		SessionID:       sessionID,
+		Environment:     2,
+		Exchange:        1,
+		Market:          2,
+		PositionSide:    1,
+		OrderType:       2,
+		Symbol:          "ETHUSDT",
+		Side:            "BUY",
+		RequestedQty:    0.5,
+		Status:          "PENDING",
+		ClientOrderID:   clientOrderID,
+		OrderID:         orderID,
+		ExchangeOrderID: exchangeOrderID,
+	}
+	if err := repo.CreateOrderAttempt(ctx, attempt); err != nil {
+		t.Fatalf("CreateOrderAttempt: %v", err)
+	}
+	attempt.Status = "ACCEPTED"
+	if err := repo.FinalizeOrderAttempt(ctx, attempt, &Order{
+		OrderID:            orderID,
+		ExchangeOrderID:    exchangeOrderID,
+		ClientOrderID:      clientOrderID,
+		AttemptID:          attemptID,
+		IntentID:           intentID,
+		Time:               now.Add(-time.Hour),
+		AccountID:          accountID,
+		VenueID:            venueID,
+		UserID:             userID,
+		StrategyID:         strategyID,
+		SessionID:          sessionID,
+		Environment:        2,
+		Exchange:           1,
+		Market:             2,
+		PositionSide:       1,
+		Symbol:             "ETHUSDT",
+		Side:               "BUY",
+		OrigQty:            0.5,
+		ExecutedQty:        0.2,
+		RemainingQty:       0.3,
+		Status:             "PARTIALLY_FILLED",
+		RecoveryStatus:     "PARTIALLY_FILLED",
+		RecoveryStartedAt:  &recoveryStartedAt,
+		NextCheckAt:        &nextCheckAt,
+		RecoveryDeadlineAt: &recoveryDeadlineAt,
+	}, nil); err != nil {
+		t.Fatalf("FinalizeOrderAttempt: %v", err)
+	}
+
+	byExchange, err := repo.ResolveOpenOrderByExchangeRef(ctx, venueID, exchangeOrderID, "")
+	if err != nil {
+		t.Fatalf("ResolveOpenOrderByExchangeRef by exchange id: %v", err)
+	}
+	if byExchange.OrderID != orderID || byExchange.ClientOrderID != clientOrderID || byExchange.PositionSide != 1 {
+		t.Fatalf("unexpected exchange lookup result: %+v", byExchange)
+	}
+	byClient, err := repo.ResolveOpenOrderByExchangeRef(ctx, venueID, "", clientOrderID)
+	if err != nil {
+		t.Fatalf("ResolveOpenOrderByExchangeRef by client id: %v", err)
+	}
+	if byClient.OrderID != orderID || byClient.ExchangeOrderID != exchangeOrderID {
+		t.Fatalf("unexpected client lookup result: %+v", byClient)
+	}
+	_, err = repo.ResolveOpenOrderByExchangeRef(ctx, venueID, "missing", "")
+	if !errors.Is(err, lifecycle.ErrOpenOrderNotFound) {
+		t.Fatalf("missing lookup err = %v, want ErrOpenOrderNotFound", err)
 	}
 }
 
